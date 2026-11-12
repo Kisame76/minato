@@ -1783,15 +1783,20 @@ growth, rest = float(sys.argv[1]), sys.argv[2:]
 lines, rest = rest[:rest.index("--")], rest[rest.index("--") + 1:]
 mtls, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
 # ANGLE's texture sets (the gl line, where there is one): no depth or multisample texture more after a return than
-# after the start's surface, as a window surface that went takes its depth and stencil textures with it.
+# after the start's surface, as a window surface that went takes its depth and stencil textures with it; and no EGL
+# context more (ctx=, patch 0031: a context made at a return and never destroyed keeps all its GL objects).
 def counts(text):
     pairs = dict(re.findall(r"(\w+)=([0-9]+)/", text or ""))
-    return {name: int(pairs[name]) for name in ("depth", "msaa") if name in pairs}
+    held = {name: int(pairs[name]) for name in ("depth", "msaa") if name in pairs}
+    contexts = re.search(r" ctx=([0-9]+)", text or "")
+    if contexts:
+        held["ctx"] = int(contexts.group(1))
+    return held
 sets = [counts(text) for text in gls]
 grown = [f"after surface {n}: {name}= {count}, the start's {sets[0][name]}" for n, held in enumerate(sets[1:], 2)
          for name, count in held.items() if name in sets[0] and count > sets[0][name]]
 if grown:
-    print("FAIL    a return left ANGLE more depth or multisample textures: " + "; ".join(grown))
+    print("FAIL    a return left ANGLE more depth or multisample textures or EGL contexts: " + "; ".join(grown))
     sys.exit(1)
 pattern = re.compile(r"live windows (\d+) surfaces (\d+) layers (\d+) of (\d+) gpu ([-0-9.]+) foot ([-0-9.]+)$")
 read = [pattern.match(line) for line in lines]
@@ -1839,6 +1844,7 @@ PY
 # ones, each as count/MiB, mtl= the Metal device's MiB) are read. Each return's texture sets must be the first
 # return's: the windows, surfaces and layers alive the same, depth= and msaa= no more textures, and color=, mtl= and
 # the footprint at most RETURNS_GROWTH MiB (32) above it, less than one full-screen set; so a return's growth is red.
+# And the EGL contexts alive (ctx=, patch 0031) after every return no more than after the start.
 # The start's values are shown beside them: Ren'Py's first display has its own textures. RETURNS_SHOTS (a folder) keeps
 # a screenshot after the start and after each return, in the Simulator.
 run_sdl_returns() {
@@ -1893,9 +1899,9 @@ def gl_fields(text):
     def split(name):
         count, _, mib = pairs.get(name, "").partition("/")
         return (int(count), int(mib)) if count and mib else (None, None)
-    mtl = pairs.get("mtl")
+    mtl, ctx = pairs.get("mtl"), pairs.get("ctx")
     return {"color": split("color"), "depth": split("depth"), "msaa": split("msaa"),
-            "mtl": int(mtl) if mtl else None}
+            "mtl": int(mtl) if mtl else None, "ctx": int(ctx) if ctx else None}
 read, held = [live.match(line) for line in lines], [gl_fields(text) for text in gls]
 missing = [("the start" if n == 0 else f"return {n}") for n, (m, g) in enumerate(zip(read, held))
            if not m or g["depth"][0] is None or g["mtl"] is None]
@@ -1903,6 +1909,14 @@ if missing:
     print("FAIL    no live line or no gl line after " + ", ".join(missing))
     sys.exit(1)
 first, first_gl, bad = read[1], held[1], []
+# EGL contexts (ctx=, patch 0031): after a return no more than after the start; a gl line without ctx= (an ANGLE
+# without the patch) leaves them n/a.
+if held[0]["ctx"] is not None:
+    for n in range(1, trips + 1):
+        if held[n]["ctx"] is not None and held[n]["ctx"] > held[0]["ctx"]:
+            bad.append(f"return {n}: {held[n]['ctx']} EGL contexts alive, the start's {held[0]['ctx']}")
+else:
+    print("note    no ctx= in the gl line (an ANGLE without patch 0031): the EGL contexts are n/a")
 for n in range(2, trips + 1):
     m, g = read[n], held[n]
     if (m[1], m[2], m[3]) != (first[1], first[2], first[3]):
@@ -1915,16 +1929,19 @@ for n in range(2, trips + 1):
                             ("the footprint", float(m[6]), float(first[6]))):
         if now - then > growth:
             bad.append(f"return {n}: {name} {now - then:.0f} MiB above the first return's")
-print("note    texture sets (live: windows surfaces layers; gl: color depth msaa as count/MiB, mtl MiB; footprint):")
+print("note    texture sets (live: windows surfaces layers; gl: color depth msaa as count/MiB, mtl MiB, EGL "
+      "contexts; footprint):")
 for n, (m, g) in enumerate(zip(read, held)):
     label = "start" if n == 0 else f"return {n}"
     print(f"note      {label:9} live {m[1]} {m[2]} {m[3]}  color {g['color'][0]}/{g['color'][1]}  "
-          f"depth {g['depth'][0]}/{g['depth'][1]}  msaa {g['msaa'][0]}/{g['msaa'][1]}  mtl {g['mtl']}  foot {m[6]}")
+          f"depth {g['depth'][0]}/{g['depth'][1]}  msaa {g['msaa'][0]}/{g['msaa'][1]}  mtl {g['mtl']}  "
+          f"ctx {g['ctx'] if g['ctx'] is not None else 'n/a'}  foot {m[6]}")
 if bad:
     print("FAIL    a return's texture sets grew: " + "; ".join(bad))
     sys.exit(1)
 print(f"ok      after {trips} returns the texture sets alive are the first return's: no window, surface, layer, depth "
-      "or multisample texture more, and color, Metal bytes and footprint within a drawable set")
+      "or multisample texture more, no EGL context more than at the start, and color, Metal bytes and footprint "
+      "within a drawable set")
 PY
     :
   else

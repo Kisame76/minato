@@ -4,7 +4,9 @@
 // renderbuffers in private storage), the device's allocation is known, and once they are deleted and Metal is done
 // with them the texture classes come back to where they were. Patch 0023: a window surface's depth/stencil (and its
 // drawable) go once the surface is released and destroyed, while its context lives on and draws nothing more, as an
-// app's context that is not made current again after a return (SDL 2's restore on Android) does.
+// app's context that is not made current again after a return (SDL 2's restore on Android) does. Patch 0031: the line's
+// ctx= counts the contexts alive, made and not yet destroyed: 1 with the test's own, 2 with one more made and never
+// made current, 1 again once that one is destroyed, and 0 once the test's own is released and destroyed.
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
@@ -20,6 +22,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <thread>
 
@@ -31,6 +34,12 @@ bool failed = false;
 [[noreturn]] void fail(const std::string &what) {
     std::fprintf(stderr, "angle-memory-counters: %s\n", what.c_str());
     std::exit(1);
+}
+
+// The line's ctx=, or -1 without one.
+long contexts_in(const char *line) {
+    const char *at = std::strstr(line, " ctx=");
+    return at != nullptr ? std::strtol(at + 5, nullptr, 10) : -1;
 }
 
 void check(bool condition, const std::string &what) {
@@ -157,6 +166,14 @@ int main(int argc, char **argv) {
         std::printf("made: %s\n", line.data());
         check(length > 0 && std::string(line.data()).rfind("gl tex=", 0) == 0, "the line starts with gl tex=");
         check(line_of(line.data(), 8) == 0, "a line that does not fit gives 0");
+        line_of(line.data(), line.size());  // the line again: the check above left 8 bytes of it
+        check(contexts_in(line.data()) == 1, "ctx= counts the test's own context");
+        EGLContext other = EGL(CreateContext)(display, config, EGL_NO_CONTEXT, version);
+        line_of(line.data(), line.size());
+        check(other != EGL_NO_CONTEXT && contexts_in(line.data()) == 2, "ctx= counts a context made and never current");
+        EGL(DestroyContext)(display, other);
+        line_of(line.data(), line.size());
+        check(contexts_in(line.data()) == 1, "ctx= drops a destroyed context");
         check(count(made, COLOR) >= count(before, COLOR) + 1 && bytes(made, COLOR) >= bytes(before, COLOR) + (1 << 20),
               "the RGBA8 texture counts as color with its 1 MiB");
         check(count(made, COMPRESSED) == count(before, COMPRESSED) + 1 &&
@@ -197,6 +214,8 @@ int main(int argc, char **argv) {
         EGL(MakeCurrent)(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         EGL(DestroyContext)(display, context);
         EGL(DestroySurface)(display, surface);
+        line_of(line.data(), line.size());
+        check(contexts_in(line.data()) == 0, "ctx= is 0 once the released context is destroyed");
 
         // Patch 0023: a window surface with depth and stencil, drawn and swapped, then released and destroyed; its
         // context stays and draws nothing more.

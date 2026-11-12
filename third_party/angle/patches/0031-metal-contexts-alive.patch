@@ -1,0 +1,85 @@
+Count the contexts alive in ANGLEMetalMemoryLine (Minato, patch 0031).
+
+Why: an app that loses its GL context's thread at a return can make a new context and never destroy the old one (SDL
+2 on Android, when the app resets its display before SDL restores the context it backed up). Each such context keeps
+its GL objects, so the memory grows by a context's textures per return, and no line said why. Now ContextMtl counts
+itself from its construction until ANGLE destroys it (eglDestroyContext, once no thread has it current), and the
+memory line appends " ctx=<n>" after mtl=.
+Test: graphics/tests/angle_memory_counters.mm (ctx=1 with the test's context, 2 with one more made and never current,
+1 again once that one is destroyed, 0 once the test's own is released and destroyed).
+Upstream: not planned (an embedder's diagnostic).
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -200,9 +200,15 @@
+       mDriverUniforms{},
+       mProvokingVertexHelper(this),
+       mContextDevice(GetOwnershipIdentity(attribs))
+-{}
++{
++    // Minato (patch 0031): counted until ANGLE destroys it (eglDestroyContext, once no thread has it current).
++    mtl::NoteContextsAlive(1);
++}
+ 
+-ContextMtl::~ContextMtl() {}
++ContextMtl::~ContextMtl()
++{
++    mtl::NoteContextsAlive(-1);
++}
+ 
+ angle::Result ContextMtl::initialize(const angle::ImageLoadContext &imageLoadContext)
+ {
+diff --git a/src/libANGLE/renderer/metal/mtl_context_device.h b/src/libANGLE/renderer/metal/mtl_context_device.h
+--- a/src/libANGLE/renderer/metal/mtl_context_device.h
++++ b/src/libANGLE/renderer/metal/mtl_context_device.h
+@@ -69,6 +69,9 @@
+ // Minato (patch 0015): the buffer manager's free list, for ANGLEMetalMemoryCounters.
+ void NoteBufferPoolFree(int64_t countChange, int64_t bytesChange);
+ 
++// Minato (patch 0031): the contexts alive (made and not yet destroyed), for ANGLEMetalMemoryLine's ctx=.
++void NoteContextsAlive(int64_t change);
++
+ }  // namespace mtl
+ }  // namespace rx
+ 
+diff --git a/src/libANGLE/renderer/metal/mtl_context_device.mm b/src/libANGLE/renderer/metal/mtl_context_device.mm
+--- a/src/libANGLE/renderer/metal/mtl_context_device.mm
++++ b/src/libANGLE/renderer/metal/mtl_context_device.mm
+@@ -41,6 +41,7 @@
+ std::atomic<uint64_t> gTexturePrivateBytes{0};
+ std::atomic<int64_t> gPoolFreeCount{0};
+ std::atomic<int64_t> gPoolFreeBytes{0};
++std::atomic<int64_t> gContextsAlive{0};  // Minato (patch 0031)
+ std::atomic<void *> gDevice{nullptr};
+ char gTrackerKey;
+ 
+@@ -216,14 +217,15 @@
+     const int length = ANGLE_UNSAFE_TODO(std::snprintf(
+         line, size,
+         "gl tex=%llu/%llu priv=%llu shared=%llu comp=%llu/%llu color=%llu/%llu depth=%llu/%llu "
+-        "msaa=%llu/%llu mless=%llu buf=%llu/%llu bufpriv=%llu pool=%llu/%llu mtl=%llu",
++        "msaa=%llu/%llu mless=%llu buf=%llu/%llu bufpriv=%llu pool=%llu/%llu mtl=%llu ctx=%llu",
+         textures, (unsigned long long)((v[14] + v[15]) / mib), (unsigned long long)(v[14] / mib),
+         (unsigned long long)(v[15] / mib), (unsigned long long)v[0], (unsigned long long)(v[1] / mib),
+         (unsigned long long)v[2], (unsigned long long)(v[3] / mib), (unsigned long long)v[4],
+         (unsigned long long)(v[5] / mib), (unsigned long long)v[6], (unsigned long long)(v[7] / mib),
+         (unsigned long long)v[8], buffers, (unsigned long long)((v[11] + v[13]) / mib),
+         (unsigned long long)(v[13] / mib), (unsigned long long)v[16], (unsigned long long)(v[17] / mib),
+-        (unsigned long long)(v[18] / mib)));
++        (unsigned long long)(v[18] / mib),
++        (unsigned long long)LoadSigned(gContextsAlive)));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 
+@@ -356,6 +358,11 @@
+     gPoolFreeBytes.fetch_add(bytesChange, std::memory_order_relaxed);
+ }
+ 
++void NoteContextsAlive(int64_t change)
++{
++    gContextsAlive.fetch_add(change, std::memory_order_relaxed);
++}
++
+ bool ContextDevice::hasUnifiedMemory() const
+ {
+     return [get() hasUnifiedMemory];
