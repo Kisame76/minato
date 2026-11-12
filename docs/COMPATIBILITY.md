@@ -235,7 +235,8 @@ In plain terms, as a user meets it:
   extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or do not fit the
   intent's text, which is at most 2048 characters with the extras in Base64, so about 1.5 KB of extras: then only its
   strings, numbers and booleans are kept.
-- On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
+- On the iPhone iOS offers a mouse or trackpad only through AssistiveTouch, which turns it into taps, so an app
+  sees a finger; where iOS gives a pointer, it reaches the app as Android's mouse.
 - Hidden APIs: Android 15 hides some members of its own classes from an app (reflection and JNI find no such member).
   The lists are in `framework.jar` and the boot jars, and Minato's ART reads them and reports what an app reaches, but
   it does not deny anything yet, so an app can still reach members that Android 15 would hide from it.
@@ -260,7 +261,7 @@ signatures. A crash names its cause when the app returns to the library.
 
 ## Limits that stay
 
-**Never, by design** (ADR-0001, ADR-0002, ADR-0006):
+**Never, by design** (ADR-0001, ADR-0002, ADR-0006 and the non-goals):
 
 - No CPU emulation, so no x86 and no 32-bit ARM code.
 - No JIT in the core path. Runtimes that generate machine code at run time (Mono and .NET, LuaJIT with its JIT on,
@@ -275,11 +276,12 @@ signatures. A crash names its cause when the app returns to the library.
 
 - One Android app at a time, in one process: `android:process` and isolated services run in that process, and
   programs cannot start other programs.
-- Nothing runs in the background: services, jobs and alarms run only while the app is in front.
+- Nothing runs once iOS suspends the app: services, jobs and alarms run only while iOS keeps the app running.
 - No system roles: no launchers, input methods, accessibility services, VPN, SMS or dialer apps, overlays or home
   screen widgets. A VPN app starts and gets Android's answers for a user who declined the VPN: the consent ends as
   cancelled and there is no tunnel.
-- No telephony, NFC, USB host or classic Bluetooth, and no multicast or broadcast networking.
+- No telephony, NFC, USB host or classic Bluetooth. Multicast and broadcast sockets reach iOS, which wants a
+  networking entitlement for them that a free account does not have, so they are not expected to work.
 - A WebView page under `http://` on a public host is refused by iOS, also for an app that allows cleartext traffic on
   Android.
 - Memory: an app gets a limited share of the phone's memory; Minato asks for the `increased-memory-limit` entitlement,
