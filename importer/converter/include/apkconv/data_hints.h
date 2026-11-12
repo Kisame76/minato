@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 #include <string>
 
@@ -52,6 +53,11 @@ struct DataHints {
 /// read is not counted.
 DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes,
                      std::span<const elf::Section> sections, std::span<const rewrite::Unsupported> uses);
+
+/// The [begin, end) of every frame description entry of `elf_bytes`' .eh_frame (empty when it has none or it cannot be
+/// read), in the order of the section. Never throws.
+std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> elf_bytes,
+                                                                std::span<const elf::Section> sections);
 
 /// The text appended to an x18 refusal: "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 2 of the 3 sites outside
 /// every FDE; PC-relative loads: 1 of the 3 sites loaded from code; sections: 1 executable, 92 bytes of other sections

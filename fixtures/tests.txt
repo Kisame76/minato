@@ -111,6 +111,8 @@ kernel-test system
 svc-immediate-test system
 # An x18 encoding no compiler writes, as code in a function of its own.
 x18-caspalt-test system
+# A vector store with sp as base and x18 as post-index, in a stripped library.
+x18-st2-test system
 # Per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 priority-test system
 # memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.

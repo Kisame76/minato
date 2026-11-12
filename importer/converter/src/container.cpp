@@ -691,6 +691,27 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> sized_function_bounds(std
     return std::pair{std::max(base, best->value), std::min(limit, best->value + best->size)};
 }
 
+std::optional<std::pair<std::uint64_t, std::uint64_t>> function_bounds(
+    std::span<const elf::Symbol> symbols, std::span<const std::pair<std::uint64_t, std::uint64_t>> fdes,
+    std::uint64_t base, std::uint64_t limit, std::uint64_t address) {
+    if (const auto sized = sized_function_bounds(symbols, base, limit, address)) return sized;  // a symbol decides
+    // No sized symbol holds the word (a stripped library): the unwind entry that holds it is the function, when no
+    // other entry overlaps it and no symbol claims a part of it (c_rename_register refuses that overlap: the symbol
+    // wins).
+    const std::pair<std::uint64_t, std::uint64_t> *held = nullptr;
+    for (const auto &fde : fdes) {
+        if (address >= fde.first && address < fde.second) {
+            held = &fde;
+            break;
+        }
+    }
+    if (held == nullptr) return std::nullopt;
+    for (const auto &fde : fdes) {
+        if (&fde != held && fde.first < held->second && held->first < fde.second) return std::nullopt;  // overlap
+    }
+    return std::pair{std::max(base, held->first), std::min(limit, held->second)};
+}
+
 namespace {
 
 /// Whether a direct BL in [begin, end) of the section `code` (its first byte at virtual address `base`) calls a
@@ -698,9 +719,10 @@ namespace {
 /// runs with x30 pointing into our call island, so reading it as data is wrong. A BL whose target is not a sized
 /// function of the file (external, or an unsized region) cannot be checked -- a named limit, not refused.
 bool a_called_sized_function_reads_x30(const elf::File &file, std::span<const std::byte> elf_bytes,
-                                       std::span<const elf::Symbol> symbols, std::span<const elf::Section> sections,
-                                       std::span<const std::byte> code, std::uint64_t base, std::size_t begin,
-                                       std::size_t end) {
+                                       std::span<const elf::Symbol> symbols,
+                                       std::span<const std::pair<std::uint64_t, std::uint64_t>> fdes,
+                                       std::span<const elf::Section> sections, std::span<const std::byte> code,
+                                       std::uint64_t base, std::size_t begin, std::size_t end) {
     for (std::size_t offset = begin; offset + 4 <= end; offset += 4) {
         std::uint32_t word;
         std::memcpy(&word, code.data() + offset, sizeof word);
@@ -710,8 +732,8 @@ bool a_called_sized_function_reads_x30(const elf::File &file, std::span<const st
         const std::uint64_t target = base + offset + static_cast<std::uint64_t>(imm * 4);
         const auto *callee = section_of(sections, target);
         if (callee == nullptr) continue;
-        const auto bounds = sized_function_bounds(symbols, callee->address, callee->address + callee->size, target);
-        if (!bounds) continue;  // not a sized function of the file: a named limit, not refused
+        const auto bounds = function_bounds(symbols, fdes, callee->address, callee->address + callee->size, target);
+        if (!bounds) continue;  // neither a sized function nor an unwind entry of the file: a named limit, not refused
         std::span<const std::byte> callee_code;
         try {
             callee_code = file_bytes_at(file, elf_bytes, callee->address, callee->size, "section");
@@ -744,8 +766,9 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     }
     const std::uint64_t base = section->address;
     const std::uint64_t limit = base + code.size();
-    const auto bounds = sized_function_bounds(symbols, base, limit, address);
-    if (!bounds) return std::nullopt;  // must-have 2: no sized symbol bounds the function; never guess for a rename
+    const auto fdes = hints::fde_ranges(elf_bytes, sections);
+    const auto bounds = function_bounds(symbols, fdes, base, limit, address);
+    if (!bounds) return std::nullopt;  // must-have 2: no sized symbol or unwind entry bounds the function; never guess
     const auto [begin, end] = *bounds;
     const auto begin_off = static_cast<std::size_t>(begin - base);
     const auto end_off = static_cast<std::size_t>(end - base);
@@ -786,7 +809,8 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     // or a bl .+4 PC-getter (lead review).
     if (rewrite::call_leaks_link_register(code.subspan(begin_off, end_off - begin_off))) return std::nullopt;
     // ...and refuse when a direct BL calls a sized in-file function that reads x30 as data (lead review rule 3).
-    if (a_called_sized_function_reads_x30(file, elf_bytes, symbols, sections, code, base, begin_off, end_off)) {
+    if (a_called_sized_function_reads_x30(file, elf_bytes, symbols, fdes, sections, code, base, begin_off,
+                                          end_off)) {
         return std::nullopt;
     }
     return WholeFunctionRename{begin, end, *reg};
@@ -797,13 +821,14 @@ CRenamePlan c_rename_plan(std::span<const std::byte> elf_bytes, std::span<const 
     if (uses.empty()) return plan;
     const auto symbols = elf::read_symbols(elf_bytes);
     const auto sections = layout_sections(elf_bytes);
-    std::map<std::uint64_t, std::optional<WholeFunctionRename>> verdict;  // sized function begin -> (c) rename or none
+    const auto fdes = hints::fde_ranges(elf_bytes, sections);
+    std::map<std::uint64_t, std::optional<WholeFunctionRename>> verdict;  // function begin -> (c) rename or none
     for (const auto &use : uses) {
         const auto *section = section_of(sections, use.address);
         if (section == nullptr) continue;
         const auto bounds =
-            sized_function_bounds(symbols, section->address, section->address + section->size, use.address);
-        if (!bounds) continue;  // no sized function holds the site, so (c) cannot take it
+            function_bounds(symbols, fdes, section->address, section->address + section->size, use.address);
+        if (!bounds) continue;  // no sized function or unwind entry holds the site, so (c) cannot take it
         auto it = verdict.find(bounds->first);
         if (it == verdict.end()) {  // one c_rename_register verdict per function: group the sites by it
             it = verdict.emplace(bounds->first, c_rename_register(elf_bytes, use.address)).first;

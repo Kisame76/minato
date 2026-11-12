@@ -125,6 +125,15 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> sized_function_bounds(std
                                                                              std::uint64_t base, std::uint64_t limit,
                                                                              std::uint64_t address);
 
+/// The bounds option (c) renames across: the sized symbol's (sized_function_bounds) when one holds `address`, else, in
+/// a library without such a symbol, the one unwind entry (`fdes`, the [begin, end) of every FDE of .eh_frame) that
+/// holds it, clamped to [base, limit). An entry that overlaps another entry, or two that hold the address, give
+/// nothing; and a sized symbol that lies inside the entry without holding the address makes c_rename_register refuse
+/// it (the symbol wins). nullopt when nothing bounds the function.
+std::optional<std::pair<std::uint64_t, std::uint64_t>> function_bounds(
+    std::span<const elf::Symbol> symbols, std::span<const std::pair<std::uint64_t, std::uint64_t>> fdes,
+    std::uint64_t base, std::uint64_t limit, std::uint64_t address);
+
 /// What option (c) needs to rename x18 across the function that holds an x18 site: the function's [begin, end)
 /// (virtual addresses) and the caller-saved register (rewrite::free_caller_saved_register) guest x18 moves into.
 struct WholeFunctionRename {

@@ -472,6 +472,22 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
     return hints;
 }
 
+std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> elf_bytes,
+                                                                std::span<const elf::Section> sections) {
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> fdes;
+    for (const auto &section : sections) {
+        if (section.name != ".eh_frame" || section.type == elf::section_type_nobits ||
+            section.offset > elf_bytes.size() || section.size > elf_bytes.size() - section.offset) {
+            continue;
+        }
+        const auto read = read_fdes(
+            elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
+            section.address);
+        fdes.insert(fdes.end(), read.begin(), read.end());
+    }
+    return fdes;
+}
+
 std::string describe(const DataHints &hints) {
     std::string words;
     for (const auto &word : hints.words) {

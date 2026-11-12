@@ -267,6 +267,10 @@ add_executable(svc-immediate-test suite/svc-immediate-test.c)
 # x18-caspalt-test: an encoding that uses x18 in a way no compiler writes (an unprivileged compare-and-swap pair
 # ending in x18, x19, FEAT_LSUI).
 add_executable(x18-caspalt-test suite/x18-caspalt-test.c)
+# x18-st2-test: a vector store with sp as base and x18 as post-index, in a function with unwind tables and no symbol
+# (linked stripped, as an engine library of an APK often is): the function's bounds come from its unwind entry.
+add_executable(x18-st2-test suite/x18-st2-test.c)
+target_link_options(x18-st2-test PRIVATE -Wl,-s)
 # priority-test: per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 add_executable(priority-test suite/priority-test.c)
 # memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
