@@ -31,6 +31,16 @@ MINATO_HIDDEN void minato_bad_native_window(EGLDisplay display, EGLConfig config
    display: ANGLE gives it for eglCreateStreamKHR, as its Vulkan and Metal displays have no streams. */
 MINATO_HIDDEN void minato_bad_alloc(EGLDisplay display);
 
+/* Deletes made with no context current after the thread released its context (deferred.c): eglMakeCurrent's part
+   after a successful call (`before` was current on the thread, `context` is now), eglReleaseThread's, and
+   eglDestroyContext's and eglTerminate's (EGL_NO_CONTEXT: every context). For libGLES, in version APKRT_PRIVATE:
+   minato_egl_defer_delete keeps `count` names of a delete (kind 0 textures, 1 buffers, 2 framebuffers, 3
+   renderbuffers) for the context the thread released and answers 1, or answers 0 when the caller deletes them. */
+MINATO_HIDDEN void minato_deferred_current(EGLContext before, EGLContext context);
+MINATO_HIDDEN void minato_deferred_release_thread(void);
+MINATO_HIDDEN void minato_deferred_destroyed(EGLContext context);
+int minato_egl_defer_delete(int kind, int count, const unsigned *names);
+
 /* eglTerminate's part (surface.c): the window surfaces of `display` let their windows go. */
 MINATO_HIDDEN void minato_release_windows(EGLDisplay display);
 

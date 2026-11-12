@@ -52,8 +52,9 @@ enum minato_test_command {
                                    (apkrt_window_told); 1 */
     MINATO_TEST_COLOR_TEXTURES, /* the color textures ANGLE holds now (its memory line's color= count, patch 0015);
                                    UINT64_MAX without the line */
-    MINATO_TEST_RESUME_SET,     /* the host's MINATO_RESUME_SET as a number, 0 without (gles_resume_test's set: the
-                                   guest has not the Mac's environment) */
+    MINATO_TEST_RESUME_SET,     /* the host's MINATO_RESUME_SET: the set's size, 0 without, and bit 32 for a
+                                   ",background" after it (gles_resume_test's set: the guest has not the Mac's
+                                   environment) */
 };
 
 #ifndef __APPLE__

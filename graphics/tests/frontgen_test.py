@@ -17,7 +17,8 @@
 - The GLES and EGL lists (ADR-0029, decision 14), against gl.xml and egl.xml with ANGLE's: eglGetProcAddress's
   names with the function each front lib hands out, and the extensions its strings withhold: exactly those
   the description leaves out by name and those with a command outside the table. libGLESv1_CM, libGLESv2 and
-  libGLESv3 export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names.
+  libGLESv3 export minato_gles_proc, for libEGL, in version APKRT_PRIVATE beside the NDK's names, and libEGL
+  minato_egl_defer_delete, for their deletes made after a thread released its context.
   Each map exports the NDK's names and those Android 15's library exports beyond them, as gles_procs_test.c
   measured them on the emulator (gles_procs_android.txt).
 - The names outside every registry (ADR-0041 a1): exactly Android's 7 *Bounds functions of libGLESv1_CM, which
@@ -55,7 +56,7 @@ ABI_COUNTS = {
     "vulkan": {"same": 233},
 }
 KIND_COUNTS = {
-    "gles": {"plain": 566, "extend": 37, "repack": 8, "by hand": 23},
+    "gles": {"plain": 562, "extend": 37, "repack": 8, "by hand": 27},
     "egl": {"plain": 47, "by hand": 26},
     "vulkan": {"plain": 141, "without allocator": 41, "by hand": 51},
 }
@@ -66,7 +67,7 @@ WITHHELD_BY_NAME = {
     "gles": set(),
 }
 WITHHELD_PREFIX = {"egl": "EGL_ANGLE_platform_angle", "gles": None}
-PRIVATE = {"gles": {"minato_gles_proc"}}
+PRIVATE = {"gles": {"minato_gles_proc"}, "egl": {"minato_egl_defer_delete"}}
 # ADR-0041 a1: the exports that no registry defines, Android's own (opengl/libs/GLES_CM/gl.cpp at the tag).
 OUTSIDE = {
     "gles": {"glColorPointerBounds", "glNormalPointerBounds", "glTexCoordPointerBounds", "glVertexPointerBounds",

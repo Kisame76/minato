@@ -1,0 +1,1 @@
+I/libEGL  : deletes made with no context current: 600 names deleted when the thread made context 0x1 current again

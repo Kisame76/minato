@@ -159,7 +159,11 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
             return color_textures();
         case MINATO_TEST_RESUME_SET: {
             const char *set = getenv("MINATO_RESUME_SET");
-            return set != NULL ? strtoull(set, NULL, 10) : 0;
+            if (set == NULL) {
+                return 0;
+            }
+            const uint64_t size = strtoull(set, NULL, 10) & 0xffffffffu;
+            return strstr(set, ",background") != NULL ? size | (1ull << 32) : size;
         }
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);

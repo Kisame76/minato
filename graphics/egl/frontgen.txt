@@ -28,6 +28,8 @@ hand eglGetNativeClientBufferANDROID eglCreateImageKHR eglCreateImage
 hand eglMakeCurrent
 # The trace of a device run (MINATO_EGL_TRACE=1, trace.c): the contexts made, destroyed and released.
 hand eglCreateContext eglDestroyContext eglReleaseThread
+# libGLES's deletes made after the thread released its context wait here for it (deferred.c).
+private minato_egl_defer_delete
 
 # ADR-0029, decision 14: filtered out, since ANGLE would call their callbacks from its own threads,
 exclude EGL_KHR_debug EGL_ANDROID_blob_cache

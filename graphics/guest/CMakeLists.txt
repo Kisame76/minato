@@ -213,7 +213,7 @@ target_compile_definitions(gles-procs-measure PRIVATE GLES_PROCS_MEASURE)
 set(egl "${graphics}/egl")
 set(gles "${graphics}/gles")
 add_library(EGL SHARED "${egl}/display.c" "${egl}/surface.c" "${egl}/image.c" "${egl}/queue.c" "${egl}/procs.c"
-  "${egl}/timestamps.c" "${egl}/trace.c"
+  "${egl}/timestamps.c" "${egl}/trace.c" "${egl}/deferred.c"
   "${gen}/egl_stubs.S" "${gen}/egl_bind.c")
 # AHardwareBuffer_getId is API 31's, above this build's 29: a weak reference, which Android 15 and Minato resolve.
 set_source_files_properties("${egl}/image.c" PROPERTIES COMPILE_DEFINITIONS __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__
@@ -226,6 +226,7 @@ set_target_properties(EGL PROPERTIES LINK_DEPENDS "${gen}/libEGL.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 target_compile_options(EGL PRIVATE -Wall -Wextra)
 add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gles}/trace.c" "${gles}/no_context.c"
+  "${gles}/deferred_delete.c"
   "${gen}/gles_stubs.S" "${gen}/gles_bind.c")
 target_include_directories(gles_objects PRIVATE "${gles}" "${gen}" "${repo}/runtime/include")
 target_link_libraries(gles_objects PRIVATE minato_bind)
@@ -256,7 +257,8 @@ target_link_libraries(gles-thunk-test PRIVATE EGL dl)
 target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
 foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test gles_profile_test
-    present_limit_test gles_resume_test gles_no_context_test gles_untold_test gles_background_test)
+    present_limit_test gles_resume_test gles_no_context_test gles_untold_test gles_background_test
+    gles_deferred_delete_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

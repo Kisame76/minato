@@ -32,6 +32,8 @@ hand glGetProgramResourceLocation
 hand glGetVkProcAddrNV
 # The device trace (MINATO_EGL_TRACE=1, trace.c): GL calls made with no context current on the calling thread.
 hand glClear glViewport glGenTextures glTexImage2D glBindFramebuffer glBindTexture
+# Deletes made after the thread released its context, kept for it by libEGL (deferred_delete.c, egl/deferred.c).
+hand glDeleteTextures glDeleteBuffers glDeleteFramebuffers glDeleteRenderbuffers
 # The filter's count (B1): GL_NUM_EXTENSIONS counts the extensions glGetStringi lists, through every query.
 hand glGetBooleanv glGetFloatv glGetIntegerv glGetInteger64v
 hand glGetBooleanvRobustANGLE glGetFloatvRobustANGLE glGetIntegervRobustANGLE glGetInteger64vRobustANGLE

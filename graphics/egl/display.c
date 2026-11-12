@@ -82,6 +82,7 @@ EGLBoolean eglTerminate(EGLDisplay display) {
     }
     if (result) {
         minato_release_windows(display);
+        minato_deferred_destroyed(EGL_NO_CONTEXT);
     }
     return result;
 }
@@ -459,8 +460,12 @@ static unsigned reset_status(void) {
 }
 
 EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
+    const EGLContext before = eglGetCurrentContext();
     const EGLBoolean result = minato_host_eglMakeCurrent(display, draw, read, context);
     const EGLint error = result ? EGL_SUCCESS : minato_peek_error();  // read once, kept for the app
+    if (result) {
+        minato_deferred_current(before, context);  // deferred.c: a release, or the deletes made since applied
+    }
     if (minato_trace_on()) {
         if (result) {
             minato_trace_current(context);
@@ -495,6 +500,9 @@ EGLContext eglCreateContext(EGLDisplay display, EGLConfig config, EGLContext sha
 
 EGLBoolean eglDestroyContext(EGLDisplay display, EGLContext context) {
     const EGLBoolean result = minato_host_eglDestroyContext(display, context);
+    if (result) {
+        minato_deferred_destroyed(context);
+    }
     if (minato_trace_on()) {
         if (result) {
             minato_trace_context_destroyed(context);
@@ -508,6 +516,9 @@ EGLBoolean eglDestroyContext(EGLDisplay display, EGLContext context) {
 
 EGLBoolean eglReleaseThread(void) {
     const EGLBoolean result = minato_host_eglReleaseThread();
+    if (result) {
+        minato_deferred_release_thread();
+    }
     if (minato_trace_on()) {
         if (result) {
             minato_trace_current(EGL_NO_CONTEXT);

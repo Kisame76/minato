@@ -696,6 +696,15 @@ if(TARGET minato_graphics_host)
     # again, and ANGLE's color textures must drop by the deleted set and come back to the start's.
     add_guest_test(gles_resume_set gles-resume-test gles_resume_set_test "${gles_system_libraries}" ${with_angle}
       "MINATO_RESUME_SET=set:600")
+    # The same returns with Ren'Py's free in the background (",background"): the set deleted after the backup with
+    # no context current, which Android drops; libEGL keeps those deletes for the context and applies them at the
+    # restore (graphics/egl/deferred.c, for iOS's memory limit), so ANGLE's color textures come back to the start's.
+    add_guest_test(gles_resume_free gles-resume-test gles_resume_free_test "${gles_system_libraries}" ${with_angle}
+      "MINATO_RESUME_SET=set:600,background")
+    # Its limits: only the same context made current again on the same thread applies the kept deletes; another
+    # context made current in between, or the context destroyed in between, drops them.
+    add_guest_test(gles_deferred_delete gles-deferred-delete-test gles_deferred_delete_test
+      "${gles_system_libraries}" ${with_angle})
     # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
     # runs alone.
     add_guest_test(present_limit present-limit-test present_limit_test "${gles_system_libraries}" ${with_angle})

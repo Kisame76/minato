@@ -37,6 +37,14 @@
    texture the app deleted that stays alive grows every return by a set (the Simulator's Ren'Py anim game: about 600
    more per return). Its lines follow each return's restore line.
 
+   With ",background" after the size (graphics.gles_resume_free) R frees the set as Ren'Py 8.5.3 does when it goes
+   to the background: its core.py prints "Freeing memory." after SDL's backup has released the context, and
+   free_memory -> kill_textures -> TextureLoader.cleanup deletes every texture with glDeleteTextures on R while no
+   context is current. Android's wrapper drops such calls (graphics.gles_no_context), so the reset at the return
+   finds the loader empty and deletes nothing, and the set stays alive in the context: the Simulator's Ren'Py anim
+   game grew ANGLE's color textures by its 600 on every return this way. The check is the same: once the reset and
+   the reload are done, ANGLE's color textures must be the start's again.
+
    With MINATO_RESUME_DIAG set (the iPhone run; not the Mac check, whose output is byte-compared) the host's memory
    line (MINATO_TEST_GRAPHICS_LINE) prints depth=<n> on stderr before the background, after the backup released,
    after the first return and after the third, and the backup and restore durations are printed too, for the
@@ -50,6 +58,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -69,9 +78,12 @@ static int diag;  /* MINATO_RESUME_DIAG: the iPhone run's extra, non-determinist
 /* data->egl_surface in SDL: the surface R restores onto; the UI thread sets it on each return. */
 static _Atomic(EGLSurface) egl_surface;
 
-/* The hand-off: to_render is written only by the UI thread, from_render only by R, so neither races the other. */
+/* The hand-off: to_render is written only by the UI thread, from_render only by R, so neither races the other.
+   from_render only grows (a return's step, FR_STEPS a return), and the UI thread waits until it has reached a step:
+   R goes on to the next return's FR_RAN right after FR_RESTORED, and a wait for an exact value could miss it and
+   hang with R waiting for the next pause. */
 enum { TR_PAUSE = 1, TR_BACKUP, TR_RESUME, TR_DONE };
-enum { FR_RAN = 1, FR_GONE, FR_BACKED_UP, FR_RESTORED };
+enum { FR_RAN = 1, FR_GONE, FR_BACKED_UP, FR_RESTORED, FR_STEPS };
 static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cv = PTHREAD_COND_INITIALIZER;
 static int to_render, from_render;
@@ -79,6 +91,7 @@ static atomic_int entering_backup;
 
 static GLuint kept[kept_textures];
 static int set_size;  /* MINATO_RESUME_SET: Ren'Py's set, 0 without */
+static int free_in_background;  /* ",background": the set deleted after the backup, with no context current */
 static GLuint set[set_most];
 static uint64_t set_start;  /* ANGLE's color textures with the set made, at the start */
 static int set_ok[returns];
@@ -92,9 +105,9 @@ static void tell(int value) {
     pthread_cond_broadcast(&cv);
     pthread_mutex_unlock(&m);
 }
-static void report(int value) {
+static void report(int r, int value) {
     pthread_mutex_lock(&m);
-    from_render = value;
+    from_render = r * FR_STEPS + value;
     pthread_cond_broadcast(&cv);
     pthread_mutex_unlock(&m);
 }
@@ -105,9 +118,9 @@ static void await_to(int value) {
     }
     pthread_mutex_unlock(&m);
 }
-static void await_from(int value) {
+static void await_from(int r, int value) {
     pthread_mutex_lock(&m);
-    while (from_render != value) {
+    while (from_render < r * FR_STEPS + value) {
         pthread_cond_wait(&cv, &m);
     }
     pthread_mutex_unlock(&m);
@@ -162,7 +175,7 @@ static void *render_thread(void *argument) {
     for (int r = 0; r < returns; r++) {
         glClear(GL_COLOR_BUFFER_BIT);
         eglSwapBuffers(display, surface);
-        report(FR_RAN);
+        report(r, FR_RAN);
 
         /* The window went while R is busy. R's next swap meets the gone window. */
         await_to(TR_PAUSE);
@@ -170,7 +183,7 @@ static void *render_thread(void *argument) {
         const EGLint error = eglGetError();
         printf("return %d R: swap after the window went: %s, error %s\n", r + 1, ok(swap),
                error == EGL_BAD_NATIVE_WINDOW ? "EGL_BAD_NATIVE_WINDOW" : "another");
-        report(FR_GONE);
+        report(r, FR_GONE);
 
         /* The UI thread has destroyed the surface and gone to the background; only now does R back up. */
         await_to(TR_BACKUP);
@@ -181,10 +194,20 @@ static void *render_thread(void *argument) {
             backup_ms = now_ms() - at;
         }
         printf("return %d R: backup eglMakeCurrent(none): %s\n", r + 1, ok(backed));
-        report(FR_BACKED_UP);
+        if (set_size > 0 && free_in_background) {
+            /* Ren'Py's "Freeing memory." in the background: every texture deleted, one call each, no context. */
+            for (int i = 0; i < set_size; i++) {
+                glDeleteTextures(1, &set[i]);
+            }
+        }
+        report(r, FR_BACKED_UP);
 
         /* The restore, after the UI thread made S2 (the real order: the create is done before the resume). */
         await_to(TR_RESUME);
+        if (set_size > 0 && free_in_background) {
+            /* Said only now, after the UI thread's line for the return, so that the output's order is fixed. */
+            printf("return %d R: Ren'Py's free in the background: the set deleted with no context current\n", r + 1);
+        }
         surface = atomic_load(&egl_surface);
         const double restore_at = now_ms();
         const EGLBoolean restored = eglMakeCurrent(display, surface, surface,
@@ -208,8 +231,9 @@ static void *render_thread(void *argument) {
                "%u %u %u %u; swap %s\n", r + 1, surface != EGL_NO_SURFACE ? "S2" : "none", ok(restored),
                eglGetError(), yn(fresh != UNWRITTEN), pixel[0], pixel[1], pixel[2], pixel[3], ok(swapped[r]));
         if (set_size > 0 && surface != EGL_NO_SURFACE) {
-            /* Ren'Py's full reset: the set deleted, one call each; then its scene loaded again. */
-            for (int i = 0; i < set_size; i++) {
+            /* Ren'Py's full reset: the set deleted, one call each (none left after a free in the background, whose
+               cleanup emptied the loader); then its scene loaded again. */
+            for (int i = 0; i < set_size && !free_in_background; i++) {
                 glDeleteTextures(1, &set[i]);
             }
             const uint64_t want = set_start - (uint64_t)set_size;
@@ -227,10 +251,16 @@ static void *render_thread(void *argument) {
                 snprintf(again, sizeof again, "NO (%llu, the start's %llu)", (unsigned long long)reloaded,
                          (unsigned long long)set_start);
             }
-            printf("return %d R: Ren'Py's reset: the set deleted, gone from ANGLE's color textures: %s; loaded again, "
-                   "as many as at the start: %s\n", r + 1, gone, again);
+            if (free_in_background) {
+                printf("return %d R: the set deleted with no context current, then the same context current again on "
+                       "the same thread: gone from ANGLE's color textures: %s; loaded again, as many as at the start: "
+                       "%s\n", r + 1, gone, again);
+            } else {
+                printf("return %d R: Ren'Py's reset: the set deleted, gone from ANGLE's color textures: %s; loaded "
+                       "again, as many as at the start: %s\n", r + 1, gone, again);
+            }
         }
-        report(FR_RESTORED);
+        report(r, FR_RESTORED);
     }
     await_to(TR_DONE);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -251,7 +281,11 @@ int main(void) {
     /* The guest has not the Mac's environment: the host's MINATO_RESUME_SET through test control, a guest's own
        (the iPhone's run) first. */
     const char *set_text = getenv("MINATO_RESUME_SET");
-    set_size = set_text != NULL ? atoi(set_text) : (int)minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
+    const uint64_t set_value = set_text != NULL ? (uint64_t)atoi(set_text) | (strstr(set_text, ",background") != NULL
+                                                                              ? 1ull << 32 : 0)
+                                                : minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
+    set_size = (int)(set_value & 0xffffffffu);
+    free_in_background = (set_value >> 32) & 1;
     set_size = set_size < 0 ? 0 : set_size > set_most ? set_most : set_size;
     create_window create = (create_window)dlsym(dlopen("libnativewindow.so", RTLD_NOW), "minato_ANativeWindow_create");
 
@@ -271,7 +305,7 @@ int main(void) {
     pthread_create(&render, NULL, render_thread, surface);
 
     for (int r = 0; r < returns; r++) {
-        await_from(FR_RAN);
+        await_from(r, FR_RAN);
         if (r == 0) {
             graphics_line();  /* depth before the background */
         }
@@ -279,7 +313,7 @@ int main(void) {
         printf("return %d UI: window removed (apkrt_window_remove -> %lld); onPause -> nativePause\n", r + 1,
                (long long)minato_test(MINATO_TEST_REMOVE, 0, 0, 0));
         tell(TR_PAUSE);
-        await_from(FR_GONE);
+        await_from(r, FR_GONE);
         printf("return %d UI: surfaceDestroyed's wait for the backup timed out (R still busy); eglDestroySurface "
                "while current on R: %s\n", r + 1, ok(eglDestroySurface(display, surface)));
 
@@ -306,10 +340,10 @@ int main(void) {
         printf("return %d UI: new window %s; eglCreateWindowSurface(S2): %s, error 0x%x\n", r + 1,
                id != 0 ? "added" : "ABSENT (MINATO_TEST_ADD_WINDOW)",
                surface != EGL_NO_SURFACE ? "a surface" : "EGL_NO_SURFACE", make_error);
-        await_from(FR_BACKED_UP);
+        await_from(r, FR_BACKED_UP);
         graphics_line();  /* depth after the backup released (diag only) */
         tell(TR_RESUME);
-        await_from(FR_RESTORED);
+        await_from(r, FR_RESTORED);
         if (r == 0 || r == returns - 1) {
             graphics_line();  /* depth after the first return and after the third (diag only) */
         }

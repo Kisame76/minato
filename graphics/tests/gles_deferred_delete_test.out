@@ -1,0 +1,4 @@
+1. deleted with no context current, the same context current again on the same thread: 0 of 3 textures left
+2. another context current in between: 3 of 3 of its own textures left, 3 of 3 in the first context (the deletes dropped, as Android drops them)
+3. the context destroyed in between: a later context keeps 3 of 3 textures
+gles deferred delete: applied only for the same context on the same thread
