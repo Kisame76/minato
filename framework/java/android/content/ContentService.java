@@ -4,7 +4,7 @@
  * notifications and syncs. It is AIDL's Default class, as the input service is: an observer is accepted and never
  * called back, and notifyChange reaches none, a listed gap: no setting changes yet, but the app's own providers'
  * notifications reach no observer in the app either, such as a cursor's (Cursor.setNotificationUri, CursorLoader's
- * requery), which AOSP's ObserverNode would serve in the process (App's review). The syncs answer AIDL's defaults, as
+ * requery), which AOSP's ObserverNode would serve in the process. The syncs answer AIDL's defaults, as
  * for an app without accounts. Not under com.android.minato, whose classes tools/framework-host-check.sh compiles
  * without android.*.
  */

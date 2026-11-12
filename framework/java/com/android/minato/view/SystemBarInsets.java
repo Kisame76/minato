@@ -1,7 +1,7 @@
 package com.android.minato.view;
 
 /**
- * The display's system bars as the window frames of floating windows see them (ADR-0041 decision 8, finding 3): the
+ * The display's system bars as the window frames of floating windows see them (ADR-0041 decision 8): the
  * status bar's height at the top and the navigation bar's at the bottom, in pixels. Android lays a dialog or a floating
  * activity out inside the bars, so its frame centers between them; with none (the default, and the apps' own insets
  * stay none) the frame centers in the whole display, which shows only where the bars differ in height.

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * One WebView's link to the host (ADR-0056 step b2): APKRT_REQUEST_WEBVIEW's MAKE, PLACE, REMOVE, CALL and ANSWER, and
  * a pump thread that reads the host's records from the channel MAKE opened and hands each, in order, to the main
  * Looper. A CALL is a JSON object; one whose JSON passes a record's limit (1 MiB) goes in parts under one request_id,
- * its large field cut, {"part": n, "last": true|false}, which the host joins (Runtime's review of b2). A RESOURCE, the
+ * its large field cut, {"part": n, "last": true|false}, which the host joins. A RESOURCE, the
  * host's ask for a page's request of the app's scheme (step c1), goes to the provider on the pump itself, which
  * answers it from a thread of its own, as Chromium asks shouldInterceptRequest off the UI thread.
  */

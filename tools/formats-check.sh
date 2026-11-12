@@ -83,7 +83,7 @@ write("base/AndroidManifest.xml", f"""<manifest {ANDROID} {DIST} package="org.ex
 """)
 write("base/res/values/strings.xml", '<resources><string name="app_name">Formats</string>'
       '<string name="camera">Camera</string><string name="ar">AR</string></resources>\n')
-write("base/res/values-de/strings.xml", '<resources><string name="app_name">Formate</string></resources>\n')
+write("base/res/values-de/strings.xml", '<resources><string name="app_name">Formats DE</string></resources>\n')
 write("base/res/values-fr/strings.xml", '<resources><string name="app_name">Formats FR</string></resources>\n')
 write("base/res/drawable-xhdpi/icon.png", png(1))
 write("base/res/drawable-xxhdpi/icon.png", png(2))

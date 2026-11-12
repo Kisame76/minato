@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the app-uid faccessat/stat probe on the Mac (framework/tests/java_app_run.py; vfs review finding 1): builds
+# Runs the app-uid faccessat/stat probe on the Mac (framework/tests/java_app_run.py): builds
 # apk-run and apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so
 # (incremental), framework.jar (about 10 s) and storage-access-test (seconds) every time, so it never tests an old
 # binary; then starts storage-access-test through app_process and compares its log with Android 15's on apk-runner-35
