@@ -15,23 +15,23 @@ Status values:
 
 No ADR has been rejected or withdrawn as a whole. Options that were rejected are named inside the ADR that rejected
 them. Where a later ADR replaces part of an earlier one, both entries below say so. Facts F1 to F18 and risks R1 to
-R17 are those of [ARCHITECTURE.md](ARCHITECTURE.md). Status as of 2026-10-30.
+R17 are those of [ARCHITECTURE.md](ARCHITECTURE.md). Status as of 2026-11-12.
 
 ## By topic
 
 | Topic | ADRs |
 |---|---|
 | Fixed principles | 0001 to 0007 |
-| Loader, containers and machine code | 0008, 0010, 0011, 0019, 0020, 0021, 0025, 0030, 0040 |
+| Loader, containers and machine code | 0008, 0010, 0011, 0019, 0020, 0021, 0025, 0030, 0040, 0071, 0072 |
 | Guest libc and the Linux syscall layer | 0009, 0012, 0026, 0027, 0035, 0047, 0052, 0054 |
 | Signing | 0022, 0023 |
 | Toolchain, account, licenses, name | 0014, 0015, 0016, 0017, 0024 |
-| Import and formats | 0018, 0031, 0034, 0048, 0049, 0050, 0051, 0055 |
-| Sessions, windows and the app | 0003, 0032, 0038, 0065, 0066 |
-| Graphics | 0005, 0013, 0029, 0030, 0043, 0044, 0058, 0067 |
-| Frame pacing, input and audio | 0036, 0068 |
+| Import and formats | 0018, 0031, 0034, 0048, 0049, 0050, 0051, 0055, 0077 |
+| Sessions, windows and the app | 0003, 0032, 0038, 0065, 0066, 0076 |
+| Graphics | 0005, 0013, 0029, 0030, 0043, 0044, 0058, 0067, 0075 |
+| Frame pacing, input and audio | 0036, 0068, 0078 |
 | ART and the framework | 0004, 0033, 0039, 0041, 0045, 0046, 0053, 0059, 0069 |
-| Device features and system integration | 0056, 0057, 0060, 0061, 0062, 0063, 0064 |
+| Device features and system integration | 0056, 0057, 0060, 0061, 0062, 0063, 0064, 0073, 0074 |
 | Measurement | 0014, 0037, 0042 |
 | Releases | 0070 |
 
@@ -501,3 +501,94 @@ under Unreleased. A pushed version tag is the release: a workflow creates the Gi
 and `tools/release.sh` builds the IPA on a Mac, signed ad hoc for SideStore and AltStore to sign again. Apps that
 do not work are reported through an issue form; a reporter's APK never enters the repository. The process is in
 [RELEASING.md](RELEASING.md).
+
+### ADR-0071: Guest JIT engines run on their interpreter
+
+Accepted. The core path stays free of a JIT, and an engine inside an app that carries a JIT of its own is switched to
+its own interpreter by the loader, at the engine's API, without editing the app. LuaJIT (LÖVE, Cocos2d-x Lua, Defold)
+is put into its interpreter mode right after its libraries open, JavaScriptCore (React Native's `jsc-android`) starts
+without its JIT, and Mono's AOT mode is replaced by its interpreter mode. The switch takes away the request for
+executable memory; nothing is written or made executable. Mono then runs only with AOT images that carry their
+trampolines and the interpreter's wrappers, so Unity's Mono backend and plain release .NET apps still need a JIT, and
+the import says so. Not covered: a LuaJIT linked into an app's own library without exported names, and CoreCLR (.NET
+10 and later). Get Info names the runtime.
+
+### ADR-0072: libffi closures without executable memory
+
+Accepted; implemented. libffi's closures ask for memory that is writable and executable, which iOS refuses, so Python
+2.7 apps such as older Ren'Py games ended at `import ctypes`. A pool of 4096 trampolines of 32 bytes lives in a
+preloaded guest library that is converted and signed with the other system libraries; each loads two registers from a
+data table and branches, so nothing is generated at run time and only two data words per slot change. Three libffi
+functions (`ffi_closure_alloc`, `ffi_prep_closure_loc`, `ffi_closure_free`) are replaced: by a relocation override
+where the library calls them through a PLT or GOT slot, and by an entry hook that the converter places where a
+statically linked libffi is called directly. Named limits: a libffi without exported names, more than 4096 live
+closures in a process, a libffi built into its caller with link-time optimization, and the deprecated
+`ffi_prep_closure`.
+
+### ADR-0073: Camera on AVFoundation
+
+Accepted; partly implemented. The legacy camera API works; Camera2 and the NDK camera are not in yet. An app sees two
+cameras, "0" back (the wide camera) and "1" front, at hardware level LIMITED with BACKWARD_COMPATIBLE; the ultra wide
+and tele cameras reach an app only as zoom ratios. Streams are PRIVATE (previews), YUV_420_888 (analysis) and JPEG
+(stills); frames stay on the host, and the guest's buffer queue gets a token, so a `SurfaceView` preview costs no
+extra copy. Android's request model is kept: repeating and single requests, a result with a timestamp for every frame,
+and autofocus, exposure and white balance states driven by AVFoundation's own. Mapped controls are autofocus, exposure
+compensation and locks, metering regions, torch and flash, zoom, JPEG orientation and quality, and face detection;
+everything else is accepted and reported as unsupported, as a LIMITED device does. A local camera service stands in
+for Android's, so Camera2's Java stays AOSP's. Not offered: manual sensor control, RAW, logical multi camera,
+concurrent cameras and extensions.
+
+### ADR-0074: App notifications on UNUserNotificationCenter
+
+Accepted; implemented. POST_NOTIFICATIONS is asked in two steps: Minato's own question for the app, then iOS's prompt
+once for Minato. An app posts, cancels and lists notifications through a framework service that asks the host; a post
+becomes a `UNUserNotificationCenter` request identified by package, tag and id, so a repost replaces it, with the
+app's name as the subtitle and sound and interruption level taken from the channel's importance. While the app is in
+front, important notifications show a banner and the rest go to the list. A tap while the app runs gives the app its
+content intent; after the process ended, the tap restarts the app with a stored intent, and the host starts only an
+explicit activity of the same package from it, anything else only opens the app. Not mapped: icons, custom views,
+progress, actions and direct reply, ongoing notifications, badges, LED and vibration patterns. Notifications show only
+while the app runs or until iOS suspends it; nothing posts from the background, and push messages need Play services,
+which are absent.
+
+### ADR-0075: Texture parking in ANGLE Metal
+
+Accepted; implemented. An app that keeps every texture of a long image sequence alive can be killed by iOS near the
+memory limit, and the system's memory compressor does not help GPU memory. ANGLE's Metal backend now parks idle
+textures: sampled-only 2D textures of at least 256 KiB that were unused for 30 swaps, oldest first, are copied to a
+shared buffer, compressed with LZ4 on a background queue (with a second LZFSE pass after 5 s), and their storage is
+dropped at the next swap if they are still unused. A texture is restored losslessly at its first use, so the output is
+bit-identical. Parking starts when `os_proc_available_memory` falls below 1 GiB, stops at 1.5 GiB and turns urgent
+below 384 MiB; an iOS memory warning also starts a round. Only Apple's compression library is used. An app whose
+frames compress badly only gets its kill later.
+
+### ADR-0076: The starting window for every app
+
+Accepted; implemented. Every app shows a starting window at once at every cold start, as Android 12 and later do: a
+host-drawn view above the session's windows, gone at the first frame of the starting activity's window, whichever call
+produces it. Its colour is the one Android's shell computes from the activity's theme (`windowSplashScreenBackground`,
+else the colour of `windowBackground`, else white by day and black by night); the guest framework computes it and the
+host keeps it per package and mode, so the first start shows Android's default and every later start the right colour.
+The icon is the library's, 160 points across, masked to a circle. `Activity.getSplashScreen()` answers all its calls,
+its exit animation never fires, and `setSplashScreenTheme` is kept per package. Not taken: the theme's animated icon
+and branding image, warm starts, and translucent or floating starting activities.
+
+### ADR-0077: Apps that install or uninstall other apps
+
+Accepted; implemented. Minato has no system installer, so the framework answers as Android 15 does and asks the host.
+To install, the host asks the user once per app whether it may install apps, then before each install, and imports the
+APK or split set like any import. To uninstall, `ACTION_DELETE`, `ACTION_UNINSTALL_PACKAGE` and
+`PackageInstaller.uninstall` reach a framework activity that refuses an app without `REQUEST_DELETE_PACKAGES` as
+Android does and otherwise only asks the host, which names the target app to the user and removes it only after a yes;
+there is never a silent removal of another app's content or data. The host takes the asking app from its own session,
+never from the guest's text. A named departure: for a package that is not there, Minato answers at once instead of
+showing Android's "App not found" dialog.
+
+### ADR-0078: A global frame rate limit in Settings
+
+Accepted; implemented. Settings, under Apps, has a "Frame Rate Limit" of 120, 60 or 30 fps (only the steps the screen
+shows); the default is the screen's highest, which is no limit. The guest sees the limit as the display's refresh
+rate, as on Android with Smooth Display off, and a change applies at an app's next start. The host's frame clock ticks
+at most at the limit, and an app that presents faster without pacing is held at the present. An app's own FPS unlock
+(ADR-0066) wins over the limit, and the benchmark build keeps its fixed setup. The limit covers the session's clock
+and the guest's presents, not Minato's own interface.
