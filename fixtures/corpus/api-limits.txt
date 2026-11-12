@@ -12,6 +12,8 @@
 # reason telephony: an iPhone gives an app no telephony stack: calls, SMS, SIM, eSIM, SIP, RTP, carrier and IMS services
 # reason test-only: instrumentation and test automation: runs only under an instrumentation
 # reason tv-platform: Android TV platform services and views (TV input, ads, interactive apps): an iPhone is no TV
+# reason usb-host: the USB host API (MTP over USB): no iOS API, and COMPATIBILITY.md says there is no USB host
+# reason vpn-role: a VPN app's profile: no system roles, so no VPN tunnel (COMPATIBILITY.md, No system roles)
 # reason wifi-hardware: Wi-Fi Aware, RTT, Passpoint, Wi-Fi Direct discovery, Easy Connect, Wi-Fi setup: no iOS API
 
 org.apache.http.conn.ConnectTimeoutException not fetched apache-http
@@ -31,6 +33,7 @@ android.net.vcn.VcnCellUnderlyingNetworkTemplate module carrier-network
 android.net.vcn.VcnConfig module carrier-network
 android.net.vcn.VcnGatewayConnectionConfig module carrier-network
 android.net.vcn.VcnManager service carrier-network
+android.net.vcn.VcnUnderlyingNetworkTemplate pure Java carrier-network
 android.net.vcn.VcnWifiUnderlyingNetworkTemplate module carrier-network
 android.app.admin.DeviceAdminService service device-admin
 android.app.admin.DevicePolicyResourcesManager service device-admin
@@ -145,6 +148,8 @@ android.media.tv.ad.TvAdView service tv-platform
 android.media.tv.interactive.TvInteractiveAppManager native tv-platform
 android.media.tv.interactive.TvInteractiveAppService service tv-platform
 android.media.tv.interactive.TvInteractiveAppView service tv-platform
+android.mtp.MtpDevice native usb-host
+android.net.Ikev2VpnProfile module vpn-role
 android.net.wifi.EasyConnectStatusCallback module api wifi-hardware
 android.net.wifi.MloLink module api wifi-hardware
 android.net.wifi.WifiAvailableChannel module api wifi-hardware
