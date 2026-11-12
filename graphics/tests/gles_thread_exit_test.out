@@ -1,0 +1,2 @@
+a thread destroyed its current context and ended: destroy answered EGL_TRUE; color textures back to the count before it
+gles thread exit: the context went with its thread, as on Android

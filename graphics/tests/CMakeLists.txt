@@ -705,6 +705,10 @@ if(TARGET minato_graphics_host)
     # context made current in between, or the context destroyed in between, drops them.
     add_guest_test(gles_deferred_delete gles-deferred-delete-test gles_deferred_delete_test
       "${gles_system_libraries}" ${with_angle})
+    # A thread that ends with a context current lets it go, as Android's libEGL does at its thread's end: a context
+    # destroyed while current is freed with the thread.
+    add_guest_test(gles_thread_exit gles-thread-exit-test gles_thread_exit_test
+      "${gles_system_libraries}" ${with_angle})
     # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
     # runs alone.
     add_guest_test(present_limit present-limit-test present_limit_test "${gles_system_libraries}" ${with_angle})

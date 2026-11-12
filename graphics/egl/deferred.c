@@ -71,6 +71,9 @@ static void forget(void *value) {
     drop(queue);
     pthread_mutex_unlock(&lock);
     free(queue);
+    // The thread is ending; another key's destructor (display.c's, eglReleaseThread) may still run after this one.
+    mine = NULL;
+    released = 0;
 }
 
 static void make_key(void) { pthread_key_create(&key, forget); }

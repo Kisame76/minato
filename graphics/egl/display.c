@@ -27,7 +27,8 @@
    - eglMakeCurrent, eglCreateContext, eglDestroyContext and eglReleaseThread go to ANGLE, traced with
      MINATO_EGL_TRACE=1 (trace.c). eglMakeCurrent's failure is logged (E/libEGL, at most one line a second, the others
      counted), and so is the first time a context is made current without a draw surface (diagnostics that stay in
-     the build). */
+     the build). A thread that ends with a context current releases it through eglReleaseThread, as Android's
+     libEGL does at a thread's end. */
 #include <android/log.h>
 #include <android/native_window.h>
 #include <pthread.h>
@@ -459,12 +460,34 @@ static unsigned reset_status(void) {
     return status != NULL ? status() : 0;
 }
 
+/* A thread that ends with a context current lets it go, as Android's libEGL does: its pthread key's destructor
+   (frameworks/native opengl/libs/EGL/egl_tls.cpp, destructTLSData) calls eglReleaseThread, so the context stops being
+   current and one the app destroyed meanwhile is freed. ANGLE does so only on Android (global_state.cpp,
+   ThreadCleanupCallback). The key holds a value while a context is current on the thread. */
+static pthread_key_t current_key;
+static pthread_once_t current_key_once = PTHREAD_ONCE_INIT;
+
+static void thread_ended(void *value) {
+    (void)value;
+    if (eglGetCurrentContext() != EGL_NO_CONTEXT) {
+        eglReleaseThread();
+    }
+}
+
+static void make_current_key(void) { pthread_key_create(&current_key, thread_ended); }
+
+static void note_current(EGLContext context) {
+    pthread_once(&current_key_once, make_current_key);
+    pthread_setspecific(current_key, context != EGL_NO_CONTEXT ? (void *)1 : NULL);
+}
+
 EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
     const EGLContext before = eglGetCurrentContext();
     const EGLBoolean result = minato_host_eglMakeCurrent(display, draw, read, context);
     const EGLint error = result ? EGL_SUCCESS : minato_peek_error();  // read once, kept for the app
     if (result) {
         minato_deferred_current(before, context);  // deferred.c: a release, or the deletes made since applied
+        note_current(context);
     }
     if (minato_trace_on()) {
         if (result) {
@@ -518,6 +541,7 @@ EGLBoolean eglReleaseThread(void) {
     const EGLBoolean result = minato_host_eglReleaseThread();
     if (result) {
         minato_deferred_release_thread();
+        note_current(EGL_NO_CONTEXT);
     }
     if (minato_trace_on()) {
         if (result) {
