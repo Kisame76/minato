@@ -811,17 +811,68 @@ TEST(the_commit_park_drops_until_onStop_and_the_surface_is_told_then_parks_until
     apkrt_window_told(id);                          // surfaceDestroyed has returned
     std::atomic<int> result{-1};
     std::thread committer([&] { result.store(apkrt_background_commit_park()); });
-    std::this_thread::sleep_for(50ms);
-    CHECK(result.load() == -1);                    // now it parks: the committing thread has not returned
+    // It parks: poll the gate's count rather than sleep a fixed time (a starved committer may not have parked
+    // within 50 ms, which made the count check a false red under load).
+    CHECK(within(2s, [&] {
+        std::uint32_t at_gate = 0;
+        apkrt_background_gate(&at_gate, nullptr);
+        return at_gate >= 1;
+    }));
+    CHECK(result.load() == -1);                    // and it has not returned: still parked, not dropped
     CHECK(apkrt_is_background() == 1);             // the gate frees its lock while parked: other gate calls answer
-    std::uint32_t parked = 0;
-    apkrt_background_gate(&parked, nullptr);
-    CHECK(parked >= 1);                            // the park is counted at the gate
     apkrt_set_background(0);
     CHECK(within(2s, [&] { return result.load() != -1; }));
     CHECK(result.load() == 1);                     // it parked, so the caller commits instead of dropping
     committer.join();
     apkrt_window_remove(id);
+}
+
+// Waits up to two seconds for a committer to be counted parked at the background commit gate.
+bool a_committer_parks() {
+    return within(2s, [] {
+        std::uint32_t at_gate = 0;
+        apkrt_background_gate(&at_gate, nullptr);
+        return at_gate >= 1;
+    });
+}
+
+TEST(the_commit_park_wakes_and_drops_when_a_surface_is_removed_after_it_parked) {
+    // A committer parks after onStop with no destroy in progress.
+    const auto id = apkrt_window_add(nullptr, 1920, 1080);
+    apkrt_set_background(1);
+    std::atomic<int> result{-1};
+    std::thread committer([&] { result.store(apkrt_background_commit_park()); });
+    CHECK(a_committer_parks());
+    CHECK(result.load() == -1);                   // parked, not yet returned
+    // Now a late surfaceDestroyed removes a window (told later). On Android a destroy callback may wait on this
+    // very thread, so the park must wake and drop; a gate that only wakes on the foreground hangs it here.
+    CHECK(apkrt_window_remove_untold(id) == 0);
+    const bool woke = within(2s, [&] { return result.load() != -1; });
+    if (!woke) apkrt_set_background(0);           // rescue a wrongly-parked committer so the test fails, not hangs
+    committer.join();
+    CHECK(woke);                                  // the removal woke it
+    CHECK(result.load() == 0);                    // and it dropped: the surface is being destroyed
+    apkrt_window_told(id);
+    apkrt_set_background(0);
+}
+
+TEST(the_commit_park_wakes_and_drops_when_a_window_is_removed_in_the_background) {
+    // A committer parks after onStop.
+    const auto id = apkrt_window_add(nullptr, 1920, 1080);
+    apkrt_set_background(1);
+    std::atomic<int> result{-1};
+    std::thread committer([&] { result.store(apkrt_background_commit_park()); });
+    CHECK(a_committer_parks());
+    CHECK(result.load() == -1);
+    // finish()/Quit in the background removes the window while still backgrounded; no foreground will come. The
+    // teardown then waits for a pause answer from the app threads, so a parked committer must wake and drop.
+    CHECK(apkrt_window_remove(id) == 0);
+    const bool woke = within(2s, [&] { return result.load() != -1; });
+    if (!woke) apkrt_set_background(0);
+    committer.join();
+    CHECK(woke);                                  // the removal woke it
+    CHECK(result.load() == 0);                    // and it dropped
+    apkrt_set_background(0);
 }
 
 TEST(the_background_counts_the_waits_at_the_gate_and_the_longest) {

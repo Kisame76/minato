@@ -76,6 +76,11 @@ std::uint32_t gate_parked = 0;
 std::uint64_t gate_longest = 0;  // of the waits that ended, ns
 std::uint32_t gate_running = 0;  // waits now
 std::uint64_t gate_since = 0;    // the start of the oldest wait now
+// A monotonic count of the events that must release a committer parked at the background commit gate: a foreground,
+// and every window removal (a late surfaceDestroyed told later, or a finish/quit teardown). A park that began at
+// one value wakes when it changes, so a release that is not a clean foreground wakes the committer to DROP rather
+// than leaving it to hang a destroy or teardown that may wait on that thread. Under `lock`.
+std::uint64_t commit_release = 0;
 
 apkrt_window_buffers buffers{};  // the windows' buffers (ADR-0043, decision 3); lock is NULL without them
 
@@ -308,6 +313,10 @@ int remove_window(uint64_t id, bool tell_later) {
         windows.erase(windows.begin() + (window - windows.data()));
         if (tell_later) untold.push_back(id);
         notify_waiters();
+        // Wake a committer parked at the background commit gate so it drops: this removal's destroy or teardown
+        // callback (run below, after the lock) may wait on that very thread.
+        ++commit_release;
+        foreground.notify_all();
         with = buffers;
     }
     apkrt::stall::surface_removed(id);  // stop watching it if it was an app surface (ignored otherwise)
@@ -346,6 +355,8 @@ void apkrt_set_background(int on) {
     if (on != 0) {
         gate_parked = 0;
         gate_longest = 0;
+    } else {
+        ++commit_release;  // a foreground releases a parked committer even if a background at once follows it
     }
     notify_waiters();
     if (on == 0) foreground.notify_all();
@@ -471,24 +482,32 @@ void apkrt_wait_foreground(void) {
 }
 
 // graphics/host's background deferral (ADR-0029 addendum): the alternative to dropping the oldest deferred command
-// buffer when ANGLE's FIFO is full. It parks the calling (committing) GL thread at the background gate until
-// foreground and returns 1, so the buffer commits on resume and its work is not lost -- but ONLY once the process
-// is backgrounded AND every surfaceDestroyed has returned (untold empty). apkrt_set_background(1) is called only
-// after onStop (ADR-0029 decision 15); an untold window means a destroy callback is still running and may wait on
-// this very thread (SDL), so parking before it is told would hang surfaceDestroyed. In every other state it
-// returns 0 at once and never parks, so neither onStop nor surfaceDestroyed can stall. The caller (ANGLE, with its
-// own submit lock released first) drops on 0 and retries the commit on 1. Shares apkrt_wait_foreground's gate and
-// counters and releases `lock` while it waits, so it never blocks another gate call.
+// buffer when ANGLE's FIFO is full. It parks the calling (committing) GL thread at the background gate and returns
+// 1 once the process returns to the foreground, so the buffer commits on resume and its work is not lost -- but it
+// parks ONLY from the backgrounded-and-quiescent state: the process is backgrounded AND every surfaceDestroyed has
+// returned (untold empty). apkrt_set_background(1) is called only after onStop (ADR-0029 decision 15); an untold
+// window means a destroy callback is still running and may wait on this very thread (SDL), so parking before it is
+// told would hang surfaceDestroyed. In every other entry state it returns 0 at once and never parks.
+//
+// While parked it must still never hold up a thread that waits on it. So besides the foreground it also wakes on
+// any window removal (commit_release, bumped under `lock` by remove_window and by a foreground): a late
+// surfaceDestroyed told later, or a finish/quit teardown that removes a window while still backgrounded and never
+// reaches a foreground. On any wake that is not a clean foreground (untold set, still backgrounded, or a brief
+// foreground a later background reverted) it returns 0 so the caller DROPS the buffer and the removing or teardown
+// thread proceeds. The caller (ANGLE, with its own submit lock released first) drops on 0 and retries the commit
+// on 1. Shares apkrt_wait_foreground's gate and counters and releases `lock` while it waits, so it never blocks
+// another gate call.
 int apkrt_background_commit_park(void) {
     std::unique_lock<std::mutex> hold(lock);
     if (!in_background.load() || !untold.empty()) return 0;
+    const std::uint64_t release = commit_release;
     const std::uint64_t start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     ++gate_parked;
     if (gate_running++ == 0) gate_since = start;
-    foreground.wait(hold, [] { return !in_background.load(); });
+    foreground.wait(hold, [release] { return !in_background.load() || !untold.empty() || commit_release != release; });
     gate_longest = std::max(gate_longest, clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start);
     --gate_running;
-    return 1;
+    return !in_background.load() && untold.empty() ? 1 : 0;
 }
 
 int apkrt_set_window_buffers(const apkrt_window_buffers *set) {
