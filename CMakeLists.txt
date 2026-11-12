@@ -173,6 +173,10 @@ if(APK_HOST_BUILD)
   # than its sources (a jar built alone), silence when it is fresh, and exit 0 always.
   add_test(NAME tools.warn_native_stale
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/warn_native_stale_test.sh")
+  # The framework pair's rule over tools/*.sh: a script that builds framework.jar builds its native side too, except
+  # the jar-only checks that start no guest; planted cases must fail and pass it as they should.
+  add_test(NAME tools.framework_native_pair
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/framework_native_pair_test.sh")
   # tools/provisioning-updates.sh: the builds ask Apple (the Xcode account) only when a profile is about to run out,
   # against profiles made in a temp folder.
   add_test(NAME tools.provisioning_updates
