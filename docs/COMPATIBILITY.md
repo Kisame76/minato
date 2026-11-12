@@ -177,8 +177,8 @@ The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry nam
   Pages that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` load as on
   Android, on the iPhone too. A page from the app's assets sees `minato-asset:` as its protocol where Android says
   `file:`. A page also shows under a window's theme background (a splash that the app takes away once the page is
-  ready), and `onPageCommitVisible`, `getContentHeight`, `getContentWidth` and a `PictureListener` answer as they do on
-  Android; the eight WebView test pages behave the same on the iPhone.
+  ready), and `onPageCommitVisible`, `getContentHeight` and a `PictureListener` answer as they do on Android; the eight
+  WebView test pages behave the same on the iPhone.
 
 **Partly closed:**
 
@@ -208,9 +208,10 @@ The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry nam
 - Framework breadth (gap 22): some public types of Android 15's API are still missing from `framework.jar`; this release
   added more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets, the
   provider contracts for the calendar, the call log and voicemail, VpnService with Android's own IpPrefix, LinkAddress
-  and RouteInfo, SpeechRecognizer, and the TV input, device controls, MBMS, device policy, autofill service, identity
-  credential and credential provider types, and the ones still missing are rare in apps. The text classifier answers as
-  a phone without its model does, and Linkify finds web and e-mail addresses and phone numbers.
+  and RouteInfo, SpeechRecognizer, SliceMetrics, ApplicationStartInfo, VisualVoicemailService, the assist structure, the
+  autofill service's requests, MediaRouteButton, and the TV input, device controls, MBMS, device policy, autofill
+  service, identity credential and credential provider types, and the ones still missing are rare in apps. The text
+  classifier answers as a phone without its model does, and Linkify finds web and e-mail addresses and phone numbers.
 
 **Found after the list was made, not in the count:**
 

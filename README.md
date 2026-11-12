@@ -15,15 +15,15 @@ The name is Japanese: 港, *minato*, a harbor; in Old Japanese, "the gate of the
 
 When you import an app, Minato reads its manifest, resources and signatures, picks the parts built for 64-bit ARM, and
 checks every native library. iOS runs only signed code, so each library is converted at import: a few machine
-instructions that cannot work on iOS (the thread pointer, Linux system calls, the `x18` register) are replaced, and
-the library is packed into a Mach-O file that Minato signs on the device with the same certificate it was installed
-with. A library that holds something no replacement can run is refused at import with every reason at once; a word
-that no current CPU can execute is kept as it is and counted. When the app starts, Minato restarts itself into that
-app. Its own loader links the libraries as Android's linker would, on top of AOSP's real C library (Bionic) and a
-Linux system-call layer written for iOS. Java and Kotlin code runs on AOSP's ART, built for this purpose, with
-Android's Java framework running inside the same process. Graphics go through ANGLE (OpenGL ES on Metal) and MoltenVK
-(Vulkan on Metal); sound, touch, keys, sensors, location, file pickers and links are bridged to their iOS
-counterparts. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the details.
+instructions that cannot work on iOS (the thread pointer, Linux system calls, the `x18` register) are replaced, and the
+library is packed into a Mach-O file that Minato signs on the device with the same certificate it was installed with;
+the certificate and its key stay in the iPhone's keychain. A library that holds something no replacement can run is
+refused at import with every reason at once; a word that no current CPU can execute is kept as it is and counted. When
+the app starts, Minato restarts itself into that app. Its own loader links the libraries as Android's linker would, on
+top of AOSP's real C library (Bionic) and a Linux system-call layer written for iOS. Java and Kotlin code runs on AOSP's
+ART, built for this purpose, with Android's Java framework running inside the same process. Graphics go through ANGLE
+(OpenGL ES on Metal) and MoltenVK (Vulkan on Metal); sound, touch, keys, sensors, location, file pickers and links are
+bridged to their iOS counterparts. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the details.
 
 ## Status
 
@@ -87,8 +87,8 @@ What a free Apple account means:
   account through SideStore does not receive (Get Info shows whether it is there). Most apps fit; very large
   games may not.
 
-Minato needs an iPhone with iOS 26 or later; it is developed and measured on iOS 27 with an A17 Pro. Releases are
-betas, listed in [CHANGELOG.md](CHANGELOG.md).
+Minato supports the iPhone 15 Pro Max and newer with iOS 26 or later, and is tested on an iPhone 15 Pro Max. It is
+developed and measured on iOS 27 with an A17 Pro. Releases are betas, listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Leaving an app
 
