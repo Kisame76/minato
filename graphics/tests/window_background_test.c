@@ -55,6 +55,11 @@ int main(void) {
     usleep(400000);
     printf("its post once the window is gone: %d\n", ANativeWindow_unlockAndPost(window));
     printf("a lock once the window is gone: %d\n", ANativeWindow_lock(window, &buffer, NULL));
+    /* Once the host's window is gone the held window keeps its last size and its requested format (the glue's
+       documented behaviour, runtime/android/native_window.cpp): the size whatever the geometry, the format once set. */
+    printf("getWidth once the window is gone: %d\n", ANativeWindow_getWidth(window));
+    printf("getHeight once the window is gone: %d\n", ANativeWindow_getHeight(window));
+    printf("getFormat once the window is gone: %d\n", ANativeWindow_getFormat(window));
     printf("posts before that answered neither 0 nor -ENODEV: %d\n", others);
     ANativeWindow_release(window);
     return 0;

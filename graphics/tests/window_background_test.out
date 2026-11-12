@@ -1,4 +1,7 @@
 a lock held over the window's removal: 0
 its post once the window is gone: -19
 a lock once the window is gone: -19
+getWidth once the window is gone: 64
+getHeight once the window is gone: 48
+getFormat once the window is gone: 1
 posts before that answered neither 0 nor -ENODEV: 0
