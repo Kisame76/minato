@@ -295,7 +295,7 @@ TEST(runs_x18_uses_in_islands) {
     CHECK(convert(shadow_call_stack).report.x18_islands == 2);
 }
 
-// A function with a jump table through x18, as clang 8 builds one (ADR-0020 X2d), at 0x200:
+// A function with a jump table through x18, as clang 8 builds one (ADR-0020d), at 0x200:
 // f(i) returns 10 + i for i from 0 to 3 and -1 otherwise. Its table of 32-bit offsets is at 0x280.
 constexpr std::uint32_t jump_table_code[] = {
     0xaa00'03f2,               // 0x200 mov x18, x0
@@ -420,7 +420,7 @@ std::vector<apk_c_range> c_range_table(const apk::container::Container &containe
     return ranges;
 }
 
-// ADR-0020 X4: the island table has one entry per x18 island, sorted by address, with what the
+// ADR-0020: the island table has one entry per x18 island, sorted by address, with what the
 // runtime needs to send a thread that stopped inside the island back to the guest.
 TEST(the_island_table_describes_every_x18_island) {
     auto builder = static_program();
@@ -635,7 +635,7 @@ TEST(drops_a_c_function_an_exclusive_window_straddles) {
 // veneer, and because that branch leaves the function it becomes a (c) branch_exit whose sync stores the rename
 // register to the guest-x18 TSD slot BEFORE the veneer runs. So slot 11 is current through the veneer, and a signal
 // stopped there (which reads the stale slot 11 over A0's path) sees the right x18. The pre-count builds a patched
-// preview of the body so it reserves that branch_exit island (Q2/Fix B; the write-of-x18-in-the-veneer case is a
+// preview of the body so it reserves that branch_exit island (the write-of-x18-in-the-veneer case is a
 // named limit -- x18 is Android's reserved SCS pointer, and the veneer returns straight to site+4 with no reload).
 TEST(takes_a_c_function_with_a_co_resident_syscall) {
     auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // fn = [0x200, 0x218)
@@ -1181,7 +1181,7 @@ TEST(c_rename_register_refuses_a_branch_into_the_function_interior) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
 }
 
-// Hole 1 (lead review): "tightest by start" can pick a nested or overlapping sized symbol (an inner label), renaming
+// Hole 1: "tightest by start" can pick a nested or overlapping sized symbol (an inner label), renaming
 // only part of a real function. Refuse unless every sized symbol overlapping the chosen bounds has exactly them: here
 // inner [0x208, 0x210) is chosen but outer [0x200, 0x218) overlaps it. The rets at 0x204 and 0x20c keep nothing
 // falling into or out of inner, so only the overlap refuses.
@@ -1208,7 +1208,7 @@ TEST(c_rename_register_refuses_a_fallthrough_past_the_function) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x208) == std::nullopt);
 }
 
-// Hole 3 (lead review): begin's instruction becomes a branch to the entry island, which reloads the rename register
+// Hole 3: begin's instruction becomes a branch to the entry island, which reloads the rename register
 // from TSD slot 11. A non-call branch inside the function back to begin would rerun that reload mid-function and
 // clobber the live register with a stale slot 11 (stores happen only at exits and calls). Refuse such a function.
 TEST(c_rename_register_refuses_an_internal_branch_back_to_begin) {
@@ -1225,7 +1225,7 @@ TEST(c_rename_register_allows_a_recursive_call_to_begin) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x208).has_value());
 }
 
-// Hole 5 (lead review): a call island leaves x30 pointing into the stub. A `bl .+4` PC-getter (its next instruction
+// Hole 5: a call island leaves x30 pointing into the stub. A `bl .+4` PC-getter (its next instruction
 // reads x30 as its own address) would then compute a wrong address, so (c) refuses the function.
 TEST(c_rename_register_refuses_a_pc_getter_call) {
     auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}});  // [0x200, 0x218), ret at 0x214
@@ -1233,7 +1233,7 @@ TEST(c_rename_register_refuses_a_pc_getter_call) {
     CHECK(apk::container::c_rename_register(prog.bytes, 0x210) == std::nullopt);
 }
 
-// Hole 5 rule 3 (lead review): a direct BL to a sized in-file callee that reads x30 as a value is refused -- that
+// Hole 5 rule 3: a direct BL to a sized in-file callee that reads x30 as a value is refused -- that
 // callee runs with x30 pointing into our call island and would read it as data (inline data after a call).
 TEST(c_rename_register_refuses_a_bl_to_a_callee_that_reads_x30) {
     auto prog = static_program(0x4800, {{"fn", 0x200, 0x18}, {"callee", 0x218, 0x8}});
@@ -1311,7 +1311,7 @@ TEST(the_refusal_text_carries_the_per_site_facts) {
                  "register");
 }
 
-// ADR-0020 X7 (c2): an x18 use that only an exclusive access refuses (here a store-exclusive with x18 as its data and no
+// ADR-0020: an x18 use that only an exclusive access refuses (here a store-exclusive with x18 as its data and no
 // load-exclusive of its window in sight) runs in an ordinary island whose own accesses lie inside a guest LL/SC; the
 // container then carries the flag the loader asks the exclusive-monitor probe about, and the report counts the island. A
 // library without such a site has neither.
@@ -1411,7 +1411,7 @@ TEST(refuses_what_cannot_run) {
     CHECK_THROWS(Incompatible, convert(segment_runs_program(0x18500, 0x8000)),
                  "GNU_RELRO at 0x84c0 size 0x8000 is not inside one run of writable pages");
 
-    // Hostile sizes (the reviewer's finding): a segment whose end wraps around 2^64, a later one that wraps, and an
+    // Hostile sizes: a segment whose end wraps around 2^64, a later one that wraps, and an
     // image larger than 4 GiB, whose zero-filled data before code would all go into the file.
     auto wrapping = static_program();
     wrapping.put<std::uint64_t>(64 + 56 + 40, ~std::uint64_t{0} - 0x3fff);  // p_memsz of the code segment
@@ -1427,7 +1427,7 @@ TEST(refuses_what_cannot_run) {
 
     // A writable and executable LOAD segment, which Android's linker refuses for apps targeting API 26 or later
     // (ElfReader::LoadSegments) and iOS cannot run; an executable section beyond its segment's file part, whose
-    // rewritten sites would lie outside the container's bytes (the review's finding).
+    // rewritten sites would lie outside the container's bytes.
     auto writable_code = static_program();
     writable_code.put<std::uint32_t>(64 + 56 + 4, r | w | x);  // p_flags of the code segment
     CHECK_THROWS(Incompatible, convert(writable_code), "LOAD segment at 0x0 is writable and executable");
@@ -1531,8 +1531,8 @@ ElfBuilder program_with_relocation_flood(std::size_t entries) {
 }
 
 TEST(a_flood_of_refused_relocations_costs_a_count_not_a_message_each) {
-    // 4 MiB of bitmaps name some 26 million relocations; the reason is made once, for the first (the review:
-    // 25 s with a message each).
+    // 4 MiB of bitmaps name some 26 million relocations; the reason is made once, for the first (25 s with a
+    // message each before).
     const auto flood = program_with_relocation_flood(std::size_t{4} << 17);
     const auto start = std::chrono::steady_clock::now();
     const auto reasons = apk::container::refusals(flood.bytes);
@@ -1544,7 +1544,7 @@ TEST(a_flood_of_refused_relocations_costs_a_count_not_a_message_each) {
 }
 
 TEST(a_bad_relocation_is_named_before_a_later_table_that_cannot_be_read) {
-    // convert() named the first bad relocation before it looked at the later tables (the review): a RELR
+    // convert() named the first bad relocation before it looked at the later tables: a RELR
     // text relocation, then a RELA table outside the file.
     auto first = static_program();
     first.put<std::uint64_t>(0x160, 0x200);  // a relocation into the code
@@ -1607,7 +1607,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(!headerless.empty());
     CHECK(contains(headerless.back(), "section headers"));
 
-    // What convert() refuses only after the scan (here the container's size) shows too (the review).
+    // What convert() refuses only after the scan (here the container's size) shows too.
     auto big_container = static_program((std::uint64_t{256} << 20) + 0x4800);
     big_container.put<std::uint64_t>(64 + 56 + 40, std::uint64_t{256} << 20);
     big_container.put<std::uint64_t>(64 + 2 * 56 + 16, (std::uint64_t{256} << 20) + 0x42c0);
@@ -1644,7 +1644,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     const auto cut = std::vector<std::byte>(whole.bytes.begin(), whole.bytes.begin() + 100);
     CHECK(refusals(cut).size() == 1);
 
-    // A name from the file never breaks a reason into lines (the review): control characters become spaces.
+    // A name from the file never breaks a reason into lines: control characters become spaces.
     auto named = static_program();
     named.put<std::uint64_t>(64 + 56 + 32, 0x210);
     auto patched = named.bytes;

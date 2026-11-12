@@ -69,11 +69,11 @@ struct Unsupported {
 const char *instruction_kind(std::uint32_t word);
 
 /// A run from a load-exclusive to the store-exclusive or CLREX that closes it, with at least one
-/// use of x18 inside (ADR-0020 X2c). No other memory access may fall between the two, so the whole
+/// use of x18 inside (ADR-0020c). No other memory access may fall between the two, so the whole
 /// run is relocated as one island: x18 becomes a scratch register throughout, loaded from the TSD
 /// once before the run and stored back once after, both outside the exclusive window. Only a window
 /// that runs the same when it runs again from its load-exclusive is relocated: a signal inside the
-/// island sends the thread back there (ADR-0020 X4).
+/// island sends the thread back there (ADR-0020).
 struct ExclusiveRegion {
     std::uint64_t address;             // of the load-exclusive, in the address space given to scan()
     std::vector<std::uint32_t> words;  // the whole window, load-exclusive to close, inclusive
@@ -81,14 +81,14 @@ struct ExclusiveRegion {
     bool writes_x18 = false;           // x18 is written -> store the scratch back after
     std::uint8_t scratch = 0;          // stands in for x18 across the window (the value)
     std::uint8_t base = 0;             // holds the TSD base for the store-back; used only when writing
-    /// Words of the window, after its first, that a direct branch from outside lands on (ADR-0020 X7): each gets an
+    /// Words of the window, after its first, that a direct branch from outside lands on (ADR-0020): each gets an
     /// entry pad behind the island, which the container patches into the guest word with a branch to it.
     std::vector<std::uint32_t> entries;
 
     bool operator==(const ExclusiveRegion &) const = default;
 };
 
-/// A `br x18` that ends a jump table as compilers build it (ADR-0020 X2d):
+/// A `br x18` that ends a jump table as compilers build it (ADR-0020d):
 ///   cmp wI, #n; b.hi …; … ldrsw x18, [xB, xI, lsl #2]; add x18, x18, xB; br x18
 /// with the table base from ADRP and ADD in xB. Its island reads the target the guest computed and
 /// branches on through a landing pad, one per word of the targets' span, which restores the
@@ -127,9 +127,9 @@ struct Findings {
     /// Uses of x18 that no island handles; the converter refuses a file with any of them.
     std::vector<Unsupported> x18_unsupported;
     /// Register branches that are no recognized jump table, each of which ended the monitor hull of a path an LL/SC window
-    /// or an in-sequence x18 use was judged by (ADR-0020 X7 (c1)): the import report counts them.
+    /// or an in-sequence x18 use was judged by (ADR-0020): the import report counts them.
     std::set<std::uint64_t> hull_ending_register_branches;
-    /// x18 uses that run in an ordinary island although an LL/SC window or sequence of the guest holds them (ADR-0020 X7
+    /// x18 uses that run in an ordinary island although an LL/SC window or sequence of the guest holds them (ADR-0020
     /// c2): the island's own accesses (the TSD load, the red-zone saves, the store to slot 11) lie between the guest's
     /// load- and store-exclusive. Atomicity never depends on them; whether the loop makes progress depends on the core's
     /// monitor keeping through an access to another granule, which the runtime probes (C3b's method) before it loads a
@@ -144,9 +144,9 @@ struct Findings {
     /// x18) is in neither count.
     std::size_t x18_defined_in_loop = 0;
     std::size_t x18_live_in = 0;
-    /// Load-/store-exclusive windows with x18 inside, each relocated as one island (ADR-0020 X2c).
+    /// Load-/store-exclusive windows with x18 inside, each relocated as one island (ADR-0020c).
     std::vector<ExclusiveRegion> exclusive_regions;
-    /// Each `br x18` that ends a jump table, run in an island with landing pads (ADR-0020 X2d).
+    /// Each `br x18` that ends a jump table, run in an island with landing pads (ADR-0020d).
     std::vector<JumpTable> jump_tables;
     /// Load-exclusives of windows that use x18 only as a temporary and run as they are, with x18 in the register
     /// (ADR-0020, the Unity test APK step B): a pass that loses x18 to a context switch fails its store-exclusive.
@@ -172,7 +172,7 @@ inline constexpr std::uint32_t guest_thread_pointer_offset = 8 * 6;
 inline constexpr std::uint32_t guest_x18_offset = 8 * 11;
 
 /// Scans the instructions in `code`, which starts at `address`, and appends what it finds. Tables of
-/// jump tables are read through `read_only_data`; without it, a br x18 is refused. With `monitor_inside` (ADR-0020 X7
+/// jump tables are read through `read_only_data`; without it, a br x18 is refused. With `monitor_inside` (ADR-0020
 /// c2; the converter's choice, off here so that the conservative analysis stays testable on its own) an x18 use that
 /// only an LL/SC window's shape, an exclusive sequence or its own exclusive access refuses runs in an ordinary island,
 /// and is listed in Findings::monitor_inside_sites.
@@ -209,7 +209,7 @@ bool has_internal_branch_to_begin(std::span<const std::byte> code, std::size_t b
 /// leaves x30 pointing into the stub, so a callee it reaches must not read x30 as data (inline data after a call).
 bool reads_link_register_as_value(std::span<const std::byte> code);
 
-/// Whether a renamed `code`'s call islands would corrupt a use of x30 (ADR-0020 option c, lead review). A call
+/// Whether a renamed `code`'s call islands would corrupt a use of x30 (ADR-0020 option c). A call
 /// island leaves x30 pointing into the stub, not at the real return address. Compiled code never reads x30 as a value
 /// after a call, but protection code does: a `bl .+4` PC-getter (its next instruction reads x30 as its own address),
 /// or a callee that reads inline data through x30. Returns true for a `bl .+4`, or when the function both makes a
@@ -400,7 +400,7 @@ std::size_t jump_table_stub_size(const JumpTable &table);
 std::uint32_t emit_jump_table(const JumpTable &table, std::uint64_t branch_address, std::uint64_t stub_address,
                               std::span<std::byte> stub);
 
-/// What the island table of the container records about one x18 island (ADR-0020 X4): the fields of
+/// What the island table of the container records about one x18 island (ADR-0020): the fields of
 /// struct apk_island that do not depend on where the island and its site lie.
 struct IslandLayout {
     std::uint8_t kind = 0;                       // APK_ISLAND_*

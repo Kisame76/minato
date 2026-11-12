@@ -66,7 +66,7 @@ constexpr bool is_two_way_branch(std::uint32_t instruction) {
 }
 
 /// BR x18 or BLR x18 exactly: an unconditional indirect branch or call through x18, without pointer
-/// authentication. These run in an indirect island (ADR-0020 X2e); RET, the authenticated branches
+/// authentication. These run in an indirect island (ADR-0020e); RET, the authenticated branches
 /// (BRAA, BLRAA, ...) and x18 used only as the modifier of one do not, and stay refused.
 constexpr bool is_indirect_branch_on_x18(std::uint32_t instruction) {
     return instruction == 0xd61f'0240u || instruction == 0xd63f'0240u;  // br x18, blr x18
@@ -141,7 +141,7 @@ std::size_t indirect_island_words(std::uint32_t instruction) {
     return instruction == 0xd63f'0240u ? indirect_call_island_words : indirect_branch_island_words;  // blr vs br x18
 }
 
-// --- A compare-and-swap pair (CASP) with x18 in a register pair (ADR-0020 X7 c2) ----------------
+// --- A compare-and-swap pair (CASP) with x18 in a register pair (ADR-0020) ----------------
 //
 // CASP{A}{L} Rs, Rs+1, Rt, Rt+1, [Rn] names its registers in even pairs, so x18 appears as the pair (x18, x19) and no single
 // scratch register stands in for it. The island takes an even scratch pair (E, E+1) in their place: it loads E with the
@@ -470,7 +470,7 @@ bool reaches_below_stack_pointer(std::uint32_t word) {
 constexpr const char *inside_exclusive_sequence =
     "it lies between a load- and a store-exclusive, where the island's memory accesses could break the sequence";
 
-// Why an exclusive window with x18 inside is not relocated as one island (ADR-0020 X2c), each x18 use in it
+// Why an exclusive window with x18 inside is not relocated as one island (ADR-0020c), each x18 use in it
 // refused with the cause, so that one refusal names every cause at once.
 constexpr const char *window_unclosed = "it lies in an exclusive window that does not close within 64 words";
 // Step E sizing (ADR-0020 step D guard ii): an unclosed window whose monitor reaches a register branch
@@ -509,7 +509,7 @@ const char *unsupported_reason(std::uint32_t instruction, bool exclusive_ok = fa
         return "it is a register branch the indirect island cannot follow: a return, a pointer-authenticated "
                "branch, or x18 only as the modifier of one";
     }
-    // A compare-and-swap pair names x18 in the pair (x18, x19): an even scratch pair stands in for it (ADR-0020 X7 c2).
+    // A compare-and-swap pair names x18 in the pair (x18, x19): an even scratch pair stands in for it (ADR-0020).
     if (is_casp(instruction) && ((casp_rs(instruction) == 18 || casp_rt(instruction) == 18) || (instruction >> 5 & 0x1f) == 18)) {
         if (casp_scratch(instruction)) return nullptr;
         return (instruction >> 5 & 0x1f) == 18
@@ -619,7 +619,7 @@ constexpr std::size_t window_cap = 64 * 4;
 /// nests another load-exclusive or finds no close within a small cap.
 std::optional<std::size_t> exclusive_window_end(std::span<const std::byte> code, std::size_t open) {
     // The close is the first store-exclusive or CLREX, and it counts only when a path from the load-exclusive reaches it
-    // (ADR-0020 X7): a word that ends the straight line (a return, a register branch, an unconditional B) is passed only
+    // (ADR-0020): a word that ends the straight line (a return, a register branch, an unconditional B) is passed only
     // by a branch of the window that is itself reachable from the load-exclusive and jumps over it. A branch that lies
     // after such a word, say in the next function, does not make it skipped, or that function's store-exclusive would
     // close this window.
@@ -716,7 +716,7 @@ std::vector<std::size_t> reached_register_branches(std::span<const std::byte> co
         const auto word = word_at(code, p);
         if (is_register_branch(word)) {
             // Its target is unseen, so do not fall through past it. One that is no recognized jump table ends the
-            // monitor hull of its path like a return or a call does (ADR-0020 X7 (c1)): compilers pair no LL/SC
+            // monitor hull of its path like a return or a call does (ADR-0020): compilers pair no LL/SC
             // across it (Arm ARM B2.9), so it is not a reach the window's x18 uses must fear.
             if (!ends_hull(p)) found.push_back(p);
             continue;
@@ -799,7 +799,7 @@ std::unordered_set<std::size_t> monitor_escapes(std::span<const std::byte> code,
                                                 const std::function<bool(std::size_t)> &ends_hull) {
     std::unordered_set<std::size_t> escapes;
     if (reached.empty()) return escapes;  // no non-lone load reached anything: nothing can escape
-    // A register branch that is no recognized jump table ends the pairing too (ADR-0020 X7 (c1)), as a return does.
+    // A register branch that is no recognized jump table ends the pairing too (ADR-0020), as a return does.
     const auto ends_pairing = [&](std::size_t offset) {
         const auto w = word_at(code, offset);
         return is_load_exclusive(w) || is_clrex(w) || is_register_return(w) || is_register_call(w)
@@ -903,8 +903,8 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
     if (!any_x18) return std::nullopt;  // an exclusive loop without x18 needs no rewrite
     // The island loads x18 before the window when some path reads it before writing it, or leaves it
     // unwritten: the store after the window writes the value register back on every path (the first use
-    // alone does not tell, a branch can skip it; ADR-0020 X4). It loads x18 whenever the window writes
-    // x18 as well: settle maps the value register to x18 from the first body word (ADR-0020 X4h), so the
+    // alone does not tell, a branch can skip it; ADR-0020). It loads x18 whenever the window writes
+    // x18 as well: settle maps the value register to x18 from the first body word (ADR-0020h), so the
     // value register must hold the guest x18 there, both before the window's own first write of it and,
     // across a back-edge to the load-exclusive, on every later pass while slot 11 is still stale.
     region.loads_x18 = region.writes_x18 || live_into_window(code, open, end, x18_bit);
@@ -934,7 +934,7 @@ std::optional<ExclusiveRegion> build_exclusive_region(std::span<const std::byte>
 
 /// Whether a direct branch anywhere in `code` lands strictly inside the window (open, end], which
 /// would enter the relocated island in the middle. Indirect branches cannot be checked; the
-/// compiler-built LL/SC loops of the test APK have none into their own body (ADR-0020 X2c).
+/// compiler-built LL/SC loops of the test APK have none into their own body (ADR-0020c).
 bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std::size_t end) {
     for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
         if (j > open && j <= end) continue;  // branches inside the window are its own business
@@ -947,7 +947,7 @@ bool branch_enters_window(std::span<const std::byte> code, std::size_t open, std
 }
 
 /// The words of the window (open, end] that a direct branch from outside lands on, as word indices from `open`, in
-/// order and without repeats (ADR-0020 X7): each gets an entry pad that does the island's preamble and enters the body
+/// order and without repeats (ADR-0020): each gets an entry pad that does the island's preamble and enters the body
 /// there. Indirect branches cannot be checked; jump tables whose targets enter a window stay refused elsewhere.
 std::vector<std::uint32_t> window_entries(std::span<const std::byte> code, std::size_t open, std::size_t end) {
     std::vector<std::uint32_t> entries;
@@ -965,7 +965,7 @@ std::vector<std::uint32_t> window_entries(std::span<const std::byte> code, std::
     return entries;
 }
 
-// --- Windows that run again from their start (ADR-0020 X4) -------------------------------------
+// --- Windows that run again from their start (ADR-0020) -------------------------------------
 //
 // A signal inside a relocated window sends the thread back to its load-exclusive, so running the
 // window a second time must give what running it once gives.
@@ -1075,7 +1075,7 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
     return nullptr;
 }
 
-// --- Windows relocated as resumable islands (ADR-0020 X4h, step C classes 2 and 3) --------------
+// --- Windows relocated as resumable islands (ADR-0020h, step C classes 2 and 3) --------------
 //
 // A signal taken in a relocated window is delivered at the exact instruction it interrupted, not sent
 // back to the load-exclusive (leave() maps each island word to its guest instruction). So the window
@@ -1085,7 +1085,7 @@ const char *restart_problem(std::span<const std::byte> code, std::size_t open, s
 // refused, and its x18 uses with it.
 
 /// BR xN or RET xN, whose register is not x18: the register branches an exit pad can run after it has
-/// restored the value register (ADR-0020 X7).
+/// restored the value register (ADR-0020).
 bool is_plain_register_branch(std::uint32_t word) {
     const std::uint32_t reg = (word >> 5) & 0x1f;
     if (reg == guest_x18) return false;
@@ -1135,7 +1135,7 @@ const char *relocation_problem(std::span<const std::byte> code, std::size_t open
             }
         } else if (is_branch(word) && (word & 0xff00'0000) != 0xd400'0000) {
             // A plain BR xN or RET xN (N not x18) leaves through an exit pad that restores the value register and
-            // runs the branch itself (ADR-0020 X7); the value register is no register the window uses, so not xN.
+            // runs the branch itself (ADR-0020); the value register is no register the window uses, so not xN.
             if (!(exit_pads && is_plain_register_branch(word))) return relocated_window_register_branch;
         }
         // pc_relative_words catches ADR, ADRP and the integer literal loads; the second test also catches
@@ -1271,7 +1271,7 @@ bool dead_value_registers(std::span<const std::byte> code, std::size_t use_offse
     return found == count;
 }
 
-// --- Jump tables through x18 (ADR-0020 X2d) ------------------------------------------------------
+// --- Jump tables through x18 (ADR-0020d) ------------------------------------------------------
 
 constexpr std::uint32_t br_x18 = 0xd61f'0240;
 constexpr std::uint32_t jump_table_trap = 0xd420'0300;  // BRK #0x18: a target without a landing pad
@@ -1281,7 +1281,7 @@ constexpr std::uint64_t max_jump_table_span = 32 * 1024;
 constexpr std::size_t jump_trap_word = 13;
 constexpr std::size_t jump_island_words = 16;
 constexpr std::size_t landing_pad_words = 4;
-// The island table gives the length of an island in 16 bits (ADR-0020 X4), which caps the span.
+// The island table gives the length of an island in 16 bits (ADR-0020), which caps the span.
 static_assert(jump_island_words + landing_pad_words * (max_jump_table_span / 4) <= 0xffff);
 
 /// B.cond (not BC.cond): the condition in bits 3:0.
@@ -1341,7 +1341,7 @@ std::optional<BoundsCheck> bounds_check(std::span<const std::byte> code, std::si
 /// The table base in register `base` at the load at `load`: the last write of it before must be
 /// ADD base, base, #low, and the last one before that ADRP base. Only the straight line back is
 /// read; a loop that set the base anew further down would go unseen, and the island's check would
-/// then stop the program rather than let it branch anywhere else (ADR-0020 X2d).
+/// then stop the program rather than let it branch anywhere else (ADR-0020d).
 std::optional<std::uint64_t> table_base(std::span<const std::byte> code, std::uint64_t address, std::size_t load,
                                         unsigned base) {
     constexpr std::size_t reach = 1024 * 4;
@@ -1368,7 +1368,7 @@ constexpr const char *not_a_jump_table = "it is a register branch that ends no j
 constexpr const char *table_not_read_only = "it is a register branch whose table is not in read-only data";
 
 /// The jump table that the `br x18` at `offset` ends, filled into `table`, or why there is none the
-/// island can take (ADR-0020 X2d).
+/// island can take (ADR-0020d).
 const char *find_jump_table(std::span<const std::byte> code, std::uint64_t address, std::size_t offset,
                             const ReadOnlyData &read_only_data, JumpTable &table) {
     if (offset < 8) return not_a_jump_table;
@@ -1391,7 +1391,7 @@ const char *find_jump_table(std::span<const std::byte> code, std::uint64_t addre
         return "it is a register branch into whose jump sequence another branch leads";
     }
     // The bounds branch must leave the sequence (to the default case): a direct branch inside it
-    // that lands back inside would change how many entries the index reaches (ADR-0020 X2d).
+    // that lands back inside would change how many entries the index reaches (ADR-0020d).
     for (std::size_t j = check->compare; j < offset; j += 4) {
         if (const auto displacement = branch_displacement(word_at(code, j))) {
             const auto target = static_cast<std::int64_t>(j) + *displacement;
@@ -1464,11 +1464,11 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     if (address % 4 != 0 || code.size() % 4 != 0) {
         throw RewriteError(std::format("code at {:#x} with {:#x} bytes is not word aligned", address, code.size()));
     }
-    // First, relocate whole load-/store-exclusive windows that use x18 (ADR-0020 X2c). Each covers
+    // First, relocate whole load-/store-exclusive windows that use x18 (ADR-0020c). Each covers
     // its offsets, so the main loop below leaves them alone. Every other window is dropped with its
     // cause, and its x18 uses are refused there with it: one without a close, one the island cannot
-    // build, one a branch could enter in the middle, one that cannot run again from its start (X4).
-    // ADR-0020 X7 (c1): a register branch that is no recognized jump table (and no return) ends the monitor hull of the
+    // build, one a branch could enter in the middle, one that cannot run again from its start.
+    // ADR-0020: a register branch that is no recognized jump table (and no return) ends the monitor hull of the
     // path that reaches it. Each one a hull met is counted in the findings, for the import report.
     const auto ends_hull = [&](std::size_t offset) {
         JumpTable table;
@@ -1495,7 +1495,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             // ADR-0020 step D: a window that does not close within the cap and whose closure reaches no
             // register branch has its x18 uses decided by the C6 monitor-escape test below, not blanket-
             // refused here; a reachable store, register branch or out-of-section edge still refuses one.
-            // A window another load-exclusive interrupts (window_nested) is decided the same way (ADR-0020 X7): that load
+            // A window another load-exclusive interrupts (window_nested) is decided the same way (ADR-0020): that load
             // re-arms the monitor, which ends this window's hull like a CLREX, so each x18 use is judged by the paths from
             // its own load-exclusive to a store-exclusive.
             if (problem == window_unclosed || problem == window_nested) {
@@ -1526,7 +1526,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             }
             continue;
         }
-        // A branch from outside into the middle of the window gets an entry pad (ADR-0020 X7), so it no longer refuses.
+        // A branch from outside into the middle of the window gets an entry pad (ADR-0020), so it no longer refuses.
         problem = relocation_problem(code, offset, *end, true);
         if (problem) {
             refused_windows.emplace_back(offset, *end, problem);
@@ -1559,7 +1559,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     const auto is_unclosed_load = [&](std::size_t offset) {
         return std::ranges::find(unclosed_loads, offset) != unclosed_loads.end();
     };
-    // Whether a jump table target lies inside a relocated window, past its first word (ADR-0020 X2d).
+    // Whether a jump table target lies inside a relocated window, past its first word (ADR-0020d).
     const auto enters_window = [&](std::uint64_t target) {
         const auto offset = target - address;
         return std::ranges::any_of(covered, [&](const auto &span) { return offset > span.first && offset <= span.second; });
@@ -1653,7 +1653,7 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
                     }
                 }
             }
-            // ADR-0020 X7 (c2): a use that only a window's shape, an exclusive sequence or its own exclusive access refuses
+            // ADR-0020: a use that only a window's shape, an exclusive sequence or its own exclusive access refuses
             // runs in an ordinary island, whose memory accesses then lie inside the guest's LL/SC. A register branch has
             // its own islands, so is not taken here.
             if (monitor_inside && reason != nullptr &&
@@ -1925,7 +1925,7 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 
         case SiteKind::x18: {
             if (is_casp(site.instruction)) {
-                // The pair island (ADR-0020 X7 c2): see casp_island_words.
+                // The pair island (ADR-0020): see casp_island_words.
                 const auto even = casp_scratch(site.instruction);
                 if (!even) throw RewriteError("no scratch pair for a CASP island");
                 const unsigned e = *even, o = *even + 1;
@@ -1978,7 +1978,7 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
                 // (and x18, reserved on Android, is never an intra-procedure branch register). So
                 // clobbering x16 past the branch is sound for conforming code. A signal stopped inside
                 // the island restores x16 (and, for BLR, x30) from the red zone and returns to the
-                // site, so the pass re-runs cleanly (ADR-0020 X2e).
+                // site, so the pass re-runs cleanly (ADR-0020e).
                 const bool is_call = site.instruction == 0xd63f'0240u;  // blr x18
                 write(stur(x16, sp, scratch_slot_0));
                 if (is_call) write(stur(x30, sp, scratch_slot_1));
@@ -2082,7 +2082,7 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
 namespace {
 
 /// The branches of the window that leave it (a direct branch whose target is outside [0, 4 * words), the word after
-/// the window included), in word order: each runs through an exit pad (ADR-0020 X7).
+/// the window included), in word order: each runs through an exit pad (ADR-0020).
 std::vector<std::size_t> window_exits(const ExclusiveRegion &region) {
     std::vector<std::size_t> exits;
     for (std::size_t index = 0; index < region.words.size(); ++index) {
@@ -2167,7 +2167,7 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
         const auto use = a64::register_use(word);
         if ((use.reads | use.writes) & x18_bit) word = *a64::substitute(word, guest_x18, value);
         if (exit_index < exits.size() && exits[exit_index] == index && !branch_displacement(word)) {
-            // A register branch: the exit pad restores the value register and runs it (ADR-0020 X7).
+            // A register branch: the exit pad restores the value register and runs it (ADR-0020).
             word = b(write.next_address(), pads + pad_bytes * exit_index++);
         } else if (const auto displacement = branch_displacement(word)) {
             const auto target = static_cast<std::int64_t>(region_address + 4 * index) + *displacement;
@@ -2205,7 +2205,7 @@ std::uint32_t emit_exclusive_region(const ExclusiveRegion &region, std::uint64_t
             write(region.words[index]);  // a register branch, run as the guest wrote it
         }
     }
-    // The entry pads (ADR-0020 X7): what a branch from outside runs in place of the window's word it lands on, the
+    // The entry pads (ADR-0020): what a branch from outside runs in place of the window's word it lands on, the
     // island's preamble and then the body at that word.
     for (const auto entry : region.entries) {
         write(stur(value, sp, scratch_slot_0));
@@ -2621,7 +2621,7 @@ IslandLayout exclusive_region_layout(const ExclusiveRegion &region) {
                         .words = static_cast<std::uint32_t>(exclusive_region_stub_size(region) / 4),
                         .value = region.scratch};
     // As emit_exclusive_region() writes it: save the value (and the base), load x18, the window,
-    // then store x18 with mrs, bic and str. A relocated window is resumable (ADR-0020 X4h), so commit
+    // then store x18 with mrs, bic and str. A relocated window is resumable (ADR-0020h), so commit
     // holds the preamble length, not a commit point: leave() resumes the thread at the exact guest
     // instruction, site + 4 * (word - preamble) for a body word.
     const std::size_t first = 1 + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);

@@ -154,7 +154,7 @@ void inspect(const std::string &path) {
         std::cout << '\n';
         if (!findings.hull_ending_register_branches.empty()) {
             std::cout << std::format("  register branches that are no jump table and ended the monitor hull of a path "
-                                     "the x18 pass judged (ADR-0020 X7): {}\n",
+                                     "the x18 pass judged (ADR-0020): {}\n",
                                      findings.hull_ending_register_branches.size());
         }
     } catch (const apk::container::Incompatible &error) {
@@ -314,7 +314,7 @@ int convert(std::vector<std::string> arguments) {
               << (report.monitor_inside_islands == 0
                       ? std::string()
                       : std::format("  needs the monitor kept: {} of the islands lie inside a guest LL/SC window or sequence "
-                                    "(ADR-0020 X7), so the loader refuses the library on a core that clears the exclusive "
+                                    "(ADR-0020), so the loader refuses the library on a core that clears the exclusive "
                                     "monitor for an access to another granule\n",
                                     report.monitor_inside_islands))
               << (report.undefined_words == 0

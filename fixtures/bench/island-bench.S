@@ -1,4 +1,4 @@
-// The loops of island-bench (ADR-0020 X6). Each form runs several times in a row per round, once
+// The loops of island-bench (ADR-0020). Each form runs several times in a row per round, once
 // as the converter puts it into an island (x18, TPIDR_EL0) and once as a twin that it leaves alone
 // (x17; a bare CTR_EL0 read for the thread-pointer form, see bench_native_mrs). Every function is
 //   uint64_t bench_<form>_<variant>(uint64_t rounds, uint64_t *cell)

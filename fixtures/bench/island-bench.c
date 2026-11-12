@@ -1,4 +1,4 @@
-// island-bench: what one pass through an island of the converter costs (ADR-0010, ADR-0020 X6).
+// island-bench: what one pass through an island of the converter costs (ADR-0010, ADR-0020).
 // Each form runs in a loop from island-bench.S, once as the converter puts it into an island and
 // once as a twin that it leaves alone; on Android neither is rewritten, so both take the same time
 // there. A line gives the time per pass of the twin and of the form, each the fastest of 7 runs,

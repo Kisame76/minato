@@ -235,7 +235,7 @@ _ref_x18_ll_sc:
     .globl _ref_x18_ll_sc_end
 _ref_x18_ll_sc_end:
 
-// ADR-0020 X4: a signal inside a relocated window sends the thread back to its load-exclusive, so
+// ADR-0020: a signal inside a relocated window sends the thread back to its load-exclusive, so
 // the rewriter relocates only windows that run the same when they run again from there. First nine
 // that do not, then three that do.
     .globl _ref_x18_window_exit
@@ -333,7 +333,7 @@ _ref_x18_window_status:             // runs the same again: only the store-exclu
     .globl _ref_x18_window_end
 _ref_x18_window_end:
 
-// A window a CLREX closes without a store-exclusive: the CLREX completes it (ADR-0020 X4).
+// A window a CLREX closes without a store-exclusive: the CLREX completes it (ADR-0020).
     .globl _ref_x18_window_clrex_only
 _ref_x18_window_clrex_only:
     ldaxr   x8, [x18]
@@ -344,7 +344,7 @@ _ref_x18_window_clrex_only:
 _ref_x18_window_clrex_only_end:
 
 // A window whose cbz can skip its only write of x18, and which never reads x18: on that path the
-// store after the window writes back whatever the value register holds (found in the review of X4).
+// store after the window writes back whatever the value register holds (found missing in a later check).
     .globl _ref_x18_window_unread
 _ref_x18_window_unread:
     ldxr    x8, [x0]
@@ -356,7 +356,7 @@ _ref_x18_window_unread:
     .globl _ref_x18_window_unread_end
 _ref_x18_window_unread_end:
 
-// Two-way island for a conditional branch (ADR-0020 X2): the value scratch (x0 here) holds the
+// Two-way island for a conditional branch (ADR-0020): the value scratch (x0 here) holds the
 // guest x18 from slot 11, the branch tests it, and both exits restore the scratch before leaving.
 // `back` is the instruction after the site, `taken` the branch's own target; the rewriter
 // recomputes each for the container, so the test checks those two branches by their target.
@@ -389,7 +389,7 @@ _ref_x18_island_tbz:
 _ref_x18_tbz_taken:
     nop
 
-// Indirect island for a non-jump-table BR or BLR x18 (ADR-0020 X2e): the guest x18 from slot 11
+// Indirect island for a non-jump-table BR or BLR x18 (ADR-0020e): the guest x18 from slot 11
 // goes into x16, an ABI scratch register at a branch, and the island branches to it. BR needs no
 // more; BLR also saves x30 and sets it to the guest return address (the instruction after the call)
 // so the callee returns into the guest, not into the island.
@@ -416,7 +416,7 @@ _ref_x18_island_indirect_blr:
     .globl _ref_x18_island_indirect_blr_end
 _ref_x18_island_indirect_blr_end:
 
-// PC-relative forms on x18 (ADR-0020 X2): the island computes the same address for its own place,
+// PC-relative forms on x18 (ADR-0020): the island computes the same address for its own place,
 // always with ADRP (then ADD, then the load), since ADR and the literal loads reach only 1 MiB and
 // the islands lie before the image. The sites are assembled here too, so that the linker resolves
 // the original displacement as well as the island's, and the islands start on a page of their own:
@@ -517,7 +517,7 @@ _ref_x18_island_ldrsw:
     ldur    x1, [sp, #-120]
     b       _ref_x18_after_ldrsw
 
-// A jump table through x18 (ADR-0020 X2d), shaped as clang 8 builds one: the bounds check, the base
+// A jump table through x18 (ADR-0020d), shaped as clang 8 builds one: the bounds check, the base
 // from ADRP and ADD, then LDRSW, ADD and BR on x18. The table sits in read-only data. Its last entry
 // repeats a target, and the word between case1 and case2 is none, so its landing pad traps.
     .globl _ref_x18_jump_function

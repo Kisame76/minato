@@ -44,12 +44,12 @@ struct Report {
     std::uint32_t x18_writes = 0;    // instructions that only write x18
     std::uint32_t x18_saves = 0;     // x18 stored in a dump of all registers
     std::uint32_t x18_islands = 0;   // instructions run with a scratch register for x18 (ADR-0020)
-    std::uint32_t monitor_inside_islands = 0;  // of them, those whose accesses lie inside a guest LL/SC (ADR-0020 X7 c2)
+    std::uint32_t monitor_inside_islands = 0;  // of them, those whose accesses lie inside a guest LL/SC (ADR-0020)
     std::uint64_t relocations = 0;   // RELR addresses plus RELA entries, all in writable memory
     std::uint64_t image_offset = 0;  // where the ELF image starts in the container
     std::uint64_t image_shift = 0;   // how far a 4 KiB layout moved it past a 16 KiB page (ADR-0007)
     std::uint64_t stub_bytes = 0;    // islands and veneers
-    std::uint64_t island_table_bytes = 0;  // one entry per x18 island (ADR-0020 X4)
+    std::uint64_t island_table_bytes = 0;  // one entry per x18 island (ADR-0020)
     std::string moved_sections_note;  // allocated sections a 4 KiB-multiple shift moved off a >4 KiB alignment
                                       // (ADR-0007); empty when none. A note, not a refusal: see page_layout.
 };

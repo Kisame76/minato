@@ -73,7 +73,7 @@ frame-cap-test system libraries=libframe-cap-api.so,libframe-cap-engine.so
 # Data inside .text of NDK libraries (literal pools, jump tables, real code that looks like data): with a .symtab and
 # stripped, with the dynamic relocations plain and as RELR; a Unity test APK's library was refused at import for it.
 data-in-text-test system libraries=libdit-sym.so,libdit-strip.so,libdit-rela.so,libdit-relr.so
-# x18 as a normal register, as older toolchains use it, in islands (ADR-0020 X5).
+# x18 as a normal register, as older toolchains use it, in islands (ADR-0020).
 x18-test system
 x18-stress system
 # A function option (c) renames whole (ADR-0020): ABI-correct only after conversion, so runtime-only (the raw
@@ -167,7 +167,7 @@ asset-test system runtime-only
 jni-test system runtime-only
 # FatalError logs the app's message and aborts, as ART does (ADR-0028, decision 8).
 jni-fatal-test system runtime-only status=134
-# What an island costs per pass, against a twin the converter leaves alone (ADR-0020 X6).
+# What an island costs per pass, against a twin the converter leaves alone (ADR-0020).
 island-bench system measures
 # The address space a program has left, and where the allocator spills (ADR-0035).
 address-space system measures

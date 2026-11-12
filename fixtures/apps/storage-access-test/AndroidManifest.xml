@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- faccessat and stat on the directories above the app's external storage, as an app uid sees them (vfs review
-     finding 1): /storage, /storage/emulated, /storage/emulated/0, /sdcard, /storage/self and the app's Android folders.
+<!-- faccessat and stat on the directories above the app's external storage, as an app uid sees them: /storage,
+     /storage/emulated, /storage/emulated/0, /sdcard, /storage/self and the app's Android folders.
      The probe logs Os.access (F/R/W/X) and Os.stat for each, normalised so the AVD's and Minato's answers compare byte
      for byte. The launcher activity is the framework's own android.app.Activity, so `am start` starts the process. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

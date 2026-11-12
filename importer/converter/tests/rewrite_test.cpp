@@ -102,7 +102,7 @@ namespace oracle {
 struct Toggles {
     bool call_return;   // ON: a call or return (BL, BLR, RET) ends the monitor path (the C6 limit)
     bool section_exit;  // ON: the section end, or a branch out of it, pairs nothing (one output section)
-    bool register_branch = false;  // ON: a register branch that is no jump table ends the monitor hull (ADR-0020 X7 c1)
+    bool register_branch = false;  // ON: a register branch that is no jump table ends the monitor hull (ADR-0020)
 };
 std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t *end, std::uint64_t base, Toggles t);
 }  // namespace oracle
@@ -686,8 +686,8 @@ TEST(our_stubs_leave_the_rename_registers_x2_to_x15_alone) {
 TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     const std::uint32_t code[] = {
         0x8b01'0252,  // add x18, x18, x1: island
-        0xb400'0052,  // cbz x18, #+8: a two-way island (X2)
-        0x9000'0012,  // adrp x18, #0: recomputed in the island (X2)
+        0xb400'0052,  // cbz x18, #+8: a two-way island
+        0x9000'0012,  // adrp x18, #0: recomputed in the island
         0xd61f'0240,  // br x18: an indirect island (ends no jump table) (X2e)
         0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
         0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
@@ -761,7 +761,7 @@ std::uint64_t branch_target_at(const std::vector<std::byte> &stub, std::size_t i
     return stub_address + 4 * index + 4 * static_cast<std::uint64_t>(immediate);
 }
 
-// A conditional branch that uses x18 runs in a two-way island (ADR-0020 X2): load the guest x18
+// A conditional branch that uses x18 runs in a two-way island (ADR-0020): load the guest x18
 // into the scratch, test it, and restore the scratch on both the taken and the not-taken exit.
 TEST(the_conditional_branch_islands_match_the_assembler) {
     const struct {
@@ -833,7 +833,7 @@ TEST(a_cmpbr_with_x18_as_the_second_operand_keeps_the_operand_order) {
 }
 
 // A PC-relative instruction on x18 runs in an island that computes the same address for its own
-// place (ADR-0020 X2). Site and island are both assembled and linked, so every word of the island,
+// place (ADR-0020). Site and island are both assembled and linked, so every word of the island,
 // the recomputed page and the branch back included, must be what the linker resolved.
 TEST(the_pc_relative_islands_match_the_assembler) {
     const struct {
@@ -890,7 +890,7 @@ TEST(two_way_and_indirect_branches_are_islands_but_other_register_branches_are_r
     }
 }
 
-// A br x18 that ends no jump table, and a blr x18, run in an indirect island (ADR-0020 X2e): the
+// A br x18 that ends no jump table, and a blr x18, run in an indirect island (ADR-0020e): the
 // island loads the guest x18 into x16 (an ABI scratch register at a branch) and branches to it.
 // ret x18 and the pointer-authenticated forms the island still cannot follow stay refused.
 TEST(a_br_or_blr_x18_that_is_no_jump_table_is_an_indirect_island) {
@@ -910,7 +910,7 @@ TEST(a_br_or_blr_x18_that_is_no_jump_table_is_an_indirect_island) {
 
 // The emitted indirect islands match the assembler and the linker: BR x18 is five words ending in a
 // br x16, and BLR x18 is eight words that also save x30 and recompute the guest return address so
-// the callee returns into the guest, not the island (ADR-0020 X2e).
+// the callee returns into the guest, not the island (ADR-0020e).
 TEST(the_indirect_islands_match_the_assembler) {
     const struct {
         std::uint32_t instruction;
@@ -959,7 +959,7 @@ TEST(a_lone_load_exclusive_is_not_a_window_and_its_x18_uses_are_islands) {
 }
 
 // A store-exclusive physically before its paired load-exclusive, reached by a backward branch, is a
-// real LL/SC pair that a forward-only scan would miss (step C C3 review). The load-exclusive must not
+// real LL/SC pair that a forward-only scan would miss (step C, C3). The load-exclusive must not
 // count as lone: an x18 use between them would be islanded inside a live pair and could livelock. It
 // stays refused: under step D the use goes through the C6 monitor-escape, which follows the backward
 // branch to the store, so it is refused there (not by the window_unclosed blanket, which step D drops).
@@ -1118,7 +1118,7 @@ TEST(a_nested_load_exclusive_makes_the_first_lone_and_the_second_its_own_window)
 }
 
 // A nested first load-exclusive whose run branches out is not lone: the branch could carry the first monitor to a
-// store-exclusive. After ADR-0020 X7 such a window is decided per use, like an unclosed one: the use is refused when a
+// store-exclusive. After ADR-0020such a window is decided per use, like an unclosed one: the use is refused when a
 // path from its load-exclusive reaches a store-exclusive before the monitor is re-armed (here the branch lands on the
 // nested store-exclusive, skipping its load), and islands when none does (the branch lands past it).
 TEST(a_nested_load_exclusive_with_a_branch_out_of_the_first_run_is_decided_by_its_paths) {
@@ -1163,7 +1163,7 @@ TEST(an_ll_sc_loop_becomes_a_region_with_islands_around_it) {
     }
 }
 
-// A load-/store-exclusive loop with x18 inside relocates as one island (ADR-0020 X2c). The window
+// A load-/store-exclusive loop with x18 inside relocates as one island (ADR-0020c). The window
 // runs from the load-exclusive to the store-exclusive or CLREX that closes it; nothing between them
 // may touch memory, so x18 becomes a scratch register loaded before and stored after the window.
 TEST(an_exclusive_loop_with_x18_as_the_value_is_one_region) {
@@ -1211,7 +1211,7 @@ TEST(an_exclusive_loop_using_x18_as_the_address_loads_the_scratch_first) {
     CHECK(!region.writes_x18);
 }
 
-// ADR-0020 X4h: a signal inside a relocated window is delivered at the exact instruction, so the
+// ADR-0020h: a signal inside a relocated window is delivered at the exact instruction, so the
 // window need not run the same from its start. A memory access (step C class 2) or any other
 // instruction (class 3) is copied in order and relocated with the window; its x18 uses island.
 TEST(a_memory_access_or_other_instruction_in_a_window_relocates) {
@@ -1256,7 +1256,7 @@ TEST(restartable_exclusive_windows_are_relocated) {
 
 // A window whose cbz can skip its only write of x18, and which never reads x18: on that path the
 // store after the window writes back whatever the value register holds, so the island loads x18
-// before this window too (found in the review of X4).
+// before this window too (found missing in a later check).
 TEST(a_window_that_can_skip_its_only_write_of_x18_loads_it_first) {
     const auto findings = scan_words(ref_x18_window_unread, ref_x18_window_unread_end, 0x10000);
     CHECK(findings.x18_unsupported.empty());
@@ -1269,7 +1269,7 @@ TEST(a_window_that_can_skip_its_only_write_of_x18_loads_it_first) {
 }
 
 TEST(a_branch_into_the_exclusive_window_gets_an_entry_pad) {
-    // A branch from before the loop lands on the add inside the window (ADR-0020 X7): the island has an entry pad for
+    // A branch from before the loop lands on the add inside the window (ADR-0020): the island has an entry pad for
     // it, and the window is relocated.
     const std::uint32_t code[] = {
         0x1400'0002,  // b .+8, onto the add
@@ -1440,7 +1440,7 @@ TEST(free_caller_saved_register_skips_callee_saved_and_reserved) {
                .has_value());
 }
 
-// ADR-0020 option (c), lead review: a call island leaves x30 in the stub, so a function that reads x30 as a value
+// ADR-0020 option (c): a call island leaves x30 in the stub, so a function that reads x30 as a value
 // after a call (a `bl .+4` PC-getter, or inline data through x30) must stay out of (c).
 TEST(call_leaks_link_register_flags_a_bl_to_the_next_instruction) {
     const std::uint32_t code[] = {0x9400'0001};  // bl .+4: a PC-getter
@@ -1695,7 +1695,7 @@ TEST(an_exclusive_window_that_is_not_relocated_names_its_cause) {
 
 // A thread-pointer access or an svc in a window the converter will not relocate (it could not copy
 // such an instruction without running it against the host) still becomes its own redirect island;
-// only the window's x18 uses are refused, and they name the redirected instruction (ADR-0020 X4h).
+// only the window's x18 uses are refused, and they name the redirected instruction (ADR-0020h).
 TEST(a_redirected_instruction_keeps_a_window_from_relocating_but_still_islands_itself) {
     const std::uint32_t thread_pointer[] = {
         0xc85f'7c01,  // ldxr x1, [x0]
@@ -1731,7 +1731,7 @@ TEST(a_redirected_instruction_keeps_a_window_from_relocating_but_still_islands_i
     }
 }
 
-// A branch that leaves the window, or a register branch, keeps it from relocating (ADR-0020 X4h): the
+// A branch that leaves the window, or a register branch, keeps it from relocating (ADR-0020h): the
 // island's one entry runs its body and then the tail that restores the scratch registers and stores x18
 // back to slot 11. A branch out of the window -- including one to the word right after it -- or a
 // register branch the island cannot retarget would skip that tail, so the window is refused outright and
@@ -1750,7 +1750,7 @@ TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating
         std::size_t uses;
         std::string_view reason;
     };
-    // A branch that leaves a window which only reads x18 runs through an exit pad since ADR-0020 X7: the island
+    // A branch that leaves a window which only reads x18 runs through an exit pad since ADR-0020: the island
     // restores the value register there and branches on (x7_* tests below); the window stays one island.
     for (const auto &words : {std::pair{ref_x18_window_exit, ref_x18_window_input},
                               std::pair{ref_x18_window_exit_next, ref_x18_window_base}}) {
@@ -1924,8 +1924,8 @@ TEST(a_window_stays_in_place_only_when_a_lost_x18_cannot_escape) {
 
 // ADR-0020 step C C6 (class 6): a non-lone load-exclusive's monitor can still be live past a window a
 // branch jumps over, so an x18 use there must stay refused — islanding it would put the island's
-// memory between the load and its store and could break the LL/SC (the C3b livelock). The reviewers'
-// counterexample: L0 arms [x0], a cbnz skips the inner window and reaches the use and L0's own store,
+// memory between the load and its store and could break the LL/SC (the C3b livelock). The counterexample: L0
+// arms [x0], a cbnz skips the inner window and reaches the use and L0's own store,
 // so on the 0x04->0x18 path L0's monitor is live at 0x18.
 TEST(an_x18_use_a_branch_reaches_past_a_relocated_window_stays_refused) {
     const std::uint32_t code[] = {
@@ -1952,7 +1952,7 @@ TEST(an_x18_use_a_branch_reaches_past_a_relocated_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1018);
 }
 
-// The same hazard through a register branch the rewriter cannot follow: until ADR-0020 X7 (c1) the exclusive_sequence
+// The same hazard through a register branch the rewriter cannot follow: until ADR-0020 the exclusive_sequence
 // flag, which a covered window does not clear, kept the use refused; the register branch now ends the hull of its path,
 // so the use islands and the branch is counted.
 TEST(an_x18_use_a_register_branch_may_reach_past_a_relocated_window_islands_under_the_hull_rule) {
@@ -2134,7 +2134,7 @@ TEST(a_store_exclusive_reachable_from_the_fail_path_use_keeps_it_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1014);
 }
 
-// A register branch that is no jump table ends the monitor hull of the path that reaches it (ADR-0020 X7 c1), as a
+// A register branch that is no jump table ends the monitor hull of the path that reaches it (ADR-0020), as a
 // return or a call does: nothing after the use on that path pairs with the load, so the use islands. The branch is
 // counted for the import report.
 TEST(a_register_branch_reachable_from_the_use_ends_the_hull_and_the_use_islands) {
@@ -2289,7 +2289,7 @@ TEST(a_backward_branch_to_the_store_keeps_the_use_refused) {
 }
 
 // A pointer-authenticated register branch (BRAA, and its Z form BRAAZ) is an indirect jump like BR, so it ends the
-// hull the same way (X7 c1). Guards is_register_branch's mask against a narrowing to bare BR only.
+// hull the same way. Guards is_register_branch's mask against a narrowing to bare BR only.
 TEST(a_pac_register_branch_reachable_from_the_use_ends_the_hull_and_the_use_islands) {
     for (const std::uint32_t tail : {0xd71f08a6u, 0xd61f08bfu}) {  // braa x5, x6 ; braaz x5
         const std::uint32_t code[] = {
@@ -2355,7 +2355,7 @@ TEST(a_return_ends_the_monitor_path_so_the_use_before_it_islands) {
 }
 
 // `ret xN` with N != 30 is an indirect branch, not a return (hand-written code uses it as a computed jump): it ends the
-// hull like BR (X7 c1), and is counted as one.
+// hull like BR, and is counted as one.
 TEST(a_ret_to_a_register_other_than_x30_ends_the_hull_like_a_br) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone: its store is at 0x08
@@ -2415,7 +2415,7 @@ TEST(an_x18_use_after_a_call_in_an_unclosed_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1008);
 }
 
-// FC (guard ii), after ADR-0020 X7 (c1): a window whose monitor closure reaches a register branch that is no jump table
+// FC (guard ii), after ADR-0020: a window whose monitor closure reaches a register branch that is no jump table
 // no longer keeps its blanket refusal: the branch ends the hull of its path. The use behind it (reached only through the
 // branch) islands like any use no visible path pairs with a store, and the branch is counted.
 TEST(an_unclosed_window_that_reaches_a_register_branch_islands_and_counts_it) {
@@ -2461,7 +2461,7 @@ TEST(an_ldxr_x18_in_an_unclosed_window_stays_refused) {
     for (const auto &site : findings.sites) CHECK(site.address != 0x1000);
 }
 
-// FC, two variants, after ADR-0020 X7 (c1): the register branch comes before the x18 use, so the use sits only at the
+// FC, two variants, after ADR-0020: the register branch comes before the x18 use, so the use sits only at the
 // branch's unseen target, inside a window that still reaches its store far ahead. Guard ii refused these; (c1) trusts the
 // branch to end its path (Arm ARM B2.9 allows no call or jump between the exclusives of correct code), so the use
 // islands and the branch is counted. This is the named residual of (c1): a computed goto into the middle of an LL/SC
@@ -2494,9 +2494,10 @@ TEST(an_unclosed_window_whose_ret_used_as_a_branch_reaches_a_store_islands_under
     CHECK(findings.hull_ending_register_branches == std::set<std::uint64_t>{0x1004});
 }
 
-// Step E sizing (ADR-0020), after X7 (c1): a window that does not close and whose closure reaches a register branch that
-// is a recognized jump table in read-only data stays refused with the jump-table reason (next test); one that reaches a
-// br the rewriter cannot read as a table no longer does: the branch ends the hull and the use islands.
+// Step E sizing (ADR-0020), after the register-branch rule: a window that does not close and whose closure reaches
+// a register branch that is a recognized jump table in read-only data stays refused with the jump-table reason
+// (next test); one that reaches a br the rewriter cannot read as a table no longer does: the branch ends the hull and
+// the use islands.
 TEST(an_unclosed_window_reaching_a_non_jump_table_register_branch_islands) {
     const std::uint32_t code[] = {
         0xc85f7c08,  // 0x00 ldxr x8, [x0]       L0, non-lone
@@ -2608,7 +2609,7 @@ bool reaches_store(const std::uint32_t *code, std::size_t words, std::size_t fro
         if (p >= words || seen[p]) continue;
         seen[p] = true;
         const auto w = code[p];
-        if (o_reg_branch(w) && t.register_branch) continue;   // trusted (X7 c1): the pairing ends at it
+        if (o_reg_branch(w) && t.register_branch) continue;   // trusted: the pairing ends at it
         if (o_store_excl(w) || o_reg_branch(w)) return true;  // the pairing store, or an unfollowable target
         if (o_clrex(w) || o_load_excl(w)) continue;           // monitor cleared or re-armed: a safe boundary
         if (o_bl(w) || o_reg_call(w) || o_reg_return(w)) {    // a call or a return
@@ -2678,7 +2679,7 @@ std::vector<std::uint64_t> flags(const std::uint32_t *begin, const std::uint32_t
             if (p >= words || from_load[p]) continue;
             from_load[p] = true;
             const auto w = begin[p];
-            if (o_reg_branch(w)) {  // target unseen: see below, unless the pairing is trusted to end here (X7 c1)
+            if (o_reg_branch(w)) {  // target unseen: see below, unless the pairing is trusted to end here
                 if (!t.register_branch) reached_register_branch = true;
                 continue;
             }
@@ -2841,7 +2842,7 @@ TEST(a_cmpbr_in_a_relocated_window_is_kept_and_retargeted) {
     CHECK(word(stub, 7) == 0xf4c4'0043);
 }
 
-// --- Jump tables through x18 (ADR-0020 X2d) --------------------------------------------------------
+// --- Jump tables through x18 (ADR-0020d) --------------------------------------------------------
 
 /// The reference table as the only read-only data the scanned code may use.
 std::span<const std::byte> reference_table(std::uint64_t address, std::size_t size) {
@@ -2937,7 +2938,7 @@ void check_refused(const apk::rewrite::Findings &findings, std::string_view why,
 }
 
 /// The br x18 at `at` ends no jump table the rewriter recognizes, so it becomes a general indirect
-/// island (ADR-0020 X2e), not a refusal: the app must run even without the jump table CFI.
+/// island (ADR-0020e), not a refusal: the app must run even without the jump table CFI.
 void check_indirect_island(const apk::rewrite::Findings &findings, std::uint64_t at = 0x10018u,
                            std::source_location location = std::source_location::current()) {
     if (!findings.jump_tables.empty()) apk::testing::fail(location, "a jump table was found");
@@ -2994,7 +2995,7 @@ TEST(a_br_x18_that_is_no_recognized_jump_table_is_an_indirect_island) {
     wide.table[1] = 0x1001c + 0x8000 - 0x20040;
     check_indirect_island(wide.scan());
     // One word less is the widest span the landing pads cover; the island table can still give
-    // the length of such an island in 16 bits (ADR-0020 X4).
+    // the length of such an island in 16 bits (ADR-0020).
     auto widest = wide;
     widest.table[1] = 0x1001c + 0x8000 - 4 - 0x20040;
     const auto widest_found = widest.scan();
@@ -3034,7 +3035,7 @@ apk::rewrite::Findings scan_with_table(std::span<const std::uint32_t> code, std:
 }
 
 /// Each recognition rule the ADR states, one code shape per rule, so a rule that stops working shows
-/// up here rather than in a converted binary (ADR-0020 X2d). The table base is always adrp x9 + add
+/// up here rather than in a converted binary (ADR-0020d). The table base is always adrp x9 + add
 /// #0x40 to 0x20040, and its entries are 32-bit offsets from there.
 TEST(each_jump_table_recognition_rule_is_covered) {
     // A flag-setting instruction between the CMP and the branch breaks the bounds check.
@@ -3128,7 +3129,7 @@ TEST(each_jump_table_recognition_rule_is_covered) {
     check_indirect_island(findings, 0x10018);
 }
 
-// --- The island table (ADR-0020 X4) --------------------------------------------------------------
+// --- The island table (ADR-0020) --------------------------------------------------------------
 
 /// Checks what every island form's layout says about the words its emitter wrote: the length, word
 /// 0 saving `value` and word 1 saving `base` in the red zone, and the store word writing `value` to
@@ -3159,7 +3160,7 @@ void check_common_layout(const apk::rewrite::IslandLayout &layout, const std::ve
 // What the island table records about an island must match the words its emitter wrote: for a single
 // instruction the commit word completes it (the instruction itself, or the last word of a PC-relative
 // one), and the last word goes on `resume` words past the site; for a resumable window commit is the
-// preamble length (ADR-0020 X4h). A conditional branch and a jump table always go back to the site.
+// preamble length (ADR-0020h). A conditional branch and a jump table always go back to the site.
 TEST(island_layouts_match_the_emitted_islands) {
     constexpr std::uint64_t site_address = 0x10000, stub_address = 0x20000;
     const auto writes_value = [](std::uint32_t word, unsigned value) {
@@ -3239,7 +3240,7 @@ TEST(island_layouts_match_the_emitted_islands) {
         CHECK(layout.resume == region.words.size());
         CHECK(branch_target_at(stub, layout.words - 1, stub_address) == region.address + 4 * layout.resume);
         CHECK((layout.store != 0) == region.writes_x18 && (layout.base != APK_ISLAND_NO_REGISTER) == region.writes_x18);
-        // A relocated window is resumable (ADR-0020 X4h): commit is the preamble length, so the island
+        // A relocated window is resumable (ADR-0020h): commit is the preamble length, so the island
         // body starts there with the window's load-exclusive.
         const auto preamble = 1u + (region.writes_x18 ? 1u : 0u) + (region.loads_x18 ? 3u : 0u);
         CHECK(layout.commit == preamble);
@@ -3290,14 +3291,14 @@ TEST(a_window_branch_out_of_field_range_is_rejected_not_truncated) {
     // The branch at .+16 lands past the three-word window, so emit keeps its absolute target. The
     // B.cond's stub sits 2 MiB away, beyond its +-1 MiB imm19; the CMPBR's only 4 KiB away, within
     // imm19 but beyond its own +-1 KiB imm9, so a wrong (wider) field would not catch it.
-    // Since ADR-0020 X7 a leaving branch goes to an exit pad inside the island and the pad's B reaches the target:
+    // Since ADR-0020a leaving branch goes to an exit pad inside the island and the pad's B reaches the target:
     // the conditional and the CMPBR keep their short ranges, and it is the pad's B (+-128 MiB) that overflows.
     CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0x5400'0080, 0x100000 + (129ull << 20)), "128 MiB");  // b.eq .+16
     CHECK_THROWS(apk::rewrite::RewriteError, emit_at(0xf4c6'0085, 0x100000 + (129ull << 20)), "128 MiB");  // cmpbr .+16
 }
 
 
-// ADR-0020 X7 (2026-11-05): the forms of a user's Unity library (28 refused x18 uses) reproduced in own assembly. The
+// ADR-0020(2026-11-05): the forms of a user's Unity library (28 refused x18 uses) reproduced in own assembly. The
 // words are what `clang -target arm64-apple-macos13` makes of the lines in each comment (`out` is the ret after the
 // loop, `loop` its first word). A loop of a recognized shape that only reads x18 and has a branch out of it (the
 // failure of a compare, a bound) runs in one island, the branch through an exit pad; what stays refused keeps its own
@@ -3315,7 +3316,7 @@ std::vector<std::uint32_t> with_nops(std::vector<std::uint32_t> head, std::size_
     return head;
 }
 
-// LL/SC loops with x18 read in them that a branch leaves: an exit pad takes the branch (ADR-0020 X7).
+// LL/SC loops with x18 read in them that a branch leaves: an exit pad takes the branch (ADR-0020).
 const SeenForm x7_exit_pad_loops[] = {
     {"strong CAS, x18 the new value, the failure leaves the loop: ldaxr x0,[x1]; cmp x0,x2; "
          "b.ne out; stlxr w3,x18,[x1]; cbnz w3,loop",
@@ -3345,7 +3346,7 @@ const SeenForm x7_exit_pad_loops[] = {
 
 
 // A window that does not close within 64 words and reaches a register branch that is no jump table: the branch ends the
-// monitor hull of its path (ADR-0020 X7 c1), so the x18 use islands and the branch is counted in the import report.
+// monitor hull of its path (ADR-0020), so the x18 use islands and the branch is counted in the import report.
 const SeenForm x7_hull_ending_branches[] = {
     {"a use, 70 nops, br x9: ldxr; add x0,x0,x18; nop x70; br x9",
      with_nops({0xc85f7c20, 0x8b120000}, 70, {0xd61f0120})},
@@ -3366,7 +3367,7 @@ const std::pair<SeenForm, std::string_view> x7_refused[] = {
 };
 
 // A window that another load-exclusive interrupts: the nested load re-arms the monitor, so a use between the two loads
-// that no path takes to the first store-exclusive islands, and one such a path reaches stays refused (X7).
+// that no path takes to the first store-exclusive islands, and one such a path reaches stays refused.
 TEST(x7_a_nested_load_exclusive_ends_the_hull_of_the_first) {
     // ldxr; cbz 9f; add x18; ldxr; stxr; cbnz; 9: stxr
     const std::vector<std::uint32_t> skipped = {0xc85f7c20, 0xb40000a0, 0x8b120000, 0xc85f7c83,
@@ -3384,7 +3385,7 @@ TEST(x7_a_nested_load_exclusive_ends_the_hull_of_the_first) {
     }
 }
 
-// ADR-0020 X7 (c2): with `monitor_inside` the converter lets an ordinary island's own memory accesses lie inside the
+// ADR-0020: with `monitor_inside` the converter lets an ordinary island's own memory accesses lie inside the
 // guest's LL/SC, for the uses that only a window's shape, an exclusive sequence or their own exclusive access refuse; each
 // is listed, so that the container can mark the library and the runtime can probe the core before it loads it.
 const SeenForm x7_monitor_inside[] = {
@@ -3428,7 +3429,7 @@ TEST(x7_monitor_inside_islands_the_uses_a_window_shape_refuses_and_lists_them) {
     CHECK(refused.x18_unsupported.size() == 1);
 }
 
-// The island of a CASP with x18 in a pair (ADR-0020 X7): destination pair, data pair, and their layouts.
+// The island of a CASP with x18 in a pair (ADR-0020): destination pair, data pair, and their layouts.
 TEST(x7_a_casp_with_x18_in_a_pair_has_an_island_over_a_scratch_pair) {
     struct Case {
         std::uint32_t word;

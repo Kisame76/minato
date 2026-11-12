@@ -1,6 +1,6 @@
 // c3b-contention-probe: does a load, or a store, to a granule unrelated to an LL/SC cell, between its load- and its
 // store-exclusive, keep the sums exact and the loop making progress when 4 or 8 threads contend for the cell?
-// (ADR-0020 X7 (c1), after the single-thread c3b-monitor-probe.) The island of an x18 use that lies in a window the
+// (ADR-0020, after the single-thread c3b-monitor-probe.) The island of an x18 use that lies in a window the
 // converter cannot relocate reads TSD slot 11 (or writes it) between the guest's exclusives; that access is of the
 // kind measured here. Three modes of one add loop (1, 4 and 8 threads, 2,000,000 passes each):
 //   plain  ldxr; add; stxr

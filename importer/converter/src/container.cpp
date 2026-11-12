@@ -212,7 +212,7 @@ std::vector<elf::Section> sections_for_scan(std::span<const std::byte> elf_bytes
     return sections;
 }
 
-/// Where the tables of jump tables may lie (ADR-0020 X2d): in a section that is loaded but neither
+/// Where the tables of jump tables may lie (ADR-0020d): in a section that is loaded but neither
 /// written nor run, backed by the file part of a LOAD segment that is not writable either. Code
 /// could change a table anywhere else, or the rewriter could, taking its words for instructions.
 rewrite::ReadOnlyData read_only_data(const elf::File &file, std::span<const std::byte> elf_bytes,
@@ -326,7 +326,7 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
             std::memcpy(masked.data() + (at - section.address), &nop, 4);
         }
         rewrite::scan(masked.empty() ? code : std::span<const std::byte>(masked), section.address, scan.findings, data,
-                      true);  // ADR-0020 X7 (c2)
+                      true);  // ADR-0020
         scan.code_bytes += section.size;
     }
     return scan;
@@ -782,7 +782,7 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> function_bounds(
 namespace {
 
 /// Whether a direct BL in [begin, end) of the section `code` (its first byte at virtual address `base`) calls a
-/// function in the same file that reads x30 as a value (ADR-0020 option c, lead review rule 3): that callee runs with
+/// function in the same file that reads x30 as a value (ADR-0020 option c, rule 3): that callee runs with
 /// x30 pointing into our call island, so reading it as data is wrong. The callee is found as the function is: by its
 /// sized symbol, else by its unwind entry. A BL whose target neither holds (an assembly helper, a veneer, any unsized
 /// region without unwind data) cannot be checked, so it counts as unsafe: a rename never guesses. A call into the PLT
@@ -847,7 +847,7 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     const auto begin_off = static_cast<std::size_t>(begin - base);
     const auto end_off = static_cast<std::size_t>(end - base);
 
-    // Hole 1 (lead review): sized bounds are trustworthy only if they are the WHOLE function. Refuse a nested or
+    // Hole 1: sized bounds are trustworthy only if they are the WHOLE function. Refuse a nested or
     // overlapping sized symbol -- renaming part of a real function would leave the rest on x18. Then refuse a word
     // that falls through into begin (begin would be mid-function, running renamed code with the register unset) or
     // out past end (the renamed register would escape into the next function). The exit sync will later cover the
@@ -876,13 +876,13 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     const auto reg = rewrite::free_caller_saved_register(function);
     if (!reg) return std::nullopt;  // must-have 1: no caller-saved register is free across the function
     if (rewrite::has_external_entry(code, base, begin_off, end_off)) return std::nullopt;  // must-have 3
-    // A non-call branch inside the function back to begin would rerun the entry reload with a stale slot 11 (lead
-    // review); a BL to begin is fine, as its call island stores first.
+    // A non-call branch inside the function back to begin would rerun the entry reload with a stale slot 11; a BL
+    // to begin is fine, as its call island stores first.
     if (rewrite::has_internal_branch_to_begin(code, begin_off, end_off)) return std::nullopt;
     // A call island leaves x30 pointing into the stub, so refuse a function that reads x30 as a value after a call,
-    // or a bl .+4 PC-getter (lead review).
+    // or a bl .+4 PC-getter.
     if (rewrite::call_leaks_link_register(code.subspan(begin_off, end_off - begin_off))) return std::nullopt;
-    // ...and refuse when a direct BL calls a sized in-file function that reads x30 as data (lead review rule 3).
+    // ...and refuse when a direct BL calls a sized in-file function that reads x30 as data (rule 3).
     if (a_callee_may_read_x30(file, elf_bytes, symbols, fdes, sections, code, base, begin_off,
                                           end_off)) {
         return std::nullopt;
@@ -1366,7 +1366,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                     elf_bytes.data() + segment->offset, segment->file_size);
     }
 
-    // What a signal handler needs to know of each x18 island (ADR-0020 X4). Both offsets fit 32 bits:
+    // What a signal handler needs to know of each x18 island (ADR-0020). Both offsets fit 32 bits:
     // emit() refuses a site more than 128 MiB from its stub, and the stubs lie before the image.
     std::vector<apk_island> islands;
     islands.reserve(island_count);
@@ -1406,7 +1406,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         }
         stub += size;
     }
-    // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020 X2c).
+    // Relocate each load-/store-exclusive window with x18 as one island (ADR-0020c).
     for (const auto &region : findings.exclusive_regions) {
         // A1: a (c) function renamed the window's x18 to the register.
         if (exclusive_window_in_c_function(region)) continue;
@@ -1422,7 +1422,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
         stub += size;
         ++report.x18_islands;
     }
-    // Each br x18 that ends a jump table: an island with its landing pads (ADR-0020 X2d). A (c) function never holds
+    // Each br x18 that ends a jump table: an island with its landing pads (ADR-0020d). A (c) function never holds
     // one (keep_c_functions_clear_of_islands drops it), so none is suppressed here.
     for (const auto &table : findings.jump_tables) {
         const std::uint64_t branch_address = container_address(table.address);

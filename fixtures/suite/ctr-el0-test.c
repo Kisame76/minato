@@ -1,4 +1,4 @@
-// Red-first for the CTR_EL0 rewriter site (Formate's ADR-0072 step a needs it): a guest that reads the cache type
+// Red-first for the CTR_EL0 rewriter site (ADR-0072 step a needs it): a guest that reads the cache type
 // register, CTR_EL0, traps on XNU -- `mrs xN, CTR_EL0` is EXC_BAD_INSTRUCTION at EL0 -- and compiler-rt's
 // __clear_cache, which libffi's ffi_prep_closure_loc calls, reads it. The converter's cache_type_read site loads a
 // constant instead (0xB445C005: 128-byte lines from the host's hw.cachelinesize, PIPT, IDC=1 and DIC=1), so the read

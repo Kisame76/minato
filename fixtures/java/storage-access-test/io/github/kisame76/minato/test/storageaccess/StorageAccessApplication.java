@@ -8,9 +8,9 @@ import android.system.StructStat;
 import android.util.Log;
 
 /**
- * faccessat and stat on the directories above the app's external storage, as an app uid sees them (vfs review finding
- * 1): /storage and its emulated volumes have no mount of their own in Minato, so the runtime synthesises them as
- * directories and faccessat answers for them. This probe asks android.system.Os.access (faccessat) for F_OK, R_OK,
+ * faccessat and stat on the directories above the app's external storage, as an app uid sees them: /storage and
+ * its emulated volumes have no mount of their own in Minato, so the runtime synthesises them as directories and
+ * faccessat answers for them. This probe asks android.system.Os.access (faccessat) for F_OK, R_OK,
  * W_OK and X_OK and Os.stat (the mode bits and whether the app owns it) on each, so the AVD's app-uid answers and
  * Minato's can be compared. The output is normalised (yes/no and self-owned, not the raw uid, which differs by
  * install), so the lines compare byte for byte. The launcher activity is the framework's own android.app.Activity, so
