@@ -715,10 +715,12 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> function_bounds(
 namespace {
 
 /// Whether a direct BL in [begin, end) of the section `code` (its first byte at virtual address `base`) calls a
-/// sized function in the same file that reads x30 as a value (ADR-0020 option c, lead review rule 3): that callee
-/// runs with x30 pointing into our call island, so reading it as data is wrong. A BL whose target is not a sized
-/// function of the file (external, or an unsized region) cannot be checked -- a named limit, not refused.
-bool a_called_sized_function_reads_x30(const elf::File &file, std::span<const std::byte> elf_bytes,
+/// function in the same file that reads x30 as a value (ADR-0020 option c, lead review rule 3): that callee runs with
+/// x30 pointing into our call island, so reading it as data is wrong. The callee is found as the function is: by its
+/// sized symbol, else by its unwind entry. A BL whose target neither holds (an assembly helper, a veneer, any unsized
+/// region without unwind data) cannot be checked, so it counts as unsafe: a rename never guesses. A call into the PLT
+/// is an import call, which the loader resolves, and is allowed.
+bool a_callee_may_read_x30(const elf::File &file, std::span<const std::byte> elf_bytes,
                                        std::span<const elf::Symbol> symbols,
                                        std::span<const std::pair<std::uint64_t, std::uint64_t>> fdes,
                                        std::span<const elf::Section> sections, std::span<const std::byte> code,
@@ -733,7 +735,12 @@ bool a_called_sized_function_reads_x30(const elf::File &file, std::span<const st
         const auto *callee = section_of(sections, target);
         if (callee == nullptr) continue;
         const auto bounds = function_bounds(symbols, fdes, callee->address, callee->address + callee->size, target);
-        if (!bounds) continue;  // neither a sized function nor an unwind entry of the file: a named limit, not refused
+        if (!bounds) {
+            // Neither a sized function nor an unwind entry holds the target (an assembly helper, a veneer): it cannot
+            // be checked, and a rename never guesses. A call into the PLT is an import call, which the loader resolves.
+            if (callee->name.starts_with(".plt")) continue;
+            return true;
+        }
         std::span<const std::byte> callee_code;
         try {
             callee_code = file_bytes_at(file, elf_bytes, callee->address, callee->size, "section");
@@ -809,7 +816,7 @@ std::optional<WholeFunctionRename> c_rename_register(std::span<const std::byte> 
     // or a bl .+4 PC-getter (lead review).
     if (rewrite::call_leaks_link_register(code.subspan(begin_off, end_off - begin_off))) return std::nullopt;
     // ...and refuse when a direct BL calls a sized in-file function that reads x30 as data (lead review rule 3).
-    if (a_called_sized_function_reads_x30(file, elf_bytes, symbols, fdes, sections, code, base, begin_off,
+    if (a_callee_may_read_x30(file, elf_bytes, symbols, fdes, sections, code, base, begin_off,
                                           end_off)) {
         return std::nullopt;
     }

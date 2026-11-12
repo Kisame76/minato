@@ -58,9 +58,10 @@ struct Symbol {
 };
 
 std::vector<std::byte> library(const std::vector<std::uint32_t> &words, bool with_symbol = true,
-                               const std::vector<FdeSpan> &fdes = {}, Symbol symbol = {}) {
+                               const std::vector<FdeSpan> &fdes = {}, Symbol symbol = {}, std::size_t plt_words = 0) {
     ElfBuilder builder;
     const std::uint64_t size = words.size() * 4;
+    const std::uint64_t text_size = size - plt_words * 4;  // the last words are a .plt section's
     builder.put<std::uint64_t>(24, 0x200);
     builder
         .segments({
@@ -78,7 +79,8 @@ std::vector<std::byte> library(const std::vector<std::uint32_t> &words, bool wit
         builder.sections({
             {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
             {".eh_frame", sht_progbits, shf_alloc, 0x170, 0x170, eh_size},
-            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, size},
+            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, text_size},
+            {".plt", sht_progbits, shf_alloc | shf_execinstr, 0x200 + text_size, 0x200 + text_size, plt_words * 4},
             {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
             {".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
         }, symbol.size == 0 ? std::initializer_list<SymbolEntry>{}
@@ -86,14 +88,16 @@ std::vector<std::byte> library(const std::vector<std::uint32_t> &words, bool wit
     } else if (with_symbol) {
         builder.sections({
             {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
-            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, size},
+            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, text_size},
+            {".plt", sht_progbits, shf_alloc | shf_execinstr, 0x200 + text_size, 0x200 + text_size, plt_words * 4},
             {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
             {".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
         }, {{"fn", 0x200, size}});
     } else {
         builder.sections({
             {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
-            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, size},
+            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, text_size},
+            {".plt", sht_progbits, shf_alloc | shf_execinstr, 0x200 + text_size, 0x200 + text_size, plt_words * 4},
             {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
             {".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
         });
@@ -199,6 +203,26 @@ TEST(refuses_the_store_when_a_callee_found_by_its_fde_reads_x30_as_a_value) {
 TEST(takes_the_store_when_a_callee_found_by_its_fde_does_not_read_x30) {
     const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
     CHECK(refusal_of(library(words, false, {{0x200, 16}, {0x210, 8}})).empty());
+}
+
+// A call to an address that neither a sized symbol nor an unwind entry holds (an assembly helper, a veneer) cannot be
+// checked for a read of x30, and the rename never guesses: the function is refused. A call into the PLT is an import
+// call and stays allowed.
+TEST(refuses_the_store_when_a_callee_has_neither_a_symbol_nor_an_unwind_entry) {
+    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
+    const auto text = refusal_of(library(words, false, {{0x200, 16}}));
+    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+}
+
+TEST(refuses_the_store_when_the_caller_has_a_sized_symbol_and_the_callee_has_nothing) {
+    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
+    const auto text = refusal_of(library(words, false, {{0x200, 16}}, {0x200, 16}));
+    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+}
+
+TEST(takes_the_store_when_the_callee_is_a_plt_stub) {
+    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, ret};
+    CHECK(refusal_of(library(words, false, {{0x200, 16}}, {}, 1)).empty());
 }
 
 TEST(names_only_the_store_when_both_words_are_in_a_stripped_library) {
