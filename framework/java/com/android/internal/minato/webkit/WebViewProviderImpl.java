@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Picture;
+import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
@@ -172,6 +173,28 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         afterFade();
         return true;
     };
+
+    /** The trace's hole: onDraw's clears so far, the last traced rectangle (window pixels) and window format. */
+    private int mClears;
+    private final Rect mTracedHole = new Rect();
+    private int mTracedFormat = Integer.MIN_VALUE;
+
+    /** A trace line at the first clear and whenever the cleared rectangle or the window's format changes. */
+    private void traceHole() {
+        mClears++;
+        int[] at = new int[2];
+        mWebView.getLocationInWindow(at);
+        Rect hole = new Rect(at[0], at[1], at[0] + mWebView.getWidth(), at[1] + mWebView.getHeight());
+        ViewRootImpl root = mWebView.getViewRootImpl();
+        int format = root != null ? root.mWindowAttributes.format : 0;  // the window's, after the region's request
+        if (mClears == 1 || !hole.equals(mTracedHole) || format != mTracedFormat) {
+            mTracedHole.set(hole);
+            mTracedFormat = format;
+            trace("hole cleared n=" + mClears + " rect=" + hole.left + "," + hole.top + " " + hole.width() + "x"
+                    + hole.height() + " format=" + (format == PixelFormat.TRANSLUCENT ? "TRANSLUCENT"
+                    : format == PixelFormat.OPAQUE ? "OPAQUE" : String.valueOf(format)));
+        }
+    }
 
     /** The alpha of the WebView and its ancestors at the last pre-draw. */
     private float mDrawnAlpha = 1f;
@@ -1445,6 +1468,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     public void onDraw(Canvas canvas) {
         if (mHost == HOST_OPEN) {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            if (TRACE) {
+                traceHole();
+            }
             return;
         }
         int color = mContentRequested ? mBackgroundColor : Color.BLACK;

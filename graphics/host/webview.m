@@ -1108,6 +1108,43 @@ static NSString *traced_host(NSURL *url) {
             line.length > 0 ? line.UTF8String : " none");
 }
 
+/// The hole as the window shows it (the trace only): of a 16 x 16 grid of pixels in the view's clip, how many the
+/// window's last posted software buffer has fully transparent, and whether the window view's layer is opaque. A clip
+/// the app's window covers with its own pixels reads 0 transparent; a window without a CPU buffer (GL, Vulkan, never
+/// posted, trimmed) reads its readback's error.
+- (NSString *)holeLook {
+    if (self.window == 0 || !self.placed || CGRectIsEmpty(self.clip)) return @"hole none (not placed)";
+    void *above = NULL;
+    double scale = 1;
+    if (host_windows != NULL && host_windows->container != NULL) {
+        (void)host_windows->container(host_windows->context, self.window, &above, &scale);
+    }
+    MinatoHostView *windowView = (__bridge MinatoHostView *)above;
+    const int opaque = windowView != nil ? (int)windowView.layer.opaque : -1;
+    const struct apkrt_window_buffers *buffers = minato_graphics_window_buffers();
+    int transparent = 0, read = 0, status = 0;
+    for (int j = 0; j < 16 && status == 0; j++) {
+        for (int i = 0; i < 16 && status == 0; i++) {
+            const int32_t x = (int32_t)(self.clip.origin.x + (i + 0.5) * self.clip.size.width / 16);
+            const int32_t y = (int32_t)(self.clip.origin.y + (j + 0.5) * self.clip.size.height / 16);
+            uint8_t pixel[4] = {0, 0, 0, 0};
+            const struct apkrt_window_readback request = {x, y, x + 1, y + 1, 1, 1, 4, pixel};
+            status = buffers->readback(buffers->context, self.window, &request);
+            if (status == 0) {
+                read++;
+                transparent += pixel[3] == 0;
+            }
+        }
+    }
+    if (read == 0) {
+        return [NSString stringWithFormat:@"hole window %llu unread (readback %d) layer opaque %d",
+                                          (unsigned long long)self.window, status, opaque];
+    }
+    return [NSString stringWithFormat:@"hole window %llu clip %.0f,%.0f %.0fx%.0f px transparent %d/%d layer opaque %d",
+                                      (unsigned long long)self.window, self.clip.origin.x, self.clip.origin.y,
+                                      self.clip.size.width, self.clip.size.height, transparent, read, opaque];
+}
+
 /// The trace's words for a rectangle in points.
 static NSString *traced_rect(CGRect rect) {
     return [NSString stringWithFormat:@"%.0f,%.0f %.0fx%.0f", rect.origin.x, rect.origin.y, rect.size.width,
@@ -1535,12 +1572,14 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
                                                            (unsigned long long)posts]];
         [strong navigation:@"commitVisible" url:url];
         if (!navigation_trace_on() || strong.window == 0) return;
+        [strong navigationTrace:[strong holeLook]];
         // The window's posts a second later: whether the app drew again once it was told.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             MinatoWebView *later = weakSelf;
             if (later == nil || later.window == 0) return;
             [later navigationTrace:[NSString stringWithFormat:@"commitVisible +1 s window posts=%llu",
                                                               (unsigned long long)apkrt_window_presents(later.window)]];
+            [later navigationTrace:[later holeLook]];
         });
     };
     WKSnapshotConfiguration *point = [WKSnapshotConfiguration new];
