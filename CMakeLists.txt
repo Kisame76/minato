@@ -199,6 +199,10 @@ if(APK_HOST_BUILD)
   # NDK: a missing name is WRONG (exit 1), a library that is not built is SKIP (exit 77), libc++.so is left out.
   add_test(NAME tools.ndk_names_check
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/ndk_names_check_test.sh")
+  # tools/docs-paths-check.sh: every link, path, script name and ADR number in README.md and docs/*.md exists; its test
+  # breaks one kind of reference at a time in a small made-up repository.
+  add_test(NAME tools.docs_paths_check
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/docs_paths_check_test.sh")
   # java-start-check.sh's mem_notes: picks the first, peak-foot=, warning and last "mem foot=" lines from a
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
