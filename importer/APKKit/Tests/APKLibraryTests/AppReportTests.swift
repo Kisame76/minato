@@ -164,6 +164,49 @@ struct AppReportTests {
         #expect(!(report.url.absoluteString.removingPercentEncoding ?? "").contains("Holiday"))
     }
 
+    /// An engine's or emulator's library can carry the app's own name (an emulator app ships its core as
+    /// libppsspp_jni.so, a Cocos game its code as libcocos<game>.so): only the fixed file names the engines ship keep
+    /// theirs without the user's choice, never a name that merely starts like one.
+    @Test func aLibraryThatOnlyStartsLikeAnEnginesKeepsNoPartOfItsName() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await entry(sandbox)
+        let issues = ["libppsspp_jni.so calls 19 functions that Minato does not have yet",
+                      "libcocosholidaygame.so will not load", "libpython3holiday.so cannot be read",
+                      "libnet-holiday.so needs libcoreclr.so", "libgodot_android.so calls 2 functions",
+                      "libcocosholidaygame.so: x18 at 0x10 in HolidayDraw+0x8 (.text) cannot run on iOS"]
+        var report = AppReport(entry: entry, device: device, status: "Ready", issues: issues,
+                               ending: .startFailed("libppsspp_jni.so is missing"), log: nil)
+        let text = report.text
+        let url = report.url.absoluteString.removingPercentEncoding ?? ""
+        for name in ["ppsspp", "holiday", "Holiday", "cocosholiday"] {
+            #expect(!text.contains(name) && !url.contains(name), "\(name)")
+        }
+        for part in ["- <library> calls 19 functions", "- <library> will not load", "- <library> cannot be read",
+                     "- <library> needs libcoreclr.so", "- libgodot_android.so calls 2 functions",
+                     "it could not start: <library> is missing",
+                     "- <library>: x18 at 0x10 in <symbol>+0x8 (.text) cannot run on iOS"] {
+            #expect(text.contains(part), "\(part)")
+        }
+        report.namesApp = true
+        for part in ["- libppsspp_jni.so calls 19", "- libcocosholidaygame.so will not load",
+                     "- libpython3holiday.so cannot be read", "- libnet-holiday.so needs libcoreclr.so",
+                     "- libcocosholidaygame.so: x18 at 0x10 in HolidayDraw+0x8 (.text)"] {
+            #expect(report.text.contains(part), "\(part)")
+        }
+        #expect(!(report.url.absoluteString.removingPercentEncoding ?? "").contains("ppsspp"))
+    }
+
+    /// Every name the report keeps is an engine's or runtime's own file: the importer's detection names an engine by
+    /// it alone, or it is a part of an engine that the detection reads with another (Unity's Mono, Kivy's bundle).
+    @Test func everyKeptLibraryNameIsAnEnginesOwnFile() {
+        let parts: Set<String> = ["libmonobdwgc-2.0.so", "libmono.so", "libpybundle.so"]
+        for name in AppReport.engineLibraries.subtracting(parts) {
+            #expect(APKAnalyzer.engine(ofLibrary: name) != nil, "\(name)")
+        }
+        #expect(parts.isSubset(of: AppReport.engineLibraries))
+    }
+
     @Test func theTextHoldsTheAppTheIPhoneTheStatusTheEndAndTheLog() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

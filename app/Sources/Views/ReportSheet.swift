@@ -36,8 +36,9 @@ struct ReportSheet: View {
                         Toggle("Include the Log of the Last Session", isOn: $report.includesLog)
                     }
                 } footer: {
-                    Text("Without them, the report names the engine, the Android versions, Minato's version and "
-                        + "what went wrong, not the app. Changing a switch writes the report again.")
+                    Text((report.log?.isEmpty == false ? "Without them" : "Without it")
+                        + ", the report names the engine, the Android versions, Minato's version and what went "
+                        + "wrong, not the app. Changing a switch writes the report again.")
                 }
                 Section {
                     TextEditor(text: $summary)

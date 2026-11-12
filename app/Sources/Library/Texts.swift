@@ -390,7 +390,8 @@ enum Texts {
         case .libraryNotChecked(let library, let reason):
             "\(library) could not be checked: \(reason)"
         case .needsART:
-            "Contains Java/Kotlin code, which runs interpreted for now and may be slower"
+            "Contains Java/Kotlin code, which runs on ART's fast interpreter at first and is compiled after the app's "
+                + "first close"
         case .requiresGLES(let version):
             "Requires OpenGL ES \(glesVersion(version)); Minato provides at most 3.1"
         case .pageAligned4K(let libraries):

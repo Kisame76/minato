@@ -9,8 +9,9 @@ import Foundation
 /// The user's rule: by default the report names the engine, the SDK levels, Minato's version, the reason and counts,
 /// not the app. Its name, package, version and libraries come only with `namesApp`, and the last session's log only
 /// with `includesLog`, which cuts the app's names to "<app>" unless `namesApp` is on too. A library's file name can
-/// name the app or its maker, so without `namesApp` only the libraries the importer's engine detection knows
-/// (APKAnalyzer.engine(ofLibrary:)) and the platform's public ones keep their names; every other is "<library>".
+/// name the app or its maker, so without `namesApp` only the fixed file names that engines and runtimes ship
+/// (engineLibraries: never a prefix, since an emulator's core or a Cocos game's code often carries the app's own name)
+/// and the platform's public ones keep their names; every other is "<library>".
 /// The symbol the converter names for a refused site is "<symbol>" the same way.
 /// Both are the user's own choices in the sheet, which shows the exact text. The URL never carries the app: opening
 /// the form sends it.
@@ -133,9 +134,20 @@ public struct AppReport: Sendable, Equatable, Identifiable {
         NativeFindings.publicLibraries(from: text)
     }
 
+    /// The library files an engine or runtime ships under a fixed name, the same in every app made with it, so they
+    /// tell the engine and nothing of the app (APKAnalyzer's engine detection reads them). Exact names only: the
+    /// detection's prefixes (libcocos*, libpython3*, libnet-*, the emulator cores) also match files named after the
+    /// app, which are cut.
+    static let engineLibraries: Set<String> = [
+        "libil2cpp.so", "libunity.so", "libmonobdwgc-2.0.so", "libmono.so", "libUE4.so", "libUnreal.so",
+        "libgodot_android.so", "libgdx.so", "libyoyo.so", "libflutter.so", "libreactnativejni.so", "libmonodroid.so",
+        "libxamarin-app.so", "libmonosgen-2.0.so", "libcoreclr.so", "libSDL2.so", "libSDL3.so", "libpybundle.so",
+        "libcocos2dcpp.so", "libcocos2djs.so", "libcocos2dlua.so", "libluajit.so",
+    ]
+
     /// Whether the library file `name` keeps its name without the user's choice: an engine's or the platform's.
     private func keepsName(_ name: String) -> Bool {
-        platformLibraries.contains(name) || APKAnalyzer.engine(ofLibrary: name) != nil
+        platformLibraries.contains(name) || Self.engineLibraries.contains(name)
     }
 
     /// `text` with the app's names and its own libraries' names cut, unless the user chose to name the app.
