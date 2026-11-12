@@ -80,6 +80,12 @@
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
 #              build; on the iPhone it goes over the installed Minato, whose data stays, and the script prints how long
 #              that took and what the certificate hand-over says
+#   GUEST_ENV  MINATO_ entries for the Debug guest environment of the whole run, KEY=VALUE separated by spaces (as
+#              MINATO_BACKGROUND_PARK=1): written to the app's tmp/guest-environment after the install (on the iPhone
+#              one copy) and emptied at the end (one more); lan-test's and starting-window-test's own entries replace
+#              it for their rounds, so a GUEST_ENV run leaves those out
+#   CONSOLE_URLS copy: with CONSOLE=yes on the iPhone, a mid-session request goes as one copy of its file instead of a
+#              minato://check URL, for an iPhone that asks "Open in Minato?" before it opens one
 #   CONSOLE    yes: the console transport (the phone's file service hangs on some copies): Minato is launched with
 #              `devicectl device process launch --console` (in the Simulator `simctl launch --console-pty`), the run's
 #              requests go in at launch (MINATO_CHECK_REQUESTS) and mid-session as minato://check URLs, and the events
@@ -839,6 +845,13 @@ print(json.dumps(e))' "$requests")
 # a minato:// URL waits behind iOS's "Open in Minato?" alert, which then covers every later start.
 console_url() {
   [[ "$ON_DEVICE" == yes ]] || return 0
+  if [[ "${CONSOLE_URLS:-}" == copy ]]; then
+    rm -rf "$WORK/one"
+    mkdir "$WORK/one"
+    printf '%s\n' "$2" > "$WORK/one/$1"
+    devicectl_copy to --source "$WORK/one" --destination "$CHECK_REL" || true
+    return 0
+  fi
   local url
   url="minato://check/$1?$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$2")"
   on_device process launch --device "$DEVICE_ID" -q --payload-url "$url" "$BUNDLE_ID" >/dev/null 2>&1
@@ -964,10 +977,25 @@ if left:
 EOF
 }
 
+# GUEST_ENV's entries for every session of the run, one per line (the app keeps MINATO_ keys only).
+guest_env_write() {
+  tr ' ' '\n' <<< "$1" | grep -v '^$' > "$WORK/guest-environment" || true
+  if [[ "$ON_DEVICE" == yes ]]; then
+    devicectl_copy to --source "$WORK/guest-environment" --destination "tmp/guest-environment" || true
+  else
+    mkdir -p "$CONTAINER/tmp"
+    cp "$WORK/guest-environment" "$CONTAINER/tmp/guest-environment"
+  fi
+  rm -f "$WORK/guest-environment"
+}
 # A killed run leaves its apps in the library. Saved with them, the index would bring them back at the end without
 # their files, and an import of the same APK keeps such an entry, whose tap fails.
 mkdir -p "$SUPPORT/incoming"
 remove_test_apps
+if [[ -n "${GUEST_ENV:-}" ]]; then
+  guest_env_write "$GUEST_ENV"
+  echo "note  the run's guest environment: $(tr ' ' '\n' <<< "$GUEST_ENV" | sed 's/=.*//' | tr '\n' ' ')"
+fi
 had_data=no
 if [[ "$ON_DEVICE" == no ]]; then
   cp "$SUPPORT/library.json" "$WORK/library.json.saved" 2>/dev/null || true
@@ -976,6 +1004,7 @@ fi
 
 restore() {
   remove_test_apps || true
+  [[ -z "${GUEST_ENV:-}" ]] || guest_env_write ""
   if [[ "$ON_DEVICE" == no ]]; then
     if [[ "$had_data" == no ]]; then rmdir "$SUPPORT/data" 2>/dev/null || true; fi
     if [[ -f "$WORK/library.json.saved" ]]; then cp "$WORK/library.json.saved" "$SUPPORT/library.json"; else rm -f "$SUPPORT/library.json"; fi
