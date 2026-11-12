@@ -189,6 +189,10 @@ if(APK_HOST_BUILD)
   # bootstatus; a failed boot or a crashing SpringBoard ends loudly with the device shut down; no other script boots.
   add_test(NAME tools.boot_simulator
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/boot_simulator_test.sh")
+  # tools/public-numbers-check.sh recomputes the numbers that README, COMPATIBILITY and CHANGELOG state; its test
+  # doctors one number or sentence at a time in a copy and expects the matching WRONG line.
+  add_test(NAME tools.public_numbers_check
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/public_numbers_check_test.sh")
   # java-start-check.sh's mem_notes: picks the first, peak-foot=, warning and last "mem foot=" lines from a
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
