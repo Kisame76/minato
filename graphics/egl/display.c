@@ -28,7 +28,14 @@
      MINATO_EGL_TRACE=1 (trace.c). eglMakeCurrent's failure is logged (E/libEGL, at most one line a second, the others
      counted), and so is the first time a context is made current without a draw surface (diagnostics that stay in
      the build). A thread that ends with a context current releases it through eglReleaseThread, as Android's
-     libEGL does at a thread's end. */
+     libEGL does at a thread's end.
+   - The backup share (a departure from Android, for Ren'Py's race at a pause, graphics.gles_backup_share):
+     eglCreateContext with no share context makes the new context share C's objects when the thread released C
+     with eglMakeCurrent and has made none current since, C is alive and current on no thread, the call asks for C's
+     config and exactly C's attributes, and the host window C was last current on is not open (gone, removed or its
+     gate closed: Ren'Py's race comes after SDL's surfaceDestroyed). One I/libEGL line says so. Ren'Py's display
+     reset then deletes and loads its scene in C's share group instead of keeping a second set alive in a context
+     nothing makes current again. */
 #include <android/log.h>
 #include <android/native_window.h>
 #include <pthread.h>
@@ -55,6 +62,8 @@ MINATO_HOST(eglMakeCurrent);
 MINATO_HOST(eglCreateContext);
 MINATO_HOST(eglDestroyContext);
 MINATO_HOST(eglReleaseThread);
+
+static void note_gone(EGLDisplay display, EGLContext context);
 
 static EGLDisplay metal_display(void) {
     static const EGLAttrib metal[] = MINATO_EGL_METAL_DISPLAY;
@@ -83,6 +92,7 @@ EGLBoolean eglTerminate(EGLDisplay display) {
     }
     if (result) {
         minato_release_windows(display);
+        note_gone(display, EGL_NO_CONTEXT);
         minato_deferred_destroyed(EGL_NO_CONTEXT);
     }
     return result;
@@ -460,6 +470,120 @@ static unsigned reset_status(void) {
     return status != NULL ? status() : 0;
 }
 
+/* The contexts libEGL made, for the backup share: their config and attributes, whether a thread has them current,
+   and the host window of the last window surface they were current on. */
+enum { most_attributes = 32 };
+
+struct context_record {
+    struct context_record *next;
+    EGLDisplay display;
+    EGLContext context, shares;  // shares: the context it was made to share with in a backup window, else none
+    EGLConfig config;
+    EGLint attributes[most_attributes];
+    int length;  // EGLints before EGL_NONE; -1 for a longer list, which never matches
+    int current;
+    uint64_t window;
+};
+
+static pthread_mutex_t contexts_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct context_record *contexts;
+
+static int copy_attributes(const EGLint *attributes, EGLint *copy) {
+    int length = 0;
+    while (attributes != NULL && attributes[length] != EGL_NONE) {
+        if (length + 2 > most_attributes) {
+            return -1;
+        }
+        copy[length] = attributes[length];
+        copy[length + 1] = attributes[length + 1];
+        length += 2;
+    }
+    return length;
+}
+
+static struct context_record *find_context(EGLContext context) {
+    for (struct context_record *record = contexts; record != NULL; record = record->next) {
+        if (record->context == context) {
+            return record;
+        }
+    }
+    return NULL;
+}
+
+static void note_made(EGLDisplay display, EGLContext context, EGLConfig config, const EGLint *attributes,
+                      EGLContext shares) {
+    struct context_record *record = calloc(1, sizeof *record);
+    if (record == NULL) {
+        return;  // never a backup share for it, as on Android
+    }
+    record->display = display;
+    record->context = context;
+    record->shares = shares;
+    record->config = config;
+    record->length = copy_attributes(attributes, record->attributes);
+    pthread_mutex_lock(&contexts_lock);
+    record->next = contexts;
+    contexts = record;
+    pthread_mutex_unlock(&contexts_lock);
+}
+
+/* A context gone: EGL_NO_CONTEXT for every one of `display`'s (eglTerminate). */
+static void note_gone(EGLDisplay display, EGLContext context) {
+    pthread_mutex_lock(&contexts_lock);
+    for (struct context_record **at = &contexts; *at != NULL;) {
+        struct context_record *record = *at;
+        if (record->display == display && (context == EGL_NO_CONTEXT || record->context == context)) {
+            *at = record->next;
+            free(record);
+        } else {
+            at = &record->next;
+        }
+    }
+    pthread_mutex_unlock(&contexts_lock);
+}
+
+static void note_switch(EGLContext before, EGLContext context, EGLSurface draw) {
+    const uint64_t window = context != EGL_NO_CONTEXT ? minato_window_surface_id(draw) : 0;
+    pthread_mutex_lock(&contexts_lock);
+    struct context_record *record = before != context ? find_context(before) : NULL;
+    if (record != NULL) {
+        record->current = 0;
+    }
+    record = context != EGL_NO_CONTEXT ? find_context(context) : NULL;
+    if (record != NULL) {
+        record->current = 1;
+        record->window = window != 0 ? window : record->window;
+    }
+    pthread_mutex_unlock(&contexts_lock);
+}
+
+int minato_contexts_share(EGLContext a, EGLContext b) {
+    pthread_mutex_lock(&contexts_lock);
+    const struct context_record *one = find_context(a), *other = find_context(b);
+    const int shares = one != NULL && other != NULL && (other->shares == a || one->shares == b);
+    pthread_mutex_unlock(&contexts_lock);
+    return shares;
+}
+
+/* The context a new one shares in a backup window, else EGL_NO_CONTEXT (the conditions in the header). */
+static EGLContext backup_share(EGLDisplay display, EGLConfig config, const EGLint *attributes) {
+    const EGLContext backed = minato_deferred_released();
+    if (backed == EGL_NO_CONTEXT) {
+        return EGL_NO_CONTEXT;
+    }
+    EGLint copy[most_attributes];
+    const int length = copy_attributes(attributes, copy);
+    uint64_t window = 0;
+    pthread_mutex_lock(&contexts_lock);
+    const struct context_record *record = find_context(backed);
+    if (record != NULL && record->display == display && !record->current && record->config == config && length >= 0 &&
+        record->length == length && memcmp(record->attributes, copy, (size_t)length * sizeof *copy) == 0) {
+        window = record->window;
+    }
+    pthread_mutex_unlock(&contexts_lock);
+    return window != 0 && !minato_window_open(window) ? backed : EGL_NO_CONTEXT;
+}
+
 /* A thread that ends with a context current lets it go, as Android's libEGL does: its pthread key's destructor
    (frameworks/native opengl/libs/EGL/egl_tls.cpp, destructTLSData) calls eglReleaseThread, so the context stops being
    current and one the app destroyed meanwhile is freed. ANGLE does so only on Android (global_state.cpp,
@@ -486,6 +610,7 @@ EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, 
     const EGLBoolean result = minato_host_eglMakeCurrent(display, draw, read, context);
     const EGLint error = result ? EGL_SUCCESS : minato_peek_error();  // read once, kept for the app
     if (result) {
+        note_switch(before, context, draw);
         minato_deferred_current(before, context);  // deferred.c: a release, or the deletes made since applied
         note_current(context);
     }
@@ -510,7 +635,19 @@ EGLBoolean eglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, 
 }
 
 EGLContext eglCreateContext(EGLDisplay display, EGLConfig config, EGLContext share, const EGLint *attributes) {
-    const EGLContext context = minato_host_eglCreateContext(display, config, share, attributes);
+    const EGLContext backed = share == EGL_NO_CONTEXT ? backup_share(display, config, attributes) : EGL_NO_CONTEXT;
+    EGLContext context = backed != EGL_NO_CONTEXT ? minato_host_eglCreateContext(display, config, backed, attributes)
+                                                  : EGL_NO_CONTEXT;
+    if (context != EGL_NO_CONTEXT) {
+        __android_log_print(ANDROID_LOG_INFO, "libEGL", "eglCreateContext: context %p made while context %p is backed "
+                            "up on this thread and its window is not open: it shares %p's objects", context, backed,
+                            backed);
+    } else {
+        context = minato_host_eglCreateContext(display, config, share, attributes);
+    }
+    if (context != EGL_NO_CONTEXT) {
+        note_made(display, context, config, attributes, backed != EGL_NO_CONTEXT ? backed : EGL_NO_CONTEXT);
+    }
     if (minato_trace_on()) {
         if (context != EGL_NO_CONTEXT) {
             minato_trace_context_made(context);
@@ -524,6 +661,7 @@ EGLContext eglCreateContext(EGLDisplay display, EGLConfig config, EGLContext sha
 EGLBoolean eglDestroyContext(EGLDisplay display, EGLContext context) {
     const EGLBoolean result = minato_host_eglDestroyContext(display, context);
     if (result) {
+        note_gone(display, context);
         minato_deferred_destroyed(context);
     }
     if (minato_trace_on()) {
@@ -538,8 +676,10 @@ EGLBoolean eglDestroyContext(EGLDisplay display, EGLContext context) {
 }
 
 EGLBoolean eglReleaseThread(void) {
+    const EGLContext before = eglGetCurrentContext();
     const EGLBoolean result = minato_host_eglReleaseThread();
     if (result) {
+        note_switch(before, EGL_NO_CONTEXT, EGL_NO_SURFACE);
         minato_deferred_release_thread();
         note_current(EGL_NO_CONTEXT);
     }

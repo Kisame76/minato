@@ -701,6 +701,11 @@ if(TARGET minato_graphics_host)
     # restore (graphics/egl/deferred.c, for iOS's memory limit), so ANGLE's color textures come back to the start's.
     add_guest_test(gles_resume_free gles-resume-test gles_resume_free_test "${gles_system_libraries}" ${with_angle}
       "MINATO_RESUME_SET=set:600,background")
+    # The same returns with the race Ren'Py meets one frame after SDL's backup (",race"): its display reset makes a
+    # new context with none current and loads the set there, and the old context comes back at the return. libEGL
+    # makes that context share the old one's objects (the backup share), so no second set stays alive.
+    add_guest_test(gles_resume_race gles-resume-test gles_resume_race_test "${gles_system_libraries}" ${with_angle}
+      "MINATO_RESUME_SET=set:600,race")
     # Its limits: only the same context made current again on the same thread applies the kept deletes; another
     # context made current in between, or the context destroyed in between, drops them.
     add_guest_test(gles_deferred_delete gles-deferred-delete-test gles_deferred_delete_test
@@ -708,6 +713,11 @@ if(TARGET minato_graphics_host)
     # A thread that ends with a context current lets it go, as Android's libEGL does at its thread's end: a context
     # destroyed while current is freed with the thread.
     add_guest_test(gles_thread_exit gles-thread-exit-test gles_thread_exit_test
+      "${gles_system_libraries}" ${with_angle})
+    # The backup share's conditions, each alone: a context made while the thread's context is backed up shares its
+    # objects only when that context's window is not open, it is current nowhere and alive, and the new one asks for
+    # its config and attributes with no share context; the deletes kept for it apply in the sharing context.
+    add_guest_test(gles_backup_share gles-backup-share-test gles_backup_share_test
       "${gles_system_libraries}" ${with_angle})
     # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
     # runs alone.

@@ -258,7 +258,8 @@ target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
 foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test gles_profile_test
     present_limit_test gles_resume_test gles_no_context_test gles_untold_test gles_background_test
-    gles_deferred_delete_test gles_thread_exit_test)
+    gles_deferred_delete_test gles_thread_exit_test
+    gles_backup_share_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

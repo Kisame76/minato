@@ -315,6 +315,11 @@ static long gate(uint64_t window, int kind) {
     return answer;
 }
 
+int minato_window_open(uint64_t window) {
+    const long now = window != 0 ? gate(window, APKRT_GATE_PRESENT_TRY) : -1;
+    return now == 1 || now == 2 || now == 3 ? 0 : 1;
+}
+
 /* The window's gate (decision 15): 1 once the window is gone, 3 while it is removed and the app not told yet (the
    frame is dropped), else 0. Closed, the frame in flight is committed first (ADR-0032: the next present waits after
    it), then the thread waits until it opens. */

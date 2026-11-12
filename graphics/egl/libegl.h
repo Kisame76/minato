@@ -39,6 +39,11 @@ MINATO_HIDDEN void minato_bad_alloc(EGLDisplay display);
 MINATO_HIDDEN void minato_deferred_current(EGLContext before, EGLContext context);
 MINATO_HIDDEN void minato_deferred_release_thread(void);
 MINATO_HIDDEN void minato_deferred_destroyed(EGLContext context);
+/* The context this thread released with eglMakeCurrent and has made none current since, else EGL_NO_CONTEXT
+   (deferred.c), for display.c's backup share. */
+MINATO_HIDDEN EGLContext minato_deferred_released(void);
+/* Whether libEGL made one of `a` and `b` to share the other's objects in a backup window (display.c). */
+MINATO_HIDDEN int minato_contexts_share(EGLContext a, EGLContext b);
 int minato_egl_defer_delete(int kind, int count, const unsigned *names);
 
 /* eglTerminate's part (surface.c): the window surfaces of `display` let their windows go. */
@@ -91,5 +96,9 @@ MINATO_HIDDEN void minato_trace_surface_destroyed(EGLSurface surface);
 
 /* The host window's ID of a window surface of libEGL's, 0 for any other surface (surface.c). */
 MINATO_HIDDEN uint64_t minato_window_surface_id(EGLSurface surface);
+
+/* Whether host window `window`'s gate is open now, without a wait: 0 once it is gone, removed or closed (the
+   background), 1 while open or for an answer it cannot give (surface.c). */
+MINATO_HIDDEN int minato_window_open(uint64_t window);
 
 #endif

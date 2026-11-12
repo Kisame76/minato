@@ -1,0 +1,6 @@
+I/libEGL  : eglCreateContext: context 0x2 made while context 0x1 is backed up on this thread and its window is not open: it shares 0x1's objects
+E/libEGL  : eglMakeCurrent: a context without a draw surface (once a context)
+I/libEGL  : eglCreateContext: context 0x3 made while context 0x1 is backed up on this thread and its window is not open: it shares 0x1's objects
+E/libEGL  : eglMakeCurrent: a context without a draw surface (once a context)
+I/libEGL  : eglCreateContext: context 0x4 made while context 0x1 is backed up on this thread and its window is not open: it shares 0x1's objects
+E/libEGL  : eglMakeCurrent: a context without a draw surface (once a context)

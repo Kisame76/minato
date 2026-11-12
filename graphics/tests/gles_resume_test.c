@@ -45,6 +45,16 @@
    game grew ANGLE's color textures by its 600 on every return this way. The check is the same: once the reset and
    the reload are done, ANGLE's color textures must be the start's again.
 
+   With ",race" after the size (graphics.gles_resume_race) R plays the race Ren'Py meets one frame after SDL's backup:
+   its flip fails, its display reset finds no context current, and pygame_sdl2's recreate_gl_context makes a new one
+   (SDL_GL_CreateContext, current without a surface) and never deletes it. In that context Ren'Py's reset deletes the
+   set's names, which are the old context's, and loads the set again; at the return SDL's restore makes the old context
+   current again, and Ren'Py's next reset deletes the names it now holds there and loads the set once more. Without
+   more the new context would keep its set alive (and Android dies of this race); libEGL's backup share makes it share
+   the old context's objects, so the set it loads is the one the next reset deletes. Once the reset at the return and
+   the reload are done, ANGLE's color textures must be the start's again, plus at most race_own (16) for each race's
+   context, which lives on with its own state.
+
    With MINATO_RESUME_DIAG set (the iPhone run; not the Mac check, whose output is byte-compared) the host's memory
    line (MINATO_TEST_GRAPHICS_LINE) prints depth=<n> on stderr before the background, after the backup released,
    after the first return and after the third, and the backup and restore durations are printed too, for the
@@ -64,7 +74,7 @@
 
 #include "test_control.h"
 
-enum { width = 64, height = 48, kept_textures = 3, returns = 3, set_most = 1000 };
+enum { width = 64, height = 48, kept_textures = 3, returns = 3, set_most = 1000, race_own = 16 };
 
 /* The sentinel a name holds before glGenTextures: if the call writes nothing (no context current) it stays, which
    is how the device showed "one unchanged name for every texture". */
@@ -92,6 +102,8 @@ static atomic_int entering_backup;
 static GLuint kept[kept_textures];
 static int set_size;  /* MINATO_RESUME_SET: Ren'Py's set, 0 without */
 static int free_in_background;  /* ",background": the set deleted after the backup, with no context current */
+static int race;                /* ",race": Ren'Py's display reset with no context current, in a new context */
+static EGLContext raced[returns];  /* the race's contexts, which nothing makes current again (pygame keeps them) */
 static GLuint set[set_most];
 static uint64_t set_start;  /* ANGLE's color textures with the set made, at the start */
 static int set_ok[returns];
@@ -132,15 +144,20 @@ static double now_ms(void) {
 }
 static const char *ok(EGLBoolean value) { return value == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE"; }
 
-/* Ren'Py's loader: the set's RGBA textures of 64 x 64 with data, mipmapped, each sampled once by a copy. */
-static void load_set(void) {
+/* Ren'Py's loader: the set's RGBA textures of 64 x 64 with data, mipmapped, each sampled once by a copy (not in a
+   context current without a surface, which has no framebuffer to copy from). */
+static void load_set_sampled(int sampled);
+static void load_set(void) { load_set_sampled(1); }
+static void load_set_sampled(int sampled) {
     static unsigned char pixels[64 * 64 * 4];
     glGenTextures(set_size, set);
     for (int i = 0; i < set_size; i++) {
         glBindTexture(GL_TEXTURE_2D, set[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
         glGenerateMipmap(GL_TEXTURE_2D);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, 4, 4);
+        if (sampled) {
+            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, 4, 4);
+        }
     }
 }
 
@@ -200,6 +217,18 @@ static void *render_thread(void *argument) {
                 glDeleteTextures(1, &set[i]);
             }
         }
+        if (set_size > 0 && race) {
+            /* The frame after the backup: the flip fails, the reset finds no context and makes one, current without a
+               surface; in it the loader's names are deleted (the old context's) and the set loaded again. */
+            const EGLint version[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+            raced[r] = eglCreateContext(display, config, EGL_NO_CONTEXT, version);
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, raced[r]);
+            for (int i = 0; i < set_size; i++) {
+                glDeleteTextures(1, &set[i]);
+            }
+            load_set_sampled(0);
+            glFinish();
+        }
         report(r, FR_BACKED_UP);
 
         /* The restore, after the UI thread made S2 (the real order: the create is done before the resume). */
@@ -207,6 +236,10 @@ static void *render_thread(void *argument) {
         if (set_size > 0 && free_in_background) {
             /* Said only now, after the UI thread's line for the return, so that the output's order is fixed. */
             printf("return %d R: Ren'Py's free in the background: the set deleted with no context current\n", r + 1);
+        }
+        if (set_size > 0 && race) {
+            printf("return %d R: the race: a new context made while none was current (%s), the set deleted and "
+                   "loaded again in it\n", r + 1, raced[r] != EGL_NO_CONTEXT ? "made" : "NOT made");
         }
         surface = atomic_load(&egl_surface);
         const double restore_at = now_ms();
@@ -236,22 +269,29 @@ static void *render_thread(void *argument) {
             for (int i = 0; i < set_size && !free_in_background; i++) {
                 glDeleteTextures(1, &set[i]);
             }
-            const uint64_t want = set_start - (uint64_t)set_size;
+            /* The race's contexts live on (pygame keeps them): each may hold a few color textures of its own, never
+               a set. */
+            const uint64_t own = race ? (uint64_t)(r + 1) * race_own : 0;
+            const uint64_t want = set_start - (uint64_t)set_size + own;
             const uint64_t deleted = color_textures(want);
             load_set();
             eglSwapBuffers(display, surface);
-            const uint64_t reloaded = color_textures(set_start);
-            set_ok[r] = deleted <= want && reloaded <= set_start;
+            const uint64_t reloaded = color_textures(set_start + own);
+            set_ok[r] = deleted <= want && reloaded <= set_start + own;
             char gone[64] = "yes", again[64] = "yes";
             if (deleted > want) {
                 snprintf(gone, sizeof gone, "NO (%llu, the start's %llu)", (unsigned long long)deleted,
                          (unsigned long long)set_start);
             }
-            if (reloaded > set_start) {
+            if (reloaded > set_start + own) {
                 snprintf(again, sizeof again, "NO (%llu, the start's %llu)", (unsigned long long)reloaded,
                          (unsigned long long)set_start);
             }
-            if (free_in_background) {
+            if (race) {
+                printf("return %d R: after the race, the reset in the restored context: the set deleted, gone from "
+                       "ANGLE's color textures: %s; loaded again, as many as at the start: %s (the race's contexts "
+                       "may keep %d of their own each)\n", r + 1, gone, again, race_own);
+            } else if (free_in_background) {
                 printf("return %d R: the set deleted with no context current, then the same context current again on "
                        "the same thread: gone from ANGLE's color textures: %s; loaded again, as many as at the start: "
                        "%s\n", r + 1, gone, again);
@@ -264,6 +304,11 @@ static void *render_thread(void *argument) {
     }
     await_to(TR_DONE);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    for (int r = 0; r < returns; r++) {
+        if (raced[r] != NULL) {
+            eglDestroyContext(display, raced[r]);  // pygame's Window.destroy, at the game's end
+        }
+    }
     return NULL;
 }
 
@@ -281,11 +326,13 @@ int main(void) {
     /* The guest has not the Mac's environment: the host's MINATO_RESUME_SET through test control, a guest's own
        (the iPhone's run) first. */
     const char *set_text = getenv("MINATO_RESUME_SET");
-    const uint64_t set_value = set_text != NULL ? (uint64_t)atoi(set_text) | (strstr(set_text, ",background") != NULL
-                                                                              ? 1ull << 32 : 0)
-                                                : minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
+    const uint64_t set_value =
+        set_text != NULL ? (uint64_t)atoi(set_text) | (strstr(set_text, ",background") != NULL ? 1ull << 32 : 0) |
+                               (strstr(set_text, ",race") != NULL ? 1ull << 33 : 0)
+                         : minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
     set_size = (int)(set_value & 0xffffffffu);
     free_in_background = (set_value >> 32) & 1;
+    race = (set_value >> 33) & 1;
     set_size = set_size < 0 ? 0 : set_size > set_most ? set_most : set_size;
     create_window create = (create_window)dlsym(dlopen("libnativewindow.so", RTLD_NOW), "minato_ANativeWindow_create");
 

@@ -14,7 +14,9 @@
    the app, which deleted them, does not bind them. The limits:
    - only those four deletes; any other call without a context does nothing, as on Android;
    - only C again on the same thread: another context made current there drops the names, and so do
-     eglReleaseThread, eglDestroyContext(C) (ANGLE lets go of C's objects then anyway) and eglTerminate;
+     eglReleaseThread, eglDestroyContext(C) (ANGLE lets go of C's objects then anyway) and eglTerminate. One
+     exception: a context libEGL made to share C's objects in the backup window (display.c, Ren'Py's race) deletes
+     the textures, buffers and renderbuffers when it is made current; the framebuffers, which are C's own, drop;
    - at most `most_names` names a thread; past that a delete does nothing, as on Android, with one warning line.
    Names dropped by one of these rules are dropped as Android drops them; an I/libEGL line says how many and why.
    The one difference an app can see: glIsTexture on such a name answers GL_FALSE after the return, Android GL_TRUE
@@ -27,7 +29,7 @@
 
 #include "libegl.h"
 
-enum { kinds = 4, most_names = 1 << 18 };
+enum { kinds = 4, framebuffers = 2, most_names = 1 << 18 };
 
 /* The deletes in the order of minato_egl_defer_delete's kind. */
 static const char *const delete_names[kinds] = {"glDeleteTextures", "glDeleteBuffers", "glDeleteFramebuffers",
@@ -162,22 +164,32 @@ void minato_deferred_current(EGLContext before, EGLContext context) {
         return;
     }
     released = 0;
-    unsigned *names[kinds] = {NULL};
-    size_t counts[kinds] = {0}, total = 0, dropped = 0;
     pthread_mutex_lock(&lock);
-    if (mine->context == context) {
+    const EGLContext kept_for = mine->context;
+    pthread_mutex_unlock(&lock);
+    // A context libEGL made to share kept_for's objects (display.c's backup share) takes the shared kinds.
+    const int shares = kept_for != EGL_NO_CONTEXT && kept_for != context && minato_contexts_share(kept_for, context);
+    unsigned *names[kinds] = {NULL};
+    size_t counts[kinds] = {0}, total = 0, dropped = 0, own = 0;
+    pthread_mutex_lock(&lock);
+    if (mine->context == context || (shares && mine->context == kept_for)) {
         for (int kind = 0; kind < kinds; kind++) {
+            if (mine->context != context && kind == framebuffers) {
+                own += mine->count[kind];  // a framebuffer is its context's own, not the share group's
+                continue;
+            }
             names[kind] = mine->names[kind];
             counts[kind] = mine->count[kind];
             mine->names[kind] = NULL;
+            total += counts[kind];
         }
-        total = mine->total;
     } else {
         dropped = mine->total;
     }
     drop(mine);
     pthread_mutex_unlock(&lock);
     say_dropped(dropped, "another context made current");
+    say_dropped(own, "framebuffers, made current in another context of the share group");
     for (int kind = 0; kind < kinds; kind++) {
         void (*delete)(int, const unsigned *) = (void (*)(int, const unsigned *))minato_gles_function(
             delete_names[kind]);
@@ -186,7 +198,11 @@ void minato_deferred_current(EGLContext before, EGLContext context) {
         }
         free(names[kind]);
     }
-    if (total > 0 && (atomic_exchange(&told, 1) == 0 || minato_trace_on())) {
+    if (total > 0 && kept_for != context) {
+        __android_log_print(ANDROID_LOG_INFO, "libEGL", "deletes made with no context current: %zu names deleted "
+                            "when the thread made context %p current, which shares context %p's objects", total,
+                            context, kept_for);
+    } else if (total > 0 && (atomic_exchange(&told, 1) == 0 || minato_trace_on())) {
         __android_log_print(ANDROID_LOG_INFO, "libEGL", "deletes made with no context current: %zu names deleted "
                             "when the thread made context %p current again", total, context);
     }
@@ -201,6 +217,16 @@ void minato_deferred_release_thread(void) {
         pthread_mutex_unlock(&lock);
         say_dropped(dropped, "eglReleaseThread");
     }
+}
+
+EGLContext minato_deferred_released(void) {
+    if (!released || mine == NULL) {
+        return EGL_NO_CONTEXT;
+    }
+    pthread_mutex_lock(&lock);
+    const EGLContext context = mine->context;
+    pthread_mutex_unlock(&lock);
+    return context;
 }
 
 void minato_deferred_destroyed(EGLContext context) {

@@ -1,0 +1,10 @@
+1. C backed up, its window gone, D made with C's config and attributes: shares C's objects
+2. C backed up, its window kept with its gate closed: shares C's objects
+3. C backed up, its window open: a namespace of its own
+4. a share context given: a namespace of its own
+5. C current on another thread: a namespace of its own
+6. D with another config: a namespace of its own
+7. D with another client version: a namespace of its own
+8. C destroyed: a namespace of its own
+9. deletes kept for C, then D made current: texture deleted yes, the other texture kept yes, C's framebuffer kept yes
+gles backup share: a context made in a backup window shares C's objects, only under the race's conditions

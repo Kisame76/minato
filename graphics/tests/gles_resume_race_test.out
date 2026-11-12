@@ -1,0 +1,27 @@
+return 1 UI: window removed (apkrt_window_remove -> 0); onPause -> nativePause
+return 1 R: swap after the window went: EGL_FALSE, error EGL_BAD_NATIVE_WINDOW
+return 1 UI: surfaceDestroyed's wait for the backup timed out (R still busy); eglDestroySurface while current on R: EGL_TRUE
+return 1 R: backup eglMakeCurrent(none): EGL_TRUE
+return 1 UI: new window added; eglCreateWindowSurface(S2): a surface, error 0x3000
+return 1 R: the race: a new context made while none was current (made), the set deleted and loaded again in it
+return 1 R: restore eglMakeCurrent(S2): EGL_TRUE, error 0x3000; fresh name written: yes; clear read back 0 255 0 255; swap EGL_TRUE
+return 1 R: after the race, the reset in the restored context: the set deleted, gone from ANGLE's color textures: yes; loaded again, as many as at the start: yes (the race's contexts may keep 16 of their own each)
+return 2 UI: window removed (apkrt_window_remove -> 0); onPause -> nativePause
+return 2 R: swap after the window went: EGL_FALSE, error EGL_BAD_NATIVE_WINDOW
+return 2 UI: surfaceDestroyed's wait for the backup timed out (R still busy); eglDestroySurface while current on R: EGL_TRUE
+return 2 R: backup eglMakeCurrent(none): EGL_TRUE
+return 2 UI: new window added; eglCreateWindowSurface(S2): a surface, error 0x3000
+return 2 R: the race: a new context made while none was current (made), the set deleted and loaded again in it
+return 2 R: restore eglMakeCurrent(S2): EGL_TRUE, error 0x3000; fresh name written: yes; clear read back 0 255 0 255; swap EGL_TRUE
+return 2 R: after the race, the reset in the restored context: the set deleted, gone from ANGLE's color textures: yes; loaded again, as many as at the start: yes (the race's contexts may keep 16 of their own each)
+return 3 UI: window removed (apkrt_window_remove -> 0); onPause -> nativePause
+return 3 R: swap after the window went: EGL_FALSE, error EGL_BAD_NATIVE_WINDOW
+return 3 UI: surfaceDestroyed's wait for the backup timed out (R still busy); eglDestroySurface while current on R: EGL_TRUE
+return 3 R: backup eglMakeCurrent(none): EGL_TRUE
+return 3 UI: new window added; eglCreateWindowSurface(S2): a surface, error 0x3000
+return 3 R: the race: a new context made while none was current (made), the set deleted and loaded again in it
+return 3 R: restore eglMakeCurrent(S2): EGL_TRUE, error 0x3000; fresh name written: yes; clear read back 0 255 0 255; swap EGL_TRUE
+return 3 R: after the race, the reset in the restored context: the set deleted, gone from ANGLE's color textures: yes; loaded again, as many as at the start: yes (the race's contexts may keep 16 of their own each)
+after three returns: S2 created every return: yes; GL worked every return: yes; presented every return: yes; kept textures still valid: yes
+gles resume: the context survived every return
+gles resume set: every return's deleted set left ANGLE
