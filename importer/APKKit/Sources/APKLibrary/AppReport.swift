@@ -11,6 +11,7 @@ import Foundation
 /// with `includesLog`, which cuts the app's names to "<app>" unless `namesApp` is on too. A library's file name can
 /// name the app or its maker, so without `namesApp` only the libraries the importer's engine detection knows
 /// (APKAnalyzer.engine(ofLibrary:)) and the platform's public ones keep their names; every other is "<library>".
+/// The symbol the converter names for a refused site is "<symbol>" the same way.
 /// Both are the user's own choices in the sheet, which shows the exact text. The URL never carries the app: opening
 /// the form sends it.
 public struct AppReport: Sendable, Equatable, Identifiable {
@@ -140,7 +141,10 @@ public struct AppReport: Sendable, Equatable, Identifiable {
     /// `text` with the app's names and its own libraries' names cut, unless the user chose to name the app.
     private func cut(_ text: String) -> String {
         guard !namesApp else { return text }
-        let named = names.reduce(text) { $0.replacingOccurrences(of: $1, with: "<app>") }
+        var named = names.reduce(text) { $0.replacingOccurrences(of: $1, with: "<app>") }
+        // The converter names the symbol that holds a site, " in name+0x1c (.text)": the offset and the section stay.
+        named = named.replacingOccurrences(of: #" in \S+\+(0x[0-9a-f]+)"#, with: " in <symbol>+$1",
+                                           options: .regularExpression)
         guard let files = try? NSRegularExpression(pattern: #"\blib[A-Za-z0-9_+\-.]*?\.so\b"#) else { return named }
         var result = named
         for match in files.matches(in: named, range: NSRange(named.startIndex..., in: named)).reversed() {

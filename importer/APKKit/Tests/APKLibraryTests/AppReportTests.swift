@@ -140,6 +140,30 @@ struct AppReportTests {
         #expect(!(report.url.absoluteString.removingPercentEncoding ?? "").contains("holidaygame"))
     }
 
+    /// The converter's refusal names the symbol that holds a site ("in name+0x10 (.text)") when the library has a
+    /// symbol table, and a symbol can name the app, its maker or its classes. Without the user's choice to name the
+    /// app the report keeps the offset and the section and cuts the symbol; the counts, the address and the word stay.
+    @Test func aSymbolInARefusalIsCutUnlessTheAppIsNamed() async throws {
+        let sandbox = try Sandbox()
+        defer { sandbox.remove() }
+        let entry = try await entry(sandbox)
+        let refusal = "incompatible: x18 at 0x42380 in _ZN7Holiday5Photo4drawEv+0x1c (.text) cannot run on iOS: "
+            + "x18 is read [word 0xd53b4112, mrs]; of the 1: 0 defined in their loop, .symtab; "
+            + "x18 cannot run on iOS in 2 places: 2 where x18 is read (0x1000 in sub_a+0x4 (.text) and "
+            + "0x1010 in other-name+0x8)"
+        var report = AppReport(entry: entry, device: device, status: "Incompatible", issues: [refusal],
+                               ending: nil, log: nil)
+        let text = report.text
+        #expect(!text.contains("Holiday") && !text.contains("sub_a") && !text.contains("other-name"))
+        for part in ["x18 at 0x42380 in <symbol>+0x1c (.text) cannot run on iOS", "[word 0xd53b4112, mrs]",
+                     "0x1000 in <symbol>+0x4 (.text) and 0x1010 in <symbol>+0x8", ".symtab"] {
+            #expect(text.contains(part), "\(part)")
+        }
+        report.namesApp = true
+        #expect(report.text.contains("in _ZN7Holiday5Photo4drawEv+0x1c (.text)"))
+        #expect(!(report.url.absoluteString.removingPercentEncoding ?? "").contains("Holiday"))
+    }
+
     @Test func theTextHoldsTheAppTheIPhoneTheStatusTheEndAndTheLog() async throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
