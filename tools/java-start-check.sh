@@ -782,6 +782,17 @@ fetch() {
     [[ -f "$CONTAINER/$1" ]]
   fi
 }
+# The start's guest log as far as it came, in $CHECK/guest-log: from the console while it is read, else fetched (a copy
+# on the iPhone). Never a copy under the console: it would put the phone's file in place of the console's lines, and
+# the next console read would add the lines after its last read again (an iPhone run of 2026-11-12: Home's
+# callbacks twice in menu-pause-test's log).
+fetch_log() {
+  if console_reads; then
+    console_read
+    return 0
+  fi
+  fetch "$CHECK_REL/guest-log"
+}
 # The console transport (CONSOLE=yes). CONSOLE_STATE: off (no console launch yet, or Minato was terminated), on
 # (a launch's console is read), ended (its process ended by itself), dead (the launch's console said nothing within
 # 10 s: the copies again until the next launch). CONSOLE_ROUND=copy: this start keeps the copies (begin_start).
@@ -1452,7 +1463,7 @@ return_failed() {
 # host's time of each line's first sight is kept: onStop's start and end, "Entered background." and an ANR of the app's
 # (the runtime's watchdog: its main thread did not answer for 5 s).
 away_mark() {
-  fetch "$CHECK_REL/guest-log" || true
+  fetch_log || true
   AWAY_FROM=$(count_lines '' "$CHECK/guest-log")
   STOP_START="" STOP_DONE="" ENTERED="" ANR_LINE=""
 }
@@ -1471,14 +1482,14 @@ away_watch() {
   [[ "$ON_DEVICE" != yes ]] || poll=${RESUME_LOG_POLL:-3}
   while (( SECONDS < end )); do
     sleep "$poll"
-    if fetch "$CHECK_REL/guest-log"; then away_scan; fi
+    if fetch_log; then away_scan; fi
   done
 }
 # After the return of app $1, label $2: no ANR in the background, and for an app that logs Ren'Py's (RAPT's) lines, its
 # onStop done within 2 s of its start and "Entered background." before the return, not at it.
 judge_away() {
   local app=$1 label=$2 took="" later
-  fetch "$CHECK_REL/guest-log" || true
+  fetch_log || true
   later=$(tail -n +$((AWAY_FROM + 1)) "$CHECK/guest-log" 2>/dev/null) || later=""
   if [[ -n "$ANR_LINE" ]]; then
     return_failed "after $label: the app's main thread did not answer in the background (${ANR_LINE#*: })" "$app-resume"
@@ -1733,7 +1744,7 @@ run_returns() {
     lines+=("$line")
     echo "note    after surface $round: ${line:-no live line}"
     # ANGLE's view (the gl line, iOS's ANGLE only): a window surface ANGLE still holds counts in color= and depth=.
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
     [[ -z "$gl" ]] || echo "note      $gl"
     mtls+=("$(sed -n -E 's/.* mtl=([0-9]+).*/\1/p' <<< "$gl")")
@@ -1746,7 +1757,7 @@ run_returns() {
     launch "$AWAY"
     stops=0
     for _ in $(seq 1 100); do
-      fetch "$CHECK_REL/guest-log" || true
+      fetch_log || true
       stops=$(count_lines "^I/$app: onStop$" "$CHECK/guest-log")
       (( stops >= round )) && break
       sleep 0.2
@@ -1868,7 +1879,7 @@ RESETS=0
 renpy_preloaded() {
   local label=$1 resets=$2 from=$SECONDS gate
   while (( SECONDS - from <= ${RETURNS_PRELOAD:-240} )); do
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     gate=$(grep -oE 'minato-renpy-memory: (start|display reset [0-9]+|preload done [0-9]+)' "$CHECK/guest-log" \
       2>/dev/null) || gate=""
     RESETS=$(grep -c 'display reset' <<<"$gate") || true
@@ -1887,7 +1898,7 @@ run_sdl_returns() {
   local lines=() gls=() races=(0) trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10} gated=no resets away
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   if ! await_first_frame "$app" 8; then end_start "$app" 1; return; fi
-  fetch "$CHECK_REL/guest-log" || true
+  fetch_log || true
   if grep -q 'minato-renpy-memory: gate armed' "$CHECK/guest-log" 2>/dev/null; then
     gated=yes
     if ! renpy_preloaded "the start" 0; then end_start "$app" 1; return; fi
@@ -1904,7 +1915,7 @@ run_sdl_returns() {
       sleep "${RETURNS_AWAY:-10}"
       away=0
       if [[ "$gated" == yes ]]; then
-        fetch "$CHECK_REL/guest-log" || true
+        fetch_log || true
         away=$(( $(count_lines 'minato-renpy-memory: display reset [0-9]+' "$CHECK/guest-log") - resets ))
         (( away <= 0 )) ||
           echo "note    trip $round: $away display reset(s) in the background, the race Android dies of"
@@ -1921,7 +1932,7 @@ run_sdl_returns() {
     sleep "$settle"
     fetch_events
     line=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || line=""
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
     lines+=("$line")
     gls+=("$gl")
@@ -2039,7 +2050,7 @@ run_menu_pause() {
   launch "$AWAY"
   stops=0
   for _ in $(seq 1 100); do
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     stops=$(count_lines "^I/$tag: MainActivity onStop$" "$CHECK/guest-log")
     (( stops >= 1 )) && break
     sleep 0.2
@@ -2245,7 +2256,7 @@ pixels_return() {
 await_second() {
   local end=$((SECONDS + $2))
   while (( SECONDS < end )); do
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     (( $(count_lines "$1" "$CHECK/guest-log") >= 2 )) && return 0
     sleep 0.2
   done
@@ -2816,7 +2827,7 @@ save_response() {
 tap_extras() {
   local prefix="I/notify-tap-test: the tap's extras: " want got
   want=$(grep -m 1 -F "$prefix" fixtures/expected/notify-tap-test.logcat || true)
-  fetch "$CHECK_REL/guest-log" || true
+  fetch_log || true
   got=$(grep -m 1 -F "$prefix" "$CHECK/guest-log" 2>/dev/null || true)
   if [[ -n "$want" && "$got" == "$want" ]]; then ok "  $1: the content intent's extras are Android's"; else
     fail "  $1: the content intent's extras: \"${got#"$prefix"}\", not \"${want#"$prefix"}\""
@@ -3079,7 +3090,7 @@ if { [[ "$ON_DEVICE" == yes ]] || [[ -n "${EDGE_SWIPE_SIM:-}" ]]; } && wanted ed
       cat "$WORK/$app-swipes.out"
       # What the window asked of the system: deferredEdges 15 is every edge.
       grep -o -E "orientation [0-9]+ statusBarHidden .*" "$EVENTS" | head -n 1 | sed 's/^/      | /' || true
-      fetch "$CHECK_REL/guest-log" || true
+      fetch_log || true
       grep -E "^I/$app-device: touch: " "$CHECK/guest-log" | sed 's/^/      | /' || true
       if grep -q "the first swipe: Minato in front" "$WORK/$app-swipes.out"; then
         ok "  $app: the first swipe up from the bottom edge kept Minato in front"
@@ -3450,7 +3461,7 @@ if [[ -n "${NOTIFY_REAL:-}" ]] && wanted notify-tap-test; then
   opened_again() {
     local end=$((SECONDS + 30))
     while (( SECONDS < end )); do
-      fetch "$CHECK_REL/guest-log" || true
+      fetch_log || true
       (( $(count_lines "^I/notify-tap-test: opened by the tap: room 7$" "$CHECK/guest-log") >= 2 )) && return 0
       sleep 0.5
     done
@@ -4635,7 +4646,7 @@ warn_step() {
   lows=$(count_lines ' callback onLowMemory$' "$EVENTS")
   notes=$(sed -n -E 's/^[0-9.]+ [0-9]+ memory warning delivered: (.*)$/\1/p' "$EVENTS" |
     awk 'NR > 1 { printf "; " } { printf "%s", $0 } END { if (NR) print "" }')
-  fetch "$CHECK_REL/guest-log" || true
+  fetch_log || true
   park=$(grep 'angle park ' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*(angle park )/\1/') || park=""
   echo "note    renpy-memory-test, warning step $step: before \"${before:-no live line}\""
   echo "note    renpy-memory-test, warning step $step: after \"${after:-no live line}\""
@@ -4707,7 +4718,7 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
         request menu
         await_event "menu opened" 15 || fail "  renpy-memory-test: the menu did not open"
         menu_presents=$presents
-        fetch "$CHECK_REL/guest-log" || true
+        fetch_log || true
         menu_mem=$(count_lines ': mem foot=' "$CHECK/guest-log")
         echo "note    renpy-memory-test: the menu opened and closed at $presents presents, $menu_mem memory lines"
       fi
@@ -4737,7 +4748,7 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
       ok "  played for $minutes min"
     fi
     if [[ -n "$menu_at" ]]; then
-      fetch "$CHECK_REL/guest-log" || true
+      fetch_log || true
       mem_after=$(count_lines ': mem foot=' "$CHECK/guest-log")
       if (( menu_presents < 0 )); then
         fail "  renpy-memory-test: no menu, as no ping answered before RENPY_MENU_AT"
@@ -4760,7 +4771,7 @@ if wanted renpy-memory-test && listed renpy-memory-test; then
     # The ANGLE parking line (the runtime's memory watermark line of the guest log): parks, restores, present
     # times. Without it, the guest log's line counts tell why: no mem lines = the log is stale or cut short, mem lines
     # but no gl line = libGLESv2's line symbols did not resolve, mem lines that stop early = the sampler stalled.
-    fetch "$CHECK_REL/guest-log" || true
+    fetch_log || true
     park=$(grep "angle park " "$CHECK/guest-log" 2>/dev/null | tail -n 1 || true)
     fetch_events
     low_memory=$(count_lines ' callback onLowMemory$' "$EVENTS")

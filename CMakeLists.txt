@@ -166,7 +166,9 @@ if(APK_HOST_BUILD)
   add_test(NAME tools.devicectl_copy_trace
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/devicectl_copy_trace_test.sh")
   # java-start-check.sh's console transport (CONSOLE=yes): app-start-test's round on a fake iPhone whose copies of the
-  # check's folder all hang ends by the console alone, the requests in at launch, the events and the guest's output out.
+  # check's folder all hang ends by the console alone, the requests in at launch, the events and the guest's output out;
+  # the menu round (menu-pause-test's Home and back) reads the guest log from the console alone, though copies of it
+  # answer, and no fetch of the guest log outside fetch_log.
   add_test(NAME tools.device_console
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/device_console_test.sh")
   # tools/warn-native-stale.sh, run at the end of build-framework.sh: a warning when build/framework-native is older
