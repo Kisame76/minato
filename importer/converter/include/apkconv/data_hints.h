@@ -59,6 +59,12 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
 std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> elf_bytes,
                                                                 std::span<const elf::Section> sections);
 
+/// The [begin, end) of every FDE of the .eh_frame section `eh_frame` at `address`; what cannot be read is left out.
+/// `complete`, when given, says whether the table was read to its end: false when a record is cut off or runs past the
+/// section, which loses every FDE behind it.
+std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> eh_frame,
+                                                                  std::uint64_t address, bool *complete = nullptr);
+
 /// The text appended to an x18 refusal: "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 2 of the 3 sites outside
 /// every FDE; PC-relative loads: 1 of the 3 sites loaded from code; sections: 1 executable, 92 bytes of other sections
 /// in executable segments, 3 of the 3 sites in executable sections; refused words: 0x230 (.text, outside every FDE,

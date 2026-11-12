@@ -1,5 +1,6 @@
 #include "apkconv/container.h"
 #include "apkconv/data_hints.h"
+#include "apkconv/data_ranges.h"
 
 #include "APKRuntime/container_format.h"
 #include "apkconv/a64.h"
@@ -237,16 +238,37 @@ rewrite::ReadOnlyData read_only_data(const elf::File &file, std::span<const std:
     };
 }
 
+/// The sections the scan reads: loaded, executable, with bytes in the file. A section that is not loaded, or has no
+/// bytes (NOBITS), covers addresses of the text without holding its words, so nothing reads through it.
+bool is_scanned_section(const elf::Section &section, std::size_t file_size) {
+    constexpr auto kinds = elf::section_allocated | elf::section_executable;
+    // Type 0 is a header the ELF reader does not check against the file; a byte range outside the file is no section.
+    return (section.flags & kinds) == kinds && section.type != elf::section_type_null &&
+           section.type != elf::section_type_nobits && section.size != 0 && section.offset <= file_size &&
+           section.size <= file_size - section.offset;
+}
+
+/// `visit(from, to)` for the part of every data range that lies inside [begin, end). The ranges are sorted and apart,
+/// so a binary search finds the first one: a section costs the ranges inside it, not all of them.
+template <typename Visit>
+void for_ranges_inside(const std::vector<data::Range> &ranges, std::uint64_t begin, std::uint64_t end, Visit &&visit) {
+    for (auto range = std::ranges::upper_bound(ranges, begin, {}, &data::Range::end);
+         range != ranges.end() && range->begin < end; ++range) {
+        visit(std::max(range->begin, begin), std::min(range->end, end));
+    }
+}
+
 CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_bytes,
-                       const std::vector<elf::Section> &sections) {
+                       const std::vector<elf::Section> &sections, bool split = true) {
     CodeScan scan;
     const auto data = read_only_data(file, elf_bytes, sections);
+    // Words that strongly reached code loads, PC-relatively, and nothing says is code (a literal pool, a table): not
+    // instructions, so never a site and never in a window (data_ranges.h).
+    if (split) scan.data = data::find(file, elf_bytes, sections, elf::read_symbols(elf_bytes));
+    const auto &data_ranges = scan.data;
+    const std::uint32_t nop = 0xd503'201f;
     for (const auto &section : sections) {
-        if ((section.flags & (elf::section_allocated | elf::section_executable)) !=
-                (elf::section_allocated | elf::section_executable) ||
-            section.type == elf::section_type_nobits || section.size == 0) {
-            continue;
-        }
+        if (!is_scanned_section(section, elf_bytes.size())) continue;
         const auto *segment = elf::load_containing(file, section.address, section.size);
         if (segment == nullptr || (segment->flags & elf::segment_executable) == 0 ||
             section.offset - segment->offset != section.address - segment->address) {
@@ -258,8 +280,53 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
                                            "{:#x}",
                                            section.name, segment->address));
         }
-        rewrite::scan(elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size)),
-                      section.address, scan.findings, data, true);  // ADR-0020 X7 (c2)
+        // One scan over the whole section, on a copy in which the data words are nops: addresses stay, the branches and
+        // the exclusive windows around a data range stay whole, and no word of data is an instruction.
+        auto code = elf_bytes.subspan(static_cast<std::size_t>(section.offset), static_cast<std::size_t>(section.size));
+        std::vector<std::byte> masked;
+        // A data word that has the shape of a load literal keeps it (its register cleared) when the word it names
+        // is not proven code: the rewriter reads the word a load literal names as a constant, and it must do so
+        // for a pool word exactly as without the split. When the named word is reached as code (the first words of
+        // a function, the svc of real code) the shape is dropped: a constant that is no load must not turn real
+        // code into data.
+        // Only the part of a range inside this section is touched, whichever section the range was given to.
+        const auto section_end = section.address + section.size;
+        for_ranges_inside(data_ranges.ranges, section.address, section_end, [&](std::uint64_t from, std::uint64_t to) {
+            if (from >= to) return;
+            if (masked.empty()) masked.assign(code.begin(), code.end());
+            for (auto at = from; at + 4 <= to; at += 4) {
+                std::uint32_t word;
+                std::memcpy(&word, masked.data() + (at - section.address), 4);
+                bool literal_load = (word & 0x3b00'0000) == 0x1800'0000;
+                if (literal_load) {
+                    const std::int64_t imm19 = static_cast<std::int32_t>(word << 8) >> 13;
+                    const auto target = static_cast<std::int64_t>(at) + imm19 * 4;
+                    if (target >= 0 && data_ranges.reach_of(static_cast<std::uint64_t>(target)) != data::Reach::none) {
+                        literal_load = false;
+                    }
+                }
+                const std::uint32_t replacement = literal_load ? (word & ~std::uint32_t{0x1f}) : nop;
+                std::memcpy(masked.data() + (at - section.address), &replacement, 4);
+            }
+        });
+        // A load literal that names a word reached as code in another function is no literal of its own function's
+        // pool (a word that a pointer or an FDE reaches, a pool word the split left as code because of that): the
+        // named word is a site, not a constant. Such a load becomes a nop in the copy; a load that names a word of
+        // its own function, or of none that is known, stays as it is.
+        for (std::uint64_t at = section.address; at + 4 <= section_end; at += 4) {
+            const auto *base = masked.empty() ? code.data() : masked.data();
+            std::uint32_t word;
+            std::memcpy(&word, base + (at - section.address), 4);
+            if ((word & 0x3b00'0000) != 0x1800'0000 || (word & 0x1f) == 18) continue;
+            const std::int64_t imm19 = static_cast<std::int32_t>(word << 8) >> 13;
+            const auto target = static_cast<std::int64_t>(at) + imm19 * 4;
+            if (target < 0 || data_ranges.reach_of(static_cast<std::uint64_t>(target)) == data::Reach::none) continue;
+            if (!data_ranges.in_different_functions(at, static_cast<std::uint64_t>(target))) continue;
+            if (masked.empty()) masked.assign(code.begin(), code.end());
+            std::memcpy(masked.data() + (at - section.address), &nop, 4);
+        }
+        rewrite::scan(masked.empty() ? code : std::span<const std::byte>(masked), section.address, scan.findings, data,
+                      true);  // ADR-0020 X7 (c2)
         scan.code_bytes += section.size;
     }
     return scan;
@@ -984,7 +1051,32 @@ void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite:
     const auto sections = layout_sections(elf_bytes);
     std::string hints;
     try {  // what the library tells without symbols; a file the reader refuses just has none
-        hints = hints::describe(hints::data_hints(elf::read(elf_bytes), elf_bytes, sections, remaining));
+        const auto file = elf::read(elf_bytes);
+        hints = hints::describe(hints::data_hints(file, elf_bytes, sections, remaining));
+        // What the data split classified (the words that are not here as refused sites), counts only.
+        const auto data_ranges = data::find(file, elf_bytes, sections, elf::read_symbols(elf_bytes));
+        hints += std::format("; data in code: {} words ({} by loaded literals, {} by indexed tables with a proven "
+                             "bound), {} "
+                             "reached words, kept as code: {} reached, {} at an unresolved adrp, {} in a function with "
+                             "a register branch, {} tables without a proven bound",
+                             data_ranges.literal_words + data_ranges.table_words, data_ranges.literal_words,
+                             data_ranges.table_words, data_ranges.reached_words, data_ranges.dropped_reached,
+                             data_ranges.dropped_unresolved, data_ranges.dropped_dispatch,
+                             data_ranges.unbounded_tables);
+        std::size_t strong = 0, weak = 0, unreached = 0, behind = 0;
+        for (const auto &use : remaining) {
+            switch (data_ranges.reach_of(use.address)) {
+                case data::Reach::strong: ++strong; break;
+                case data::Reach::weak: ++weak; break;
+                case data::Reach::none:
+                    ++unreached;
+                    behind += data_ranges.behind_unproven_base(use.address) ? 1 : 0;
+                    break;
+            }
+        }
+        hints += std::format("; refused words: {} strongly reached, {} weakly reached, {} unreached ({} behind an "
+                             "unproven base)",
+                             strong, weak, unreached, behind);
     } catch (const std::exception &) {
     }
     throw Incompatible(x18_refusal(remaining, elf::read_symbols(elf_bytes), sections,
@@ -1072,9 +1164,12 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     };
 
     // Scan the executable sections: only there are the bytes known to be instructions (R1).
-    const auto scan = scan_sections(file, elf_bytes, sections);
+    const auto scan = scan_sections(file, elf_bytes, sections, options.data_split);
     const auto &findings = scan.findings;
     report.code_bytes = scan.code_bytes;
+    report.data_literal_words = scan.data.literal_words;
+    report.data_table_words = scan.data.table_words;
+    check_data_boundary(findings, scan.data);
     // A guest mrs TPIDRRO_EL0 would read the Darwin TSD base, where the x18 islands keep the guest's x18; it could
     // then name that granule as an exclusive target and clear an island's monitor (ADR-0020 step C, Q2).
     refuse_tpidrro_read(file, elf_bytes, findings);
@@ -1502,9 +1597,57 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     return reasons;
 }
 
-CodeScan scan_code(std::span<const std::byte> elf_bytes) {
+/// A data range is a hard boundary for the rewriter: a site, a relocated window or a jump table's branch that touches
+/// one of its words would write over data, so the file is refused (the scan treats the words as nothing, so this cannot
+/// happen unless the scan changes).
+void check_data_boundary(const rewrite::Findings &findings, const data::DataRanges &data) {
+    // The ranges are sorted and disjoint: the first one that ends after `begin` is the only one that can overlap.
+    const auto inside = [&](std::uint64_t begin, std::uint64_t end) {
+        const auto first = std::ranges::upper_bound(data.ranges, begin, {}, &data::Range::end);
+        return first != data.ranges.end() && first->begin < end;
+    };
+    for (const auto &site : findings.sites) {
+        if (inside(site.address, site.address + 4)) {
+            throw Incompatible(std::format("the code at {:#x} would be rewritten inside data", site.address));
+        }
+    }
+    for (const auto &region : findings.exclusive_regions) {
+        if (inside(region.address, region.address + 4 * region.words.size())) {
+            throw Incompatible(std::format("the exclusive window at {:#x} spans data", region.address));
+        }
+    }
+    for (const auto &table : findings.jump_tables) {
+        if (inside(table.address, table.address + 4)) {
+            throw Incompatible(std::format("the jump table branch at {:#x} lies inside data", table.address));
+        }
+    }
+}
+
+CodeScan scan_code(std::span<const std::byte> elf_bytes) { return scan_code(elf_bytes, true); }
+
+CodeScan scan_code(std::span<const std::byte> elf_bytes, bool split) {
     const auto file = elf::read(elf_bytes);
-    return scan_sections(file, elf_bytes, sections_for_scan(elf_bytes));
+    return scan_sections(file, elf_bytes, sections_for_scan(elf_bytes), split);
+}
+
+std::vector<std::uint64_t> site_addresses(const CodeScan &scan) {
+    const auto &f = scan.findings;
+    std::vector<std::uint64_t> all;
+    for (const auto &site : f.sites) all.push_back(site.address);
+    all.insert(all.end(), f.data_syscalls.begin(), f.data_syscalls.end());
+    for (const auto &use : f.x18_unsupported) all.push_back(use.address);
+    all.insert(all.end(), f.monitor_inside_sites.begin(), f.monitor_inside_sites.end());
+    all.insert(all.end(), f.tpidrro_reads.begin(), f.tpidrro_reads.end());
+    all.insert(all.end(), f.hull_ending_register_branches.begin(), f.hull_ending_register_branches.end());
+    for (const auto &region : f.exclusive_regions) all.push_back(region.address);
+    for (const auto &table : f.jump_tables) all.push_back(table.address);
+    all.insert(all.end(), f.in_place_windows.begin(), f.in_place_windows.end());
+    all.insert(all.end(), f.x18_reads.begin(), f.x18_reads.end());
+    all.insert(all.end(), f.x18_writes.begin(), f.x18_writes.end());
+    all.insert(all.end(), f.x18_saves.begin(), f.x18_saves.end());
+    std::ranges::sort(all);
+    all.erase(std::unique(all.begin(), all.end()), all.end());
+    return all;
 }
 
 Counts counts(std::span<const std::byte> elf_bytes) {
@@ -1513,6 +1656,19 @@ Counts counts(std::span<const std::byte> elf_bytes) {
     Counts result;
     result.svc_data = static_cast<std::uint32_t>(findings.data_syscalls.size());
     result.undefined_words = static_cast<std::uint32_t>(findings.undefined_words.size());
+    // svc words that lie in a proven data range: the part of each range inside a section the scan reads, the same
+    // clipping as the scan's own masking, so the two agree on every word.
+    for (const auto &section : layout_sections(elf_bytes)) {
+        if (!is_scanned_section(section, elf_bytes.size())) continue;
+        const auto section_end = section.address + section.size;
+        for_ranges_inside(scan.data.ranges, section.address, section_end, [&](std::uint64_t from, std::uint64_t to) {
+            for (auto at = from; at + 4 <= to; at += 4) {
+                std::uint32_t word;
+                std::memcpy(&word, elf_bytes.data() + section.offset + (at - section.address), 4);
+                if ((word & 0xffe0'001f) == 0xd400'0001) ++result.svc_in_data;
+            }
+        });
+    }
     std::size_t islands = findings.exclusive_regions.size() + findings.jump_tables.size();
     for (const auto &site : findings.sites) {
         switch (site.kind) {

@@ -286,10 +286,14 @@ std::vector<Symbol> read_symbols(std::span<const std::byte> bytes) {
             const auto section_index = copy_at<std::uint16_t>(bytes, base + 6);
             const auto value = copy_at<std::uint64_t>(bytes, base + 8);
             const auto size = copy_at<std::uint64_t>(bytes, base + 16);
+            const auto info = copy_at<std::uint8_t>(bytes, base + 4);
             if (section_index == 0 || section_index >= 0xff00 || name_offset == 0) continue;  // undef/abs/common/nameless
             auto name = name_at(names, name_offset);
             if (!name || name->empty()) continue;
-            symbols.push_back(Symbol{.name = std::move(*name), .value = value, .size = size});
+            symbols.push_back(Symbol{.name = std::move(*name),
+                                  .value = value,
+                                  .size = size,
+                                  .type = static_cast<std::uint8_t>(info & 15)});
         }
     } catch (const FormatError &) {
     }

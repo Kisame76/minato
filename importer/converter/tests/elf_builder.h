@@ -54,6 +54,7 @@ struct SymbolEntry {
     std::string_view name;
     std::uint64_t value;
     std::uint64_t size = 0;
+    std::uint8_t type = 2;  // STT_FUNC; 0 notype, 1 object
 };
 
 class ElfBuilder {
@@ -101,6 +102,9 @@ public:
     /// its .strtab (each symbol a function in section 1), so read_symbols has something to read.
     ElfBuilder &sections(std::initializer_list<SectionHeader> headers,
                          std::initializer_list<SymbolEntry> symbols = {}) {
+        return sections(std::vector<SectionHeader>(headers), std::vector<SymbolEntry>(symbols));
+    }
+    ElfBuilder &sections(const std::vector<SectionHeader> &headers, const std::vector<SymbolEntry> &symbols) {
         std::string names(1, '\0');
         std::vector<std::uint32_t> name_offsets;
         for (const auto &header : headers) {
@@ -125,7 +129,7 @@ public:
             symbol_strings.append(symbol.name).push_back('\0');
             std::string entry(24, '\0');
             std::memcpy(entry.data(), &name_offset, 4);        // st_name
-            entry[4] = static_cast<char>(0x12);                // st_info: STB_GLOBAL | STT_FUNC
+            entry[4] = static_cast<char>(0x10 | symbol.type);  // st_info: STB_GLOBAL | the type
             const std::uint16_t section_index = 1;
             std::memcpy(entry.data() + 6, &section_index, 2);  // st_shndx
             std::memcpy(entry.data() + 8, &symbol.value, 8);   // st_value

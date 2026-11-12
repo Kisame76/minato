@@ -294,8 +294,10 @@ int convert(std::vector<std::string> arguments) {
 
     const auto &report = container.report;
     std::cout << std::format("{} -> {} ({} bytes, {})\n", input, output, container.bytes.size(), signature)
-              << std::format("  {}, {} bytes of code scanned\n", report.is_static ? "static" : "dynamic",
-                             report.code_bytes)
+              << std::format("  {}, {} bytes of code scanned; data words left as they are: {} by loaded literals, "
+                             "{} by indexed tables with a proven bound\n",
+                             report.is_static ? "static" : "dynamic", report.code_bytes, report.data_literal_words,
+                             report.data_table_words)
               << std::format(
                      "  rewritten: {} thread pointer reads, {} writes, {} syscalls, {} cache type reads ({} bytes "
                      "of stubs)\n",
@@ -375,8 +377,42 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+    if (arguments.size() >= 2 && arguments[0] == "sites") {
+        // For the check that no site is lost: every address the scan finds, and the data ranges it left out, sorted.
+        try {
+            bool split = true;
+            std::string file;
+            for (std::size_t i = 1; i < arguments.size(); ++i) {
+                if (arguments[i] == "--no-data-split") {
+                    split = false;
+                } else if (arguments[i].starts_with("--") || !file.empty()) {
+                    std::cerr << std::format("apk-convert: sites: unexpected argument {}\n", arguments[i]);
+                    return 2;
+                } else {
+                    file = arguments[i];
+                }
+            }
+            if (file.empty()) {
+                std::cerr << "apk-convert: sites: no file\n";
+                return 2;
+            }
+            const auto bytes = read_file(file);
+            const auto scan = apk::container::scan_code(bytes, split);
+            for (const auto address : apk::container::site_addresses(scan)) {
+                std::cout << std::format("site {:#x}\n", address);
+            }
+            for (const auto &range : scan.data.ranges) {
+                std::cout << std::format("data {:#x} {:#x}\n", range.begin, range.end);
+            }
+            return 0;
+        } catch (const std::exception &error) {
+            std::cerr << std::format("apk-convert: {}: {}\n", arguments[1], error.what());
+            return 1;
+        }
+    }
     if (arguments.size() < 2 || arguments[0] != "inspect") {
         std::cerr << "usage: apk-convert inspect <elf-file>...\n"
+                     "       apk-convert sites <elf-file> [--no-data-split]\n"
                      "       apk-convert convert <elf-file> <dylib> [--platform macos|ios|ios-simulator]\n"
                      "                           [--sign -|<file.p12>] [--identifier <id>] [--chain-from <file>]\n"
                      "       apk-convert sign <mach-o>... --sign -|<file.p12> [--identifier <id>] [--chain-from <file>]\n"

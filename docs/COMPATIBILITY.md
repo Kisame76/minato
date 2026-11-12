@@ -226,6 +226,13 @@ The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry nam
 
 In plain terms, as a user meets it:
 
+- Native libraries with constant data inside their code: the import tells such data from instructions when the code
+  reads it through a literal load or through a table with a bound it can prove, and leaves it as it is. A library
+  whose code reads that data through an index it cannot bound, through a base address kept in memory, or from a
+  function that only a stored function pointer reaches, is refused at import when the data decodes as an instruction
+  Minato cannot rewrite, and the refusal counts what it could not classify. Data the import cannot prove is converted
+  as if it were code, as before: a word of it that looks like a system call or a thread-pointer read is rewritten.
+  A library with Android's packed relocations is still refused at import. Large engine libraries can hit this.
 - Voice input: there is no speech recognition; an app that offers it gets the answers of a phone without a recognition
   service.
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.

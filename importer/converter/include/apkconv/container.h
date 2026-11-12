@@ -4,6 +4,7 @@
 
 #include "apkconv/elf.h"
 #include "apkconv/macho.h"
+#include "apkconv/data_ranges.h"
 #include "apkconv/rewrite.h"
 
 #include <cstddef>
@@ -22,12 +23,18 @@ struct Options {
     std::string install_name;
     macho::Platform platform = macho::Platform::macos;
     std::uint32_t platform_version = 26u << 16;
+    /// false scans the words that are proven data as code too (the split of data_ranges.h switched off), which is
+    /// what a test of the split compares against.
+    bool data_split = true;
 };
 
 /// What the converter did with one file. ADR-0010: every change to the code is counted.
 struct Report {
     bool is_static = false;          // no PT_INTERP and no DT_NEEDED
-    std::uint64_t code_bytes = 0;    // bytes of the executable sections, all of them scanned
+    std::uint64_t code_bytes = 0;    // bytes of the executable sections, data words in them included
+    // Words of them proven to be data and left as they are (data_ranges.h):
+    std::uint64_t data_literal_words = 0;  // the bytes a load from proven code reads
+    std::uint64_t data_table_words = 0;    // a jump table whose bound and entries are proven
     std::uint32_t thread_pointer_reads = 0;
     std::uint32_t thread_pointer_writes = 0;
     std::uint32_t syscalls = 0;
@@ -206,6 +213,7 @@ std::vector<std::string> refusals(std::span<const std::byte> elf);
 struct Counts {
     std::uint32_t svc_rewritten = 0;
     std::uint32_t svc_data = 0;
+    std::uint32_t svc_in_data = 0;  // svc words in the proven data ranges: data, neither rewritten nor kept
     std::uint32_t undefined_words = 0;
     std::uint32_t x18_islands = 0;
     std::uint32_t renames_by_symbol = 0;
@@ -218,10 +226,26 @@ Counts counts(std::span<const std::byte> elf);
 struct CodeScan {
     rewrite::Findings findings;
     std::uint64_t code_bytes = 0;
+    // The words of the executable sections left out of the scan as data, and how the descent saw the code
+    // (data_ranges.h); empty for the scan that does not split.
+    data::DataRanges data;
 };
 
 /// Scans the executable sections of `elf` without converting it. Throws Incompatible when there are
-/// no section headers or a section is not where its segment says, or elf::FormatError.
+/// no section headers or a section is not where its segment says, or elf::FormatError. With `split` false the scan is
+/// the converter's before the data split (no data ranges), for the check that no site is lost.
 CodeScan scan_code(std::span<const std::byte> elf);
+CodeScan scan_code(std::span<const std::byte> elf, bool split);
+
+/// A data range is a hard boundary for the rewriter: throws Incompatible when a site, a relocated exclusive window or
+/// the
+/// branch of a jump table touches one of its words (the scan treats the words as nothing, so only a change of the scan
+/// could make this happen).
+void check_data_boundary(const rewrite::Findings &findings, const data::DataRanges &data);
+
+/// Every address the scan found, of every kind (sites, x18 reads, writes, saves and refused uses, other and data
+/// syscalls, the opening of each exclusive window, in-place window, jump table and monitor-inside site), ascending and
+/// unique.
+std::vector<std::uint64_t> site_addresses(const CodeScan &scan);
 
 }  // namespace apk::container

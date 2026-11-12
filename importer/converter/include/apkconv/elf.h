@@ -90,6 +90,7 @@ struct Symbol {
     std::string name;
     std::uint64_t value = 0;  // st_value: the address in a shared object
     std::uint64_t size = 0;   // st_size: 0 when the symbol carries none
+    std::uint8_t type = 0;    // st_info & 15: 0 notype, 1 object, 2 func, 6 tls, 10 gnu ifunc
 };
 
 /// One entry of the dynamic table (Elf64_Dyn).

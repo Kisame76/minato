@@ -394,6 +394,29 @@ add_library(mouse-native-test SHARED apps/mouse-native-test/main.c)
 target_compile_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(mouse-native-test PRIVATE android log)
+# data-in-text-test and its five libraries from suite/libdit.S: data inside .text (literal pools, jump tables, real code
+# that looks like data), once with a .symtab (libdit-sym.so) and four times stripped, with the dynamic relocations as
+# the linker writes them by default (libdit-strip.so), plain RELA with the addends (libdit-rela.so, the form of API 28
+# and below), Android's packed relocations (libdit-aps2.so) and RELR (libdit-relr.so, API 30 and up).
+foreach(variant sym strip rela aps2 relr)
+  add_library(dit-${variant} SHARED suite/libdit.S)
+  target_compile_definitions(dit-${variant} PRIVATE SUFFIX=_${variant})
+  # The ASM link rule of the NDK's toolchain is empty.
+  set_target_properties(dit-${variant} PROPERTIES LINKER_LANGUAGE C)
+  # DT_INIT and e_entry name hidden functions that nothing else refers to.
+  target_link_options(dit-${variant} PRIVATE -Wl,-init,dit_init_${variant} -Wl,-e,dit_entry_${variant})
+  if(NOT variant STREQUAL "sym")
+    target_link_options(dit-${variant} PRIVATE -Wl,--strip-all)
+  endif()
+endforeach()
+target_compile_definitions(dit-sym PRIVATE HAS_SYMTAB=1)
+target_link_options(dit-rela PRIVATE -Wl,--pack-dyn-relocs=none)
+target_link_options(dit-aps2 PRIVATE -Wl,--pack-dyn-relocs=android)
+target_link_options(dit-relr PRIVATE -Wl,--pack-dyn-relocs=relr)
+add_executable(data-in-text-test suite/data-in-text-test.c)
+# libdit-aps2.so is not linked in: the converter refuses packed relocations, so only the scan test reads it.
+target_link_libraries(data-in-text-test PRIVATE dit-sym dit-strip dit-rela dit-relr)
+
 # x18-test: every form of x18 the converter puts into an island, written in assembly, since the
 # NDK's clang reserves x18 (ADR-0020 X5).
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)

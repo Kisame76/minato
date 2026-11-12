@@ -2,7 +2,7 @@
 # ELF reader, rewriter, Mach-O writer and the converter that puts them together.
 add_library(apkconv STATIC src/elf.cpp src/macho.cpp src/a64.cpp src/rewrite.cpp src/container.cpp src/der.cpp
   src/certificate.cpp src/codesign.cpp src/security_identity.cpp src/pkcs12.cpp src/c_api.cpp
-  src/data_hints.cpp)
+  src/data_hints.cpp src/data_ranges.cpp)
 # The container format is shared with the loader: runtime/include/APKRuntime/container_format.h.
 # capi/ holds the C interface for the app (APKConvert/apkconv.h), packed into build/APKConvert.xcframework.
 target_include_directories(apkconv PUBLIC include capi "${PROJECT_SOURCE_DIR}/runtime/include")
@@ -63,6 +63,17 @@ if(APK_HOST_BUILD)
   add_executable(site_net_test tests/site_net_test.cpp)
   target_link_libraries(site_net_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.site_net COMMAND site_net_test "${APK_FIXTURES_DIR}")
+
+  add_executable(data_ranges_test tests/data_ranges_test.cpp)
+  target_link_libraries(data_ranges_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.data_ranges COMMAND data_ranges_test)
+
+  # The data words of the four data-in-text libraries come through a conversion byte for byte; skipped (77) while the
+  # fixtures are missing.
+  add_executable(data_split_bytes_test tests/data_split_bytes_test.cpp)
+  target_link_libraries(data_split_bytes_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.data_split_bytes COMMAND data_split_bytes_test "${APK_FIXTURES_DIR}")
+  set_tests_properties(converter.data_split_bytes PROPERTIES SKIP_RETURN_CODE 77)
 
   # The reference code is assembled by the host toolchain and serves as the oracle for the stubs.
   enable_language(ASM)

@@ -379,6 +379,7 @@ extern "C" int apkconv_counts_of(const char *elf_path, apkconv_counts *counts, c
         const auto found = apk::container::counts(elf.bytes());
         *counts = {.svc_rewritten = found.svc_rewritten,
                    .svc_data = found.svc_data,
+                   .svc_in_data = found.svc_in_data,
                    .undefined_words = found.undefined_words,
                    .x18_islands = found.x18_islands,
                    .renames_by_symbol = found.renames_by_symbol,

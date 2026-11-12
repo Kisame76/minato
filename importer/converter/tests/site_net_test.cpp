@@ -91,13 +91,20 @@ std::uint64_t file_offset(const std::vector<std::byte> &elf, std::uint64_t addre
     throw std::runtime_error("an address in no section");
 }
 
-/// The addresses the converter rewrites as syscalls, and the ones it keeps as data (a literal load reads them).
+/// The addresses the converter rewrites as syscalls, the ones it keeps as data (a literal load reads them) and the ones
+/// that lie in a data range the split proves (a loaded pool: its words are data, not code, and stay as they are).
 struct Account {
-    Addresses rewritten, kept;
+    Addresses rewritten, kept, in_data;
 };
 
-Account account_of(const apk::rewrite::Findings &findings) {
+Account account_of(const apk::container::CodeScan &scan, const Addresses &raw) {
+    const auto &findings = scan.findings;
     Account account;
+    for (const auto at : raw) {
+        for (const auto &range : scan.data.ranges) {
+            if (at >= range.begin && at < range.end) account.in_data.insert(at);
+        }
+    }
     for (const auto &site : findings.sites) {
         if (site.kind == apk::rewrite::SiteKind::syscall) account.rewritten.insert(site.address);
     }
@@ -124,11 +131,12 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
         CHECK(refused);
         return false;
     }
-    const auto account = account_of(scan.findings);
+    const auto account = account_of(scan, raw);
     Addresses all = account.rewritten;
     all.insert(account.kept.begin(), account.kept.end());
+    all.insert(account.in_data.begin(), account.in_data.end());
     // Disjoint: no word is counted twice, so the sums are the counts of the report.
-    CHECK(account.rewritten.size() + account.kept.size() == all.size());
+    CHECK(account.rewritten.size() + account.kept.size() + account.in_data.size() == all.size());
     if (all != raw) {
         std::printf("%s: svc words before the import %zu, accounted for %zu\n", name.c_str(), raw.size(), all.size());
         for (const auto at : raw) {
@@ -157,6 +165,9 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
     for (const auto at : account.kept) {
         CHECK(word_at(container.bytes, image + file_offset(elf, at)) == word_at(elf, file_offset(elf, at)));
     }
+    for (const auto at : account.in_data) {
+        CHECK(word_at(container.bytes, image + file_offset(elf, at)) == word_at(elf, file_offset(elf, at)));
+    }
     // And no other svc is left in the code of the image: a word the rewrite left in place is a site lost.
     std::size_t left = 0;
     for (const auto &section : apk::container::layout_sections(elf)) {
@@ -165,7 +176,7 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
             if ((word_at(container.bytes, image + section.offset + at) & svc_mask) == svc) ++left;
         }
     }
-    CHECK(left == account.kept.size());
+    CHECK(left == account.kept.size() + account.in_data.size());
 
     // The public C API (apkconv_counts_of) must report the same svc account as the oracle and the findings, so the
     // "no site lost" guarantee holds through the interface the app's Debug builds read, not only the internal scan.
@@ -175,9 +186,10 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
     const int got = apkconv_counts_of(temp.string().c_str(), &counts, error, sizeof error);
     std::filesystem::remove(temp);
     CHECK(got == 0);
-    CHECK(counts.svc_rewritten + counts.svc_data == raw.size());   // before (the oracle) == rewritten + data
+    CHECK(counts.svc_rewritten + counts.svc_data + counts.svc_in_data == raw.size());  // before == after, by bucket
     CHECK(counts.svc_rewritten == account.rewritten.size());
     CHECK(counts.svc_data == account.kept.size());                 // svc_data tied to the net, an svc_data > 0 included
+    CHECK(counts.svc_in_data == account.in_data.size());
     return true;
 }
 

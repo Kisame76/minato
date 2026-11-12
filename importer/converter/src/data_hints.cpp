@@ -76,6 +76,9 @@ constexpr std::uint8_t pe_omit = 0xff;
 /// `field_address`. Only the forms compilers write for AArch64 are read; any other fails the reader.
 std::optional<std::uint64_t> encoded(Reader &reader, std::uint8_t encoding, std::uint64_t field_address) {
     if (encoding == pe_omit) return std::nullopt;
+    // Only the absolute and the pc-relative forms are applied below; any other base or an indirection is not read.
+    if ((encoding & 0x70) != 0x00 && (encoding & 0x70) != 0x10) { reader.fail(); return std::nullopt; }
+    if ((encoding & 0x80) != 0) { reader.fail(); return std::nullopt; }
     std::int64_t value = 0;
     switch (encoding & 0x0f) {
         case 0x00: value = static_cast<std::int64_t>(reader.unsigned_of(8)); break;  // absptr
@@ -89,23 +92,33 @@ std::optional<std::uint64_t> encoded(Reader &reader, std::uint8_t encoding, std:
         case 0x0c: value = reader.signed_of(8); break;
         default: reader.fail(); return std::nullopt;
     }
-    if ((encoding & 0x70) == 0x10) value += static_cast<std::int64_t>(field_address);  // pcrel
-    return static_cast<std::uint64_t>(value);
+    // pcrel, in unsigned arithmetic: a hostile table's sum wraps, it does not overflow
+    return static_cast<std::uint64_t>(value) + ((encoding & 0x70) == 0x10 ? field_address : 0);
 }
 
 /// The [begin, end) of every FDE of .eh_frame at `address` (its section address). Reads CIEs for the pointer encoding
 /// of an augmentation "zR..." and gives up on one it cannot read, counting what it has read.
-std::vector<std::pair<std::uint64_t, std::uint64_t>> read_fdes(Bytes section, std::uint64_t address) {
+std::vector<std::pair<std::uint64_t, std::uint64_t>> read_fdes(Bytes section, std::uint64_t address,
+                                                               bool *complete = nullptr) {
     std::vector<std::pair<std::uint64_t, std::uint64_t>> fdes;
+    if (complete != nullptr) *complete = true;
     std::map<std::size_t, std::uint8_t> cie_encodings;  // CIE offset -> its R encoding (absptr when none)
     Reader reader(section);
+    bool lost = false;  // a record that was read but not understood: the FDEs that name it are gone
     while (!reader.done()) {
         const std::size_t start = reader.position();
         std::uint64_t length = reader.unsigned_of(4);
-        if (!reader.ok() || length == 0) break;
+        if (length == 0 && reader.ok()) break;  // the terminator: the table ends here
+        if (!reader.ok()) {
+            if (complete != nullptr) *complete = false;
+            break;
+        }
         if (length == 0xffff'ffff) length = reader.unsigned_of(8);
         const std::size_t body = reader.position();
-        if (!reader.ok() || length > section.size() - body) break;
+        if (!reader.ok() || length > section.size() - body) {
+            if (complete != nullptr) *complete = false;  // a record that runs past the section: what follows is lost
+            break;
+        }
         const std::size_t end = body + static_cast<std::size_t>(length);
         const std::uint32_t id = static_cast<std::uint32_t>(reader.unsigned_of(4));
         if (id == 0) {  // a CIE
@@ -130,13 +143,19 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> read_fdes(Bytes section, st
                             reader.unsigned_of(1);
                         } else if (augmentation[index] == 'P') {
                             const auto personality = static_cast<std::uint8_t>(reader.unsigned_of(1));
-                            encoded(reader, personality, 0);
+                            // The personality pointer is skipped by the size of its format and never applied: compilers
+                            // write it indirect and pc-relative in every PIC "zPLR" CIE (0x9b, 0x9c).
+                            if (personality != pe_omit) encoded(reader, personality & 0x0f, 0);  // unknown format fails
                         }
                     }
                     reader.seek(augmentation_end);
                 }
             }
-            if (reader.ok()) cie_encodings[start] = encoding;
+            if (reader.ok() && (version == 1 || version == 3 || version == 4)) {
+                cie_encodings[start] = encoding;
+            } else {
+                lost = true;  // its FDEs cannot be read
+            }
         } else {  // an FDE: id is the distance from this field back to its CIE
             const std::size_t id_field = body;
             if (id <= id_field) {
@@ -144,12 +163,22 @@ std::vector<std::pair<std::uint64_t, std::uint64_t>> read_fdes(Bytes section, st
                 if (cie != cie_encodings.end()) {
                     const auto begin = encoded(reader, cie->second, address + reader.position());
                     const auto range = encoded(reader, cie->second & 0x0f, 0);
-                    if (reader.ok() && begin && range) fdes.emplace_back(*begin, *begin + *range);
+                    if (reader.ok() && begin && range) {
+                        fdes.emplace_back(*begin, *begin + *range);
+                    } else {
+                        lost = true;
+                    }
+                } else {
+                    lost = true;  // names a CIE that was not read
                 }
+            } else {
+                lost = true;
             }
         }
         reader.seek(end);
+        if (!reader.ok()) lost = true;  // a record that reaches past the section ends the table
     }
+    if (lost && complete != nullptr) *complete = false;
     return fdes;
 }
 
@@ -351,6 +380,11 @@ char kind_of_instruction(std::uint32_t word) {
 }
 
 }  // namespace
+
+std::vector<std::pair<std::uint64_t, std::uint64_t>> fde_ranges(std::span<const std::byte> eh_frame,
+                                                                  std::uint64_t address, bool *complete) {
+    return read_fdes(eh_frame, address, complete);
+}
 
 DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes,
                      std::span<const elf::Section> sections, std::span<const rewrite::Unsupported> uses) {

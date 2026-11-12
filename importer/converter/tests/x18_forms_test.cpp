@@ -58,7 +58,8 @@ struct Symbol {
 };
 
 std::vector<std::byte> library(const std::vector<std::uint32_t> &words, bool with_symbol = true,
-                               const std::vector<FdeSpan> &fdes = {}, Symbol symbol = {}, std::size_t plt_words = 0) {
+                               const std::vector<FdeSpan> &fdes = {}, Symbol symbol = {}, std::size_t plt_words = 0,
+                               const std::vector<SectionHeader> &first_sections = {}) {
     ElfBuilder builder;
     const std::uint64_t size = words.size() * 4;
     const std::uint64_t text_size = size - plt_words * 4;  // the last words are a .plt section's
@@ -86,13 +87,16 @@ std::vector<std::byte> library(const std::vector<std::uint32_t> &words, bool wit
         }, symbol.size == 0 ? std::initializer_list<SymbolEntry>{}
                             : std::initializer_list<SymbolEntry>{{"inner", symbol.value, symbol.size}});
     } else if (with_symbol) {
-        builder.sections({
-            {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
-            {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, text_size},
-            {".plt", sht_progbits, shf_alloc | shf_execinstr, 0x200 + text_size, 0x200 + text_size, plt_words * 4},
-            {".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
-            {".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
-        }, {{"fn", 0x200, size}});
+        std::vector<SectionHeader> table = first_sections;  // sections a hostile file puts ahead of the real ones
+        table.insert(table.end(), {
+            SectionHeader{".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
+            SectionHeader{".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, text_size},
+            SectionHeader{".plt", sht_progbits, shf_alloc | shf_execinstr, 0x200 + text_size, 0x200 + text_size,
+                          plt_words * 4},
+            SectionHeader{".dynamic", sht_dynamic, shf_alloc | shf_write, 0x42c0, 0x2c0, 0x40},
+            SectionHeader{".bss", sht_nobits, shf_alloc | shf_write, 0x4300, 0x300, 0xf80},
+        });
+        builder.sections(table, {{"fn", 0x200, size}});
     } else {
         builder.sections({
             {".relr.dyn", sht_relr, shf_alloc, 0x160, 0x160, 8},
@@ -236,7 +240,7 @@ TEST(names_only_the_store_when_both_words_are_in_a_stripped_library) {
 // takes.
 constexpr std::uint32_t svc_0 = 0xd400'0001;
 constexpr std::uint32_t svc_1 = 0xd400'0021;
-constexpr std::uint32_t ldr_x0_literal_8 = 0x5800'0040;  // ldr x0, pc+8
+constexpr std::uint32_t ldr_w0_literal_8 = 0x1800'0040;  // ldr w0, pc+8: reads one word, 0x208
 
 TEST(counts_a_rename_by_symbol_and_one_by_unwind_entry_apart) {
     const auto by_symbol = apk::container::counts(library({nop, st2_sp_x18, ret}));
@@ -254,11 +258,52 @@ TEST(counts_the_kept_lsui_words_and_leaves_them_out_of_the_islands) {
 }
 
 TEST(counts_the_svc_words_rewritten_and_the_one_kept_as_data) {
-    const auto counts = apk::container::counts(library({ldr_x0_literal_8, ret, svc_1, svc_0, ret}));
+    // Without a symbol or an unwind entry nothing proves the load, so the old rule holds: the word the literal load
+    // reads stays as it is and counts as kept; the svc #0 behind it is a site.
+    const auto counts = apk::container::counts(library({ldr_w0_literal_8, ret, svc_1, svc_0, ret}, false));
     CHECK(counts.svc_rewritten == 1);
     CHECK(counts.svc_data == 1);
+    CHECK(counts.svc_in_data == 0);
+    // In a sized function the load is proven, its word is a data range and not a site, nor counted as kept.
+    const auto proven = apk::container::counts(library({ldr_w0_literal_8, ret, svc_1, svc_0, ret}));
+    CHECK(proven.svc_rewritten == 1 && proven.svc_data == 0 && proven.svc_in_data == 1);
     const auto plain = apk::container::counts(library({nop, svc_0, ret}));
     CHECK(plain.svc_rewritten == 1 && plain.svc_data == 0 && plain.undefined_words == 0);
+}
+
+// ---- Counts() reads only the sections the scan reads.
+TEST(counts_never_reads_through_a_hostile_nobits_section) {
+    // A NOBITS section ahead of .text that claims the pool's address and a file offset far beyond the file: its bytes
+    // do not exist. Under the sanitizer build the old loop read elf_bytes + offset.
+    const auto elf = library({ldr_w0_literal_8, ret, svc_1, svc_0, ret}, true, {}, {}, 0,
+                             {{".evil", sht_nobits, shf_alloc, 0x200, 0x7fff'0000, 0x100}});
+    const auto counts = apk::container::counts(elf);
+    CHECK(counts.svc_in_data == 1);
+}
+
+TEST(counts_does_not_read_the_file_bytes_that_an_executable_nobits_section_names) {
+    // The section has no bytes, but its header names a range of the file that is inside it (and inside the file), where
+    // svc words are planted. Only the NOBITS test keeps counts() from reading them: the range is loaded, executable,
+    // not empty and lies in the file.
+    auto elf = library({ldr_w0_literal_8, ret, svc_1, svc_0, ret}, true, {}, {}, 0,
+                       {{".evil", sht_nobits, shf_alloc | shf_execinstr, 0x200, 0x1000, 0x300}});
+    CHECK(elf.size() <= 0x1000);
+    elf.resize(0x1000 + 0x300);
+    for (std::size_t at = 0x1000; at < 0x1000 + 0x18; at += 4) std::memcpy(elf.data() + at, &svc_0, 4);
+    const auto counts = apk::container::counts(elf);
+    CHECK(counts.svc_in_data == 1);  // the one word at 0x208
+}
+
+TEST(counts_reads_the_svc_words_of_the_executable_section_not_of_one_that_covers_it_from_zero) {
+    // A non-allocated section at address 0 that covers the text: the words in its file bytes are not the code's.
+    // The section's file bytes lie behind the end of the file's own tables: svc words are planted there.
+    auto elf = library({ldr_w0_literal_8, ret, svc_1, svc_0, ret}, true, {}, {}, 0,
+                       {{".debug", sht_progbits, 0, 0, 0x1000, 0x300}});
+    CHECK(elf.size() <= 0x1000);
+    elf.resize(0x1000 + 0x300);
+    for (std::size_t at = 0x1000 + 0x200; at < 0x1000 + 0x218; at += 4) std::memcpy(elf.data() + at, &svc_0, 4);
+    const auto counts = apk::container::counts(elf);
+    CHECK(counts.svc_in_data == 1);  // the one word at 0x208
 }
 
 TEST(counts_an_island_for_a_plain_read_of_x18) {

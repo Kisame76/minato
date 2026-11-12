@@ -1,0 +1,24 @@
+sym pool: d4024681 4862fe44 4c008240 f9400012
+sym literal: d4024681
+sym switch: 10 20 30 -1
+sym getpid: matches
+sym probes: match match -2 ab match
+sym stubs: match match match match
+strip pool: d4024681 4862fe44 4c008240 f9400012
+strip literal: d4024681
+strip switch: 10 20 30 -1
+strip getpid: matches
+strip probes: match match -2 ab match
+strip stubs: match match match match
+rela pool: d4024681 4862fe44 4c008240 f9400012
+rela literal: d4024681
+rela switch: 10 20 30 -1
+rela getpid: matches
+rela probes: match match -2 ab match
+rela stubs: match match match match
+relr pool: d4024681 4862fe44 4c008240 f9400012
+relr literal: d4024681
+relr switch: 10 20 30 -1
+relr getpid: matches
+relr probes: match match -2 ab match
+relr stubs: match match match match
