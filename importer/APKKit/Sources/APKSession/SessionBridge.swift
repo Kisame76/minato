@@ -220,10 +220,21 @@ public protocol SessionHost: AnyObject {
     /// The bridge gives the window up, right before its removal: why (the lifecycle's event, `givingUpReason`) and the
     /// callbacks of that step, for a Debug build's session log (ADR-0043 b5, a black window's first question).
     func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback])
+    /// `apkrt_window_remove_untold`: as `removeWindow`, but the guest's swaps on the window succeed without a frame
+    /// until `windowTold`, as Android's BufferQueue takes frames until the app's destroy callback has returned.
+    func removeWindowUntilTold(_ window: UInt64)
+    /// `apkrt_window_told`: the app's destroy callback for the window has returned; its swaps fail from now on.
+    func windowTold(_ window: UInt64)
+    /// As `removeSurface`, but the guest's swaps on the surface's window succeed without a frame until `windowTold`:
+    /// a SurfaceView's BufferQueue takes frames until its surfaceDestroyed callbacks have returned.
+    func removeSurfaceUntilTold(_ window: UInt64)
 }
 
 extension SessionHost {
     public func windowGivenUp(_ window: UInt64, reason: String, callbacks: [Lifecycle.Callback]) {}
+    public func removeWindowUntilTold(_ window: UInt64) { removeWindow(window) }
+    public func windowTold(_ window: UInt64) {}
+    public func removeSurfaceUntilTold(_ window: UInt64) { removeSurface(window) }
 }
 
 /// The guest's window in size compat (ADR-0041, decision 12 b): its frame in the host's window, in pixels, its
@@ -329,6 +340,10 @@ public struct SessionBridge: Sendable {
 
     /// The host's window the guest has, 0 for none.
     public private(set) var window: UInt64 = 0
+    /// The window removed until its destroy callback's answer (`removeWindowUntilTold`), 0 for none.
+    public private(set) var untoldWindow: UInt64 = 0
+    /// The surfaces' windows removed until the guest's own removal of them, after its surfaceDestroyed callbacks.
+    public private(set) var untoldSurfaces: [UInt64] = []
     private var gateIsOpen = false
     /// The input channel of the guest's input queue, once it has one: activity-host destroys the queue
     /// itself before onDestroy. 0 when the runtime had no memory for one.
@@ -631,7 +646,14 @@ public struct SessionBridge: Sendable {
                        host: host)
         case .remove:
             guard let index else { return }
-            if !surfaces[index].taken { host.removeSurface(surfaces[index].window) }
+            let window = surfaces[index].window
+            if !surfaces[index].taken {
+                host.removeSurface(window)
+            } else if let untold = untoldSurfaces.firstIndex(of: window) {
+                // The guest removes it after its surfaceDestroyed callbacks: Android's queue is abandoned then.
+                host.windowTold(window)
+                untoldSurfaces.remove(at: untold)
+            }
             surfaces.remove(at: index)
         }
     }
@@ -649,10 +671,25 @@ public struct SessionBridge: Sendable {
     /// or the program ended.
     @discardableResult
     public mutating func finished(_ wait: Wait, result: Int32, host: SessionHost) -> Handled {
+        // The destroy callback has returned (or the program ended): the removed window's swaps fail from now on.
+        if wait.callback == .onNativeWindowDestroyed && result != 0 { tellRemovedWindow(host) }
         guard !isBroken, wait == current else { return Handled() }
         current = nil
         let event: Lifecycle.Event = result == 1 ? .answered(wait.callback) : .timedOut(wait.callback)
         return apply(lifecycle.handle(event), host: host, cause: event)
+    }
+
+    /// The window removed until its destroy callback's answer is told so (`windowTold`), once.
+    private mutating func tellRemovedWindow(_ host: SessionHost) {
+        guard untoldWindow != 0 else { return }
+        host.windowTold(untoldWindow)
+        untoldWindow = 0
+    }
+
+    /// The surfaces' windows still untold: told at the next window, as their removal never came.
+    private mutating func tellUntoldSurfaces(_ host: SessionHost) {
+        for window in untoldSurfaces { host.windowTold(window) }
+        untoldSurfaces.removeAll()
     }
 
     /// Posts `callbacks` in order, with the window's steps around them:
@@ -676,6 +713,8 @@ public struct SessionBridge: Sendable {
         for (index, callback) in callbacks.enumerated() {
             if window == 0, callback == .onCreate || callback == .onStart,
                callbacks[index...].contains(.onNativeWindowCreated) {
+                tellRemovedWindow(host)  // a destroy callback that never answered
+                tellUntoldSurfaces(host)
                 window = host.addWindow(width: guestSize.width, height: guestSize.height)
                 guestIsSized = true
             }
@@ -683,10 +722,12 @@ public struct SessionBridge: Sendable {
                 gone = window
                 window = 0
                 host.windowGivenUp(gone, reason: Self.givingUpReason(cause), callbacks: callbacks)
-                host.removeWindow(gone)
-                takeSurfacesAway(host)
+                tellRemovedWindow(host)
+                host.removeWindowUntilTold(gone)
+                untoldWindow = gone
+                takeSurfacesAway(host, untilTold: true)
             }
-            if callback == .onDestroy { takeSurfacesAway(host) }
+            if callback == .onDestroy { takeSurfacesAway(host, untilTold: false) }
             if callback == .onLowMemory {
                 // AOSP rate-limit: pass one onLowMemory on at most every GC_MIN_INTERVAL (60 s), so a storm of iOS
                 // warnings (one per kernel event) becomes one call, as AppProfiler schedules low memory per process.
@@ -733,9 +774,17 @@ public struct SessionBridge: Sendable {
     /// Every surface's and every requested window's window goes (apkrt.h's surface and window handlers, apk-run's
     /// take_away): with the window's at the background and the end, and at onDestroy those made in the background,
     /// which hear nothing of it.
-    private mutating func takeSurfacesAway(_ host: SessionHost) {
+    /// At the background `untilTold`: a surface's swaps succeed without a frame until the guest's own removal, after
+    /// its surfaceDestroyed callbacks, as Android's queue takes frames until then (SDL's render thread finishes its
+    /// frame and backs its context up there, with no failed swap).
+    private mutating func takeSurfacesAway(_ host: SessionHost, untilTold: Bool) {
         for index in surfaces.indices where !surfaces[index].taken {
-            host.removeSurface(surfaces[index].window)
+            if untilTold {
+                host.removeSurfaceUntilTold(surfaces[index].window)
+                untoldSurfaces.append(surfaces[index].window)
+            } else {
+                host.removeSurface(surfaces[index].window)
+            }
             surfaces[index].taken = true
         }
         // The requested windows after them, as apk-run takes its windows away (ADR-0041, gap 4).

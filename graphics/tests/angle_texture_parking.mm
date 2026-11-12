@@ -520,9 +520,14 @@ int main(int argc, char **argv) {
             if (!store_full) {
                 // Patch 0024: the file gets the copies that stay (the LZFSE repacks), not each park's LZ4 copy a
                 // second before (0021 wrote 1676 MiB for 465 MiB here); the LZ4 copies held meanwhile stay under the
-                // 128 MiB cap.
-                check(field(store_line, "fwrite") <= field(store_line, "file") * 1.25,
-                      "the park file is written the copies that stay, not each LZ4 copy too (fwrite " +
+                // 128 MiB cap. On a loaded Mac the LZFSE repacks (QOS_CLASS_UTILITY) fall behind, so still-LZ4 copies
+                // are spilled to the file to honour that cap and are rewritten as LZFSE later: the stayed set is then
+                // written up to about twice over (measured 1.76x under load, 2.13x for the band run's larger set,
+                // 1.02x idle). The bound leaves room for that, as the frame-time bounds do, and still catches 0021's
+                // write-everything-twice (3.6x); the real guarantee is the footprint bound.
+                check(field(store_line, "fwrite") <= field(store_line, "file") * 2.5,
+                      "the park file is written the copies that stay (plus a loaded Mac's LZ4 spill), not each LZ4 "
+                      "copy too (fwrite " +
                           std::to_string(field(store_line, "fwrite")) + " MiB for " +
                           std::to_string(field(store_line, "file")) + " MiB)");
                 check(field(store_line, "hpeak") >= 0.0 && field(store_line, "hpeak") <= 128.0,

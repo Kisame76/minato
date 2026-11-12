@@ -206,5 +206,7 @@ int minato_gate(uint64_t window, int kind) {
     do {
         answer = syscall(APKRT_NR_WINDOW_GATE, window, kind);
     } while (answer == -1 && errno == EINTR);
-    return answer == 1;
+    // 3, a window removed before the app was told (a swap of libEGL's drops its frame then), is gone for Vulkan's
+    // present and submit for now, as before the drop came.
+    return answer == 1 || answer == 3;
 }

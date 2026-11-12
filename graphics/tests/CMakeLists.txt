@@ -15,7 +15,8 @@ endif()
 set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
 # Tests 2, 4, 5 and rgb_configs need Core Animation and Metal objects: Objective-C++ with ARC.
-# Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003). Test 5:
+# Test 2: EGL_ANGLE_window_fixed_size on Metal (patch 0001). Test 4: the commit gate (patch 0003); commit_defer: its
+# deferral, a background commit kept back without a wait unless its result is wanted (patch 0025). Test 5:
 # EGL_ANDROID_presentation_time on Metal (patch 0005, ADR-0041 decision 11). rgb_configs: RGB888 configs
 # without alpha on Metal, GLSurfaceView's default (patch 0006, ADR-0043 c4). external_images: samplerExternalOES and
 # GL_TEXTURE_EXTERNAL_OES on Metal (patch 0010, ADR-0058 b)).
@@ -23,8 +24,8 @@ set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^s
 # stay on the GPU's tiles (memoryless, patch 0016). texture_parking: idle textures as a packed CPU copy
 # near the memory limit, restored bit for bit (patch 0017, ADR-0075).
 enable_language(OBJCXX)
-foreach(test IN ITEMS fixed_size commit_gate presentation_time rgb_configs external_images memory_counters
-  window_msaa texture_parking)
+foreach(test IN ITEMS fixed_size commit_gate commit_defer presentation_time rgb_configs external_images
+  memory_counters window_msaa texture_parking)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)
@@ -602,6 +603,9 @@ if(TARGET minato_graphics_host)
     add_guest_test(gles_procs gles-procs-test gles_procs_test
       "${gles_system_libraries};${APK_GRAPHICS_GUEST_DIR}/libvulkan.so" ${with_angle} "MINATO_MOLTENVK=set:${moltenvk}")
     # ADR-0065 step 4: GL_VENDOR and GL_RENDERER with and without a device profile (apk-run's --device-profile).
+    # What libGLESv2 answers on a thread without a current context, before any EGL call and after a context's
+    # release, against Android 15's libGLESv2 (the same program run as a shell program on the emulator).
+    add_guest_test(gles_no_context gles-no-context-test gles_no_context_test "${gles_system_libraries}" ${with_angle})
     add_guest_test(gles_profile gles-profile-test gles_profile_test "${gles_system_libraries}" ${with_angle}
       "MINATO_DEVICE_PROFILE=unset:")
     add_guest_test(gles_profile_pixel gles-profile-test gles_profile_pixel_test "${gles_system_libraries}" ${with_angle}
@@ -623,6 +627,13 @@ if(TARGET minato_graphics_host)
       "MINATO_WINDOW_SCRIPT=set:glue")
     # ADR-0041 decision 11 c): a present graphics/host does not show, at the drawable's present.
     add_guest_test(gles_drop gles-drop-test gles_drop_test "${gles_system_libraries}" ${with_angle})
+    # A window removed before the app's destroy callback has returned (apkrt_window_remove_untold): its swaps succeed
+    # without a frame, at the display's pace, until the app is told, and fail with EGL_BAD_NATIVE_WINDOW after it.
+    add_guest_test(gles_untold gles-untold-test gles_untold_test "${gles_system_libraries}" ${with_angle})
+    # Patch 0027: in the background no GL call waits for the GPU work kept for the foreground (glFinish, a readback,
+    # a client wait without an end, a map for reading, a query's result, a full FIFO), against Android 15's answers
+    # (the same program run as a shell program on the emulator, whose GPU runs in the background).
+    add_guest_test(gles_background gles-background-test gles_background_test "${gles_system_libraries}" ${with_angle})
     # ADR-0043 c3: SDL 2's surface order on a return (gles_resume_test.c). The window is removed while the render
     # thread holds the context current, the surface is destroyed while still current, the session goes to the
     # background, and on the return a new window and its surface must let the context restore: the old textures stay
@@ -792,7 +803,8 @@ if(TARGET minato_graphics_host)
   # 1 s), and graphics.bench, whose heavy scene holds the GPU for a minute, never run at once under ctest -j: another
   # test's GPU work could stall a frame past their limits (graphics.vulkan_live once saw a frame interval of 108 ms
   # in a full run with -j8).
-  set_tests_properties(graphics.angle_commit_gate graphics.angle_presentation_time graphics.gles_front
+  set_tests_properties(graphics.angle_commit_gate graphics.angle_commit_defer graphics.angle_presentation_time
+    graphics.gles_front
     graphics.gles1_front graphics.gles_gate graphics.gles_glue graphics.gles_drop graphics.gles_resume
     graphics.vulkan_queue
     graphics.vulkan_present graphics.vulkan_drop graphics.gles_app

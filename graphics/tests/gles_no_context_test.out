@@ -1,0 +1,55 @@
+before any context:
+  glGetError: 0x0
+  glGetString(GL_VERSION): null
+  glGetString(GL_EXTENSIONS): null
+  glGetStringi(GL_EXTENSIONS, 0): null
+  glCreateProgram: 0
+  glCreateShader: 0
+  glGenTextures writes: nothing
+  glGenBuffers writes: nothing
+  glGenFramebuffers writes: nothing
+  glGetIntegerv writes: nothing
+  glGetShaderiv writes: nothing
+  glGetProgramiv writes: nothing
+  glGetShaderInfoLog writes: nothing
+  glGetUniformLocation: 0
+  glGetAttribLocation: 0
+  glGetUniformBlockIndex: 0x0
+  glCheckFramebufferStatus: 0x0
+  glIsTexture: 0
+  glIsEnabled: 0
+  glMapBufferRange: null
+  glUnmapBuffer: 0
+  glFenceSync: null
+  glClientWaitSync: 0x0
+  glGetGraphicsResetStatus: 0x0
+  glGetError at the end: 0x0
+made current: yes
+released: yes
+after the context's release:
+  glGetError: 0x0
+  glGetString(GL_VERSION): null
+  glGetString(GL_EXTENSIONS): null
+  glGetStringi(GL_EXTENSIONS, 0): null
+  glCreateProgram: 0
+  glCreateShader: 0
+  glGenTextures writes: nothing
+  glGenBuffers writes: nothing
+  glGenFramebuffers writes: nothing
+  glGetIntegerv writes: nothing
+  glGetShaderiv writes: nothing
+  glGetProgramiv writes: nothing
+  glGetShaderInfoLog writes: nothing
+  glGetUniformLocation: 0
+  glGetAttribLocation: 0
+  glGetUniformBlockIndex: 0x0
+  glCheckFramebufferStatus: 0x0
+  glIsTexture: 0
+  glIsEnabled: 0
+  glMapBufferRange: null
+  glUnmapBuffer: 0
+  glFenceSync: null
+  glClientWaitSync: 0x0
+  glGetGraphicsResetStatus: 0x0
+  glGetError at the end: 0x0
+done

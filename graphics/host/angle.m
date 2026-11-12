@@ -13,7 +13,9 @@
      data, which calls the app's function through apkrt_call_guest on guest threads only and logs the
      message on any other thread (decision 16, ADR-0030's decision 5); glGetPointerv answers from the record;
    - ANGLE's commit gate (patch 0003): a commit counts itself, then reads the background flag and backs out
-     and waits for the foreground if it is set; the count drops once ANGLE counted the command buffer. The
+     and waits for the foreground if it is set; the count drops once ANGLE counted the command buffer. With patch
+     0025 it backs out without a wait: ANGLE keeps the command buffer uncommitted until the foreground, and only a
+     wait for its result, or a full FIFO, waits for the foreground (ADR-0029, decision 15's addendum). The
      app sets the flag, then "scheduled" waits until the count is 0 and then until ANGLE's committed command
      buffers are scheduled: either the commit sees the flag or "scheduled" sees the commit (decision 15);
    - EGL images of the guest's hardware buffers (ADR-0058 b), image.m);
@@ -389,11 +391,32 @@ static void commit_counted(void) {
     atomic_fetch_sub(&committing, 1);
 }
 
+/* Patch 0025's deferral in place of the wait above: 1 when a commit may go now, counted as commit_entered counts it;
+   0 in the background, without a wait, and ANGLE keeps the command buffer for the foreground. Only a wait for a
+   result, or a full FIFO, waits there (wait_foreground). */
+static int commit_enter(void) {
+    atomic_fetch_add(&committing, 1);
+    if (!apkrt_is_background()) {
+        return 1;
+    }
+    atomic_fetch_sub(&committing, 1);
+    return 0;
+}
+
+static void wait_foreground(void) {
+    apkrt_wait_foreground();
+}
+
 static void gates(void *library) {
     void (*set)(void (*)(void), void (*)(void)) =
         (void (*)(void (*)(void), void (*)(void)))dlsym(library, "ANGLEMetalSetCommitGates");
     if (set != NULL) {
         set(commit_entered, commit_counted);
+    }
+    void (*defer)(int (*)(void), void (*)(void)) =
+        (void (*)(int (*)(void), void (*)(void)))dlsym(library, "ANGLEMetalSetCommitDeferral");
+    if (defer != NULL) {
+        defer(commit_enter, wait_foreground);
     }
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
     atomic_store(&memory_warning, (void (*)(void))dlsym(library, "ANGLEMetalMemoryWarning"));

@@ -83,12 +83,26 @@ final class RuntimeSessionHost: SessionHost {
     #endif
 
     func removeWindow(_ window: UInt64) {
+        remove(window, untilTold: false)
+    }
+
+    /// The window goes, its swaps dropped until the app's destroy callback has answered (`windowTold`).
+    func removeWindowUntilTold(_ window: UInt64) {
+        remove(window, untilTold: true)
+    }
+
+    func windowTold(_ window: UInt64) {
+        apkrt_window_told(window)
+        noteWindow("window \(window) told (its destroy callback answered)")
+    }
+
+    private func remove(_ window: UInt64, untilTold: Bool) {
         #if BENCHMARK
         // The gate is closed by now, so no present comes between the count and the removal.
         presentsOfRemovedWindows += apkrt_window_presents(window)
         #endif
-        _ = apkrt_window_remove(window)
-        noteWindow("window \(window) removed (by removeWindow)")
+        _ = untilTold ? apkrt_window_remove_untold(window) : apkrt_window_remove(window)
+        noteWindow("window \(window) removed (by removeWindow\(untilTold ? ", until told" : ""))")
         windows.remove(window)
         // Its WebViews go with it: the next window starts opaque, as the guest wants it.
         if webViews.removeValue(forKey: window) != nil { updateWindowLayer() }
@@ -208,6 +222,13 @@ final class RuntimeSessionHost: SessionHost {
     func removeSurface(_ window: UInt64) {
         _ = apkrt_window_remove(window)
         noteWindow("window \(window) removed (by removeSurface)")
+        surfaces?.remove(window)
+    }
+
+    /// The surface's window goes, its swaps dropped until the guest removes the surface (`windowTold`).
+    func removeSurfaceUntilTold(_ window: UInt64) {
+        _ = apkrt_window_remove_untold(window)
+        noteWindow("window \(window) removed (by removeSurface, until told)")
         surfaces?.remove(window)
     }
 

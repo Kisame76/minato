@@ -95,7 +95,11 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
         case MINATO_TEST_GATE:
             return (uint64_t)(int64_t)apkrt_window_set_gate(minato_test_window, a != 0);
         case MINATO_TEST_REMOVE:
-            return (uint64_t)(int64_t)apkrt_window_remove(minato_test_window);
+            return (uint64_t)(int64_t)(a != 0 ? apkrt_window_remove_untold(minato_test_window)
+                                              : apkrt_window_remove(minato_test_window));
+        case MINATO_TEST_TOLD:
+            apkrt_window_told(a);
+            return 1;
         case MINATO_TEST_PRESENTS:
             return apkrt_window_presents(minato_test_window);
         case MINATO_TEST_BACKGROUND:

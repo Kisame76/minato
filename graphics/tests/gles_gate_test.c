@@ -5,15 +5,18 @@
    - closed: the swap flushes the frame in flight, one commit, then waits at the gate; a signal's handler
      runs meanwhile and the wait goes on; once the gate opens the swap presents;
    - gone: the swap fails at once with EGL_BAD_NATIVE_WINDOW and commits nothing;
-   - background: glFlush and glReadPixels on two other threads wait inside ANGLE and commit nothing,
-     "scheduled" says yes meanwhile, and both go on once the process is in the foreground again;
+   - background: on two other threads, a context with no surface uploads a texture, clears a framebuffer on it,
+     calls glFlush and lets the context go, and returns at once (ANGLE keeps the command buffers for the foreground,
+     patch 0025), and so does glFinish (patch 0027: no GL call parks its thread there); nothing is committed,
+     "scheduled" says yes meanwhile, and once the process is in the foreground again the reading thread reads its
+     pixel, the background's work done;
    - "scheduled" through the runtime waits for ANGLE's command buffers: not while one waits for an event of
      the host's (EGL_ANGLE_metal_shared_event_sync), once the host set the event.
    On ANGLE's Vulkan display, the ES 3.1 path (graphics.gles_gate_vulkan, ADR-0044 c)), three lines differ for its
    backend's reasons, and the last says the display has no such events: "gone" counts the commit of MoltenVK's
    acquire, which ANGLE makes at the frame's first draw (nothing is presented); a glFlush with nothing but a clear
-   submits nothing there, so in the background it returns while glReadPixels waits, with no commit either way; and
-   after the background only glReadPixels commits. */
+   submits nothing there, and its upload's submit waits at the Vulkan gate, so in the background neither thread
+   returns; after the background both commit. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -59,6 +62,7 @@ struct other {
     EGLSurface pbuffer;
     EGLContext context;
     atomic_int done;
+    atomic_int foreground;  /* set once the process is in the foreground again */
     GLubyte pixel[4];
 };
 
@@ -69,13 +73,23 @@ static void other_make(struct other *other) {
     other->context = eglCreateContext(display, config, EGL_NO_CONTEXT, version);
 }
 
+/* A context with no surface (SDL 2's after its window surface went, ADR-0029 decision 15's addendum): an upload into
+   a texture, a clear of a framebuffer on it, glFlush, and the context let go. */
 static void *flush_in_background(void *argument) {
     struct other *other = argument;
-    eglMakeCurrent(display, other->pbuffer, other->pbuffer, other->context);
+    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, other->context);
+    static GLubyte texels[16 * 16 * 4];
+    GLuint texture = 0, framebuffer = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 16, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
     frame(1.0f);
     glFlush();
-    atomic_store(&other->done, 1);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    atomic_store(&other->done, 1);
     return NULL;
 }
 
@@ -83,8 +97,12 @@ static void *read_in_background(void *argument) {
     struct other *other = argument;
     eglMakeCurrent(display, other->pbuffer, other->pbuffer, other->context);
     frame(1.0f);
-    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, other->pixel);
+    glFinish();
     atomic_store(&other->done, 1);
+    while (!atomic_load(&other->foreground)) {
+        usleep(1000);
+    }
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, other->pixel);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     return NULL;
 }
@@ -182,15 +200,18 @@ int main(void) {
     const int flushed = atomic_load(&flushing.done), read = atomic_load(&reading.done);
     const uint64_t in_background = minato_test(MINATO_TEST_COMMITS, 0, 0, 0);
     const uint64_t scheduled = minato_test(MINATO_TEST_SCHEDULED, 1000, 0, 0);
-    printf("background: after 100 ms glFlush returned: %s, glReadPixels returned: %s, commits: %llu; "
-           "\"scheduled\": %llu\n",
+    printf("background: after 100 ms the upload, glFlush and the unbind on a context with no surface returned: %s, "
+           "glFinish returned: %s, commits: %llu; \"scheduled\": %llu\n",
            yes(flushed), yes(read), (unsigned long long)in_background, (unsigned long long)scheduled);
     minato_test(MINATO_TEST_BACKGROUND, 0, 0, 0);
+    atomic_store(&reading.foreground, 1);
     pthread_join(flusher, NULL);
     pthread_join(reader, NULL);
-    printf("foreground: both returned: %s; glReadPixels read %u %u %u %u; commits since the background: %s\n",
+    /* The pixel shows the background's work done; who committed it varies (the reading thread or ANGLE's own, patch
+       0027), so the guest threads' commit count is not compared. */
+    printf("foreground: both returned: %s; glReadPixels read %u %u %u %u\n",
            yes(atomic_load(&flushing.done) && atomic_load(&reading.done)), reading.pixel[0], reading.pixel[1],
-           reading.pixel[2], reading.pixel[3], minato_test(MINATO_TEST_COMMITS, 0, 0, 0) >= 2 ? "2 or more" : "fewer");
+           reading.pixel[2], reading.pixel[3]);
 
     eglMakeCurrent(display, flushing.pbuffer, flushing.pbuffer, flushing.context);
     const char *extensions = eglQueryString(display, EGL_EXTENSIONS);

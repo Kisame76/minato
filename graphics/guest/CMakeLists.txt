@@ -225,8 +225,8 @@ target_link_options(EGL PRIVATE "-Wl,--version-script=${gen}/libEGL.map" -Wl,-Bs
 set_target_properties(EGL PROPERTIES LINK_DEPENDS "${gen}/libEGL.map"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 target_compile_options(EGL PRIVATE -Wall -Wextra)
-add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gles}/trace.c" "${gen}/gles_stubs.S"
-  "${gen}/gles_bind.c")
+add_library(gles_objects OBJECT "${gles}/gles.c" "${gles}/procs.c" "${gles}/trace.c" "${gles}/no_context.c"
+  "${gen}/gles_stubs.S" "${gen}/gles_bind.c")
 target_include_directories(gles_objects PRIVATE "${gles}" "${gen}" "${repo}/runtime/include")
 target_link_libraries(gles_objects PRIVATE minato_bind)
 set_target_properties(gles_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -256,7 +256,7 @@ target_link_libraries(gles-thunk-test PRIVATE EGL dl)
 target_compile_options(gles-thunk-test PRIVATE -Wall -Wextra)
 set(glue "${ANDROID_NDK}/sources/android/native_app_glue")
 foreach(test IN ITEMS gles_front_test gles_gate_test gles_glue_test gles_drop_test gles_profile_test
-    present_limit_test gles_resume_test)
+    present_limit_test gles_resume_test gles_no_context_test gles_untold_test gles_background_test)
   string(REPLACE "_" "-" program ${test})
   add_executable(${program} "${tests}/${test}.c" "${tests}/test_control_guest.c")
   target_include_directories(${program} PRIVATE "${tests}" "${gen}" "${repo}/runtime/include")

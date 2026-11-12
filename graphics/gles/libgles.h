@@ -19,4 +19,8 @@
    libEGL's eglGetProcAddress finds it with dlsym on libGLESv2.so. */
 void *minato_gles_proc(const char *name);
 
+/* Whether no context is current on the calling thread (libEGL's eglGetCurrentContext), for the answers Android gives
+   then (no_context.c). */
+int minato_gles_no_context(void) MINATO_HIDDEN;
+
 #endif

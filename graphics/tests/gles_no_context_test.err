@@ -1,0 +1,1 @@
+E/libEGL  : call to OpenGL ES API with no current context (logged once per thread)

@@ -62,6 +62,9 @@ std::mutex lock;
 std::vector<Window> windows;
 std::uint64_t next_id = 1;
 std::vector<signals::ThreadSignals *> waiters;  // the threads at a gate
+// Windows removed with apkrt_window_remove_untold whose app has not been told yet (apkrt_window_told): their
+// present gates answer "drop", as Android's BufferQueue takes frames until the surface's destroy has returned.
+std::vector<std::uint64_t> untold;
 std::condition_variable foreground;            // for apkrt_wait_foreground, with `lock`
 Provider providers[provider_limit];
 int provider_count = 0;
@@ -90,7 +93,11 @@ void notify_waiters() {
 /// The gate's answer now, under `lock`: 0, 1 or (present_try) 2, or -1 to wait.
 long answer(std::uint64_t id, std::uint64_t kind) {
     const Window *window = id != 0 ? find(id) : nullptr;
-    if (id != 0 && window == nullptr) return 1;  // gone, or never given
+    if (id != 0 && window == nullptr) {
+        // Removed but the app not told yet: a present is dropped (3), any other gate answers gone.
+        const bool waiting = std::find(untold.begin(), untold.end(), id) != untold.end();
+        return waiting && kind != APKRT_GATE_BACKGROUND ? 3 : 1;  // else gone, or never given
+    }
     if (kind == APKRT_GATE_PRESENT) return window->open ? 0 : -1;
     if (kind == APKRT_GATE_PRESENT_TRY) return window->open ? 0 : 2;
     return in_background.load() ? -1 : 0;
@@ -288,7 +295,9 @@ int apkrt_window_set_size(uint64_t id, int32_t width, int32_t height) {
     return 0;
 }
 
-int apkrt_window_remove(uint64_t id) {
+namespace {
+
+int remove_window(uint64_t id, bool tell_later) {
     void *layer;
     apkrt_window_buffers with;
     {
@@ -297,6 +306,7 @@ int apkrt_window_remove(uint64_t id) {
         if (window == nullptr) return -1;
         layer = window->layer;
         windows.erase(windows.begin() + (window - windows.data()));
+        if (tell_later) untold.push_back(id);
         notify_waiters();
         with = buffers;
     }
@@ -304,6 +314,24 @@ int apkrt_window_remove(uint64_t id) {
     if (with.removed != nullptr) with.removed(with.context, id);
     if (layer != nullptr) CFRelease(layer);
     return 0;
+}
+
+}  // namespace
+
+int apkrt_window_remove(uint64_t id) {
+    return remove_window(id, false);
+}
+
+int apkrt_window_remove_untold(uint64_t id) {
+    return remove_window(id, true);
+}
+
+void apkrt_window_told(uint64_t id) {
+    const std::lock_guard<std::mutex> hold(lock);
+    const auto found = std::find(untold.begin(), untold.end(), id);
+    if (found == untold.end()) return;
+    untold.erase(found);
+    notify_waiters();
 }
 
 uint64_t apkrt_window_presents(uint64_t id) {

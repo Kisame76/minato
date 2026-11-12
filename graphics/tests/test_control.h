@@ -14,7 +14,8 @@
 enum minato_test_command {
     MINATO_TEST_WINDOW = 1,     /* the window window_host.m added, its ID, or 0 */
     MINATO_TEST_GATE,           /* a: 1 opens the window's gate, 0 closes it; apkrt_window_set_gate's result */
-    MINATO_TEST_REMOVE,         /* the window is gone: apkrt_window_remove's result */
+    MINATO_TEST_REMOVE,         /* the window is gone: apkrt_window_remove's result; a: 1 removes it until told
+                                   instead (apkrt_window_remove_untold) */
     MINATO_TEST_PRESENTS,       /* the window's presents so far */
     MINATO_TEST_BACKGROUND,     /* a: 1 into the background, 0 back to the foreground */
     MINATO_TEST_SCHEDULED,      /* "scheduled" with a ms to go, asked on a thread of the host's own: its answer */
@@ -47,6 +48,8 @@ enum minato_test_command {
                                    on the window the other commands act on. Its ID, or 0 */
     MINATO_TEST_GRAPHICS_LINE,  /* ANGLE's memory line (ANGLEMetalMemoryLine, patch 0015) on stderr as
                                    "graphics: <line>"; 1 once printed, 0 without the symbol */
+    MINATO_TEST_TOLD,           /* a: a window removed until told: the app's destroy callback has returned
+                                   (apkrt_window_told); 1 */
 };
 
 #ifndef __APPLE__

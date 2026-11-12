@@ -1,0 +1,25 @@
+A GL call on a thread that never called EGL gets no context instead of a null dereference (Minato, patch 0026).
+
+Why: on Apple ANGLE keeps the thread's state in TLS that only an EGL call (or a GL entry point's no-context branch,
+through GenerateContextLostErrorOnCurrentGlobalContext) makes. GL_GetError, GL_GetGraphicsResetStatus(EXT/KHR),
+GL_GetProgramiv, GL_GetShaderiv and GL_GetQueryObject*(EXT) read it through GetGlobalContext without making it, so
+on such a thread they dereference a null egl::Thread (SIGSEGV at 0x18 in egl::Thread::getContext). Android's wrapper
+answers any GL call without a context with 0 and does nothing. Now GetGlobalContext returns nullptr without a thread,
+and those entry points take their no-context branch: 0, nothing written.
+Test: graphics/tests/gles_no_context_test.c (before any EGL call, against Android 15's answers on the emulator).
+Upstream: could be (a null check in GetGlobalContext).
+
+--- a/src/libGLESv2/global_state.h
++++ b/src/libGLESv2/global_state.h
+@@ -135,8 +135,9 @@
+ #else
+     egl::Thread *currentThread = egl::gCurrentThread;
+ #endif
+-    ASSERT(currentThread);
+-    return currentThread->getContext();
++    // Minato (patch 0026): a GL call on a thread that never called EGL has no thread yet; it gets no context, as
++    // Android's wrapper answers a call without one, instead of a null dereference.
++    return currentThread != nullptr ? currentThread->getContext() : nullptr;
+ }
+ 
+ ANGLE_INLINE Context *GetValidGlobalContext()

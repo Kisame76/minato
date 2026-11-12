@@ -55,7 +55,7 @@ ABI_COUNTS = {
     "vulkan": {"same": 233},
 }
 KIND_COUNTS = {
-    "gles": {"plain": 572, "extend": 37, "repack": 8, "by hand": 17},
+    "gles": {"plain": 566, "extend": 37, "repack": 8, "by hand": 23},
     "egl": {"plain": 47, "by hand": 26},
     "vulkan": {"plain": 141, "without allocator": 41, "by hand": 51},
 }

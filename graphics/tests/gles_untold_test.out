@@ -1,0 +1,5 @@
+open: EGL_TRUE
+removed until told: 0
+four swaps before the app is told: EGL_TRUE yes, at its pace (at least 3/60 s) yes, commits 0
+after it is told: EGL_FALSE, EGL_BAD_NATIVE_WINDOW
+done

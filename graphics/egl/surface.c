@@ -8,7 +8,10 @@
    - eglSwapBuffers and eglSwapBuffersWithDamageKHR, which ignores the damage, pass the window's gate first,
      outside ANGLE: open, ANGLE's swap; closed, glFlush commits the frame in flight, then the thread waits,
      holding none of ANGLE's locks, and a signal's handler runs meanwhile; gone, EGL_FALSE with
-     EGL_BAD_NATIVE_WINDOW at once, without GPU work.
+     EGL_BAD_NATIVE_WINDOW at once, without GPU work. A window the host removed before the app's destroy callback has
+     returned (the gate's "drop", apkrt_window_remove_untold) takes swaps as Android's BufferQueue does until then:
+     EGL_TRUE without GPU work and without a frame, at most one every 1/60 s as a present into a full queue waits,
+     with a line for a surface's first dropped swap and the count at its destroy.
    A SurfaceTexture's queue window gets a surface of queue.c's instead (ADR-0058 c)). A window surface is its host
    window's producer from its making to its destroy (ADR-0060 e2c3), as Android's connects: a window another API is
    connected to, the CPU since its first lock or a decoder, gets none (EGL_BAD_ALLOC, as Android's), and the CPU's lock
@@ -22,6 +25,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "APKRuntime/guest_interface.h"
@@ -65,7 +69,8 @@ struct window_surface {
     struct ANativeWindow *window;
     uint64_t id;
     EGLint width, height;
-    unsigned failed;  // swaps failed since the last one that worked, for the diagnostic lines
+    unsigned failed;   // swaps failed since the last one that worked, for the diagnostic lines
+    unsigned dropped;  // swaps dropped while the window was removed and the app not told yet
 };
 static struct window_surface *surfaces;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -234,6 +239,10 @@ static void release(EGLDisplay display, EGLSurface surface) {
             __android_log_print(ANDROID_LOG_ERROR, "libEGL", "eglSwapBuffers: window %llu: %u swaps failed until its "
                                 "surface's destroy", (unsigned long long)gone->id, gone->failed);
         }
+        if (gone->dropped > 0) {
+            __android_log_print(ANDROID_LOG_INFO, "libEGL", "eglSwapBuffers: window %llu: %u swaps dropped before "
+                                "the app's destroy callback returned", (unsigned long long)gone->id, gone->dropped);
+        }
         minato_window_disconnect(gone->window);
         ANativeWindow_release(gone->window);
         free(gone);
@@ -306,11 +315,12 @@ static long gate(uint64_t window, int kind) {
     return answer;
 }
 
-/* The window's gate (decision 15): 1 once the window is gone, else 0. Closed, the frame in flight is
-   committed first (ADR-0032: the next present waits after it), then the thread waits until it opens. */
+/* The window's gate (decision 15): 1 once the window is gone, 3 while it is removed and the app not told yet (the
+   frame is dropped), else 0. Closed, the frame in flight is committed first (ADR-0032: the next present waits after
+   it), then the thread waits until it opens. */
 static int gone(uint64_t window) {
     const long now = gate(window, APKRT_GATE_PRESENT_TRY);
-    if (now == 0 || now == 1) {
+    if (now == 0 || now == 1 || now == 3) {
         return (int)now;
     }
     if (now == 2) {
@@ -319,7 +329,8 @@ static int gone(uint64_t window) {
             flush();
         }
     }
-    return gate(window, APKRT_GATE_PRESENT) == 1;
+    const long after = gate(window, APKRT_GATE_PRESENT);
+    return after == 1 || after == 3 ? (int)after : 0;
 }
 
 /* After a swap: a new size of the window's buffers becomes the surface's, for the next frame. */
@@ -387,6 +398,45 @@ static void other_failed(EGLSurface surface, EGLint error) {
     }
 }
 
+/* The interval of dropped swaps on one thread: a present into a queue that is full waits for the next display
+   refresh, so the app's loop runs at its pace and not as fast as the CPU goes. */
+#define DROP_INTERVAL_NS 16666667
+static __thread uint64_t last_drop_ns;
+
+static void pace_drop(void) {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    const uint64_t now = (uint64_t)time.tv_sec * 1000000000u + (uint64_t)time.tv_nsec;
+    if (last_drop_ns != 0 && now - last_drop_ns < DROP_INTERVAL_NS) {
+        const uint64_t wait = DROP_INTERVAL_NS - (now - last_drop_ns);
+        const struct timespec sleep = {(time_t)(wait / 1000000000u), (long)(wait % 1000000000u)};
+        nanosleep(&sleep, NULL);
+        last_drop_ns += DROP_INTERVAL_NS;
+    } else {
+        last_drop_ns = now;
+    }
+}
+
+/* A swap on a window removed before the app was told: counted, the surface's first one logged; the frame is
+   dropped. */
+static void dropped(EGLSurface surface, uint64_t window) {
+    unsigned count = 0;
+    pthread_mutex_lock(&lock);
+    for (struct window_surface *entry = surfaces; entry != NULL; entry = entry->next) {
+        if (entry->surface == surface) {
+            count = ++entry->dropped;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    if (count == 1) {
+        __android_log_print(ANDROID_LOG_INFO, "libEGL", "eglSwapBuffers: window %llu: removed before the app's "
+                            "destroy callback returned, swaps dropped", (unsigned long long)window);
+    }
+    if (minato_trace_on()) {
+        minato_trace_dropped(surface, window);
+    }
+}
+
 static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
     struct window_surface record;
     EGLBoolean queued;
@@ -405,7 +455,13 @@ static EGLBoolean swap(EGLDisplay display, EGLSurface surface) {
         }
         return result;
     }
-    if (gone(record.id)) {
+    const int state = gone(record.id);
+    if (state == 3) {
+        dropped(surface, record.id);
+        pace_drop();
+        return EGL_TRUE;
+    }
+    if (state == 1) {
         minato_bad_native_window(display, record.config);
         if (minato_trace_on()) {
             minato_trace_swap(surface, record.id, EGL_FALSE, EGL_BAD_NATIVE_WINDOW);

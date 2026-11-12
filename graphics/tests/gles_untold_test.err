@@ -1,0 +1,2 @@
+I/libEGL  : eglSwapBuffers: window 1: removed before the app's destroy callback returned, swaps dropped
+I/libEGL  : eglSwapBuffers: window 1: 4 swaps dropped before the app's destroy callback returned

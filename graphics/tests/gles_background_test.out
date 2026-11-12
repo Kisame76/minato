@@ -1,0 +1,17 @@
+ready: initialized: yes, a config: yes, current: yes, GL_NO_ERROR
+foreground:
+  glFinish returned in time: yes, error 0x0
+  glReadPixels returned in time: yes, error 0x0
+  glClientWaitSync without an end returned in time: yes, signaled, error 0x0
+  glMapBufferRange for reading returned in time: yes, a pointer, error 0x0
+  glGetQueryObjectuiv(GL_QUERY_RESULT) returned in time: yes, 0 or 1, error 0x0
+  40 frames' flushes returned in time: yes, error 0x0
+background:
+  glFinish returned in time: yes, error 0x0
+  glReadPixels returned in time: yes, error 0x0
+  glClientWaitSync without an end returned in time: yes, signaled, error 0x0
+  glMapBufferRange for reading returned in time: yes, a pointer, error 0x0
+  glGetQueryObjectuiv(GL_QUERY_RESULT) returned in time: yes, 0 or 1, error 0x0
+  40 frames' flushes returned in time: yes, error 0x0
+back in the foreground: the background's last clear reads 255 128 64 255, error 0x0
+done

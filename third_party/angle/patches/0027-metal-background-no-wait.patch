@@ -1,0 +1,291 @@
+Minato's patch 0027 to ANGLE (BSD-3-Clause), on top of 0025: no GL call parks its thread in the background.
+
+Why: iOS refuses GPU commits in the background. Patch 0025 keeps the command buffers of a background commit in a FIFO
+for the foreground, but a call that wanted a result of that work (glFinish, a readback, a CPU access to a resource the
+work uses, a client wait, a query's result) or a commit that found the FIFO full still waited for the foreground,
+parking the app's thread there. On Android the GPU runs in the background, so each of those calls returns. A thread
+parked inside a GL call holds the app's own locks with it (a Ren'Py game's: the GIL and SDL's audio lock, with
+Android's onStop waiting 8 s for it).
+
+What: in the background (the embedder's commit gate holds commits back):
+- CommandBuffer::wait(WaitUntilFinished), glFinish's and a readback's wait, returns without the result;
+- CommandQueue::waitUntilSerialCompleted answers a wait for a deferred command buffer, of any length, as done;
+- CommandQueue::ensureResourceReadyForCPU returns at once for a resource the deferred work uses: the CPU reads or
+  writes it as it has it (a readback has the pixels from before the deferred work);
+- a full FIFO (32 command buffers or 512 MiB) commits its oldest command buffer instead of a wait: iOS refuses that
+  commit (an error of the command buffer, not fatal), its work is lost, as a dropped frame's is, and ANGLE's
+  bookkeeping completes it;
+- each wait that went on without its result is counted (ANGLEMetalDeferredSkipped; the park line's dskip=).
+In the foreground every wait first commits the FIFO, and a thread of ANGLE's own (never an app's) waits for the
+foreground while command buffers are deferred and then commits every queue's FIFO, so that work deferred by a thread
+with nothing more to commit runs at the foreground too.
+
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.h
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.h
+@@ -119,7 +119,13 @@
+     void submitDeferred();
+     bool isDeferred(uint64_t serial) const;
+     // A deferred command buffer's result is wanted: waits for the foreground, then commits.
+-    void waitForDeferred(uint64_t serial);
++    // Minato (patch 0027): no longer a wait: commits the FIFO if the embedder lets commits through;
++    // false when the command buffer stays deferred (the background), and the caller goes on without
++    // its result, as no GL call may park its thread there.
++    bool waitForDeferred(uint64_t serial);
++    // Minato (patch 0027): whether the embedder holds commits back now (the background).
++    bool heldBack() const;
++    bool hasDeferred() const;
+ 
+     CommandQueue &operator=(id<MTLCommandQueue> metalQueue)
+     {
+--- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
++++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
+@@ -28,6 +28,7 @@
+ #include <export.h>
+ #include <algorithm>
+ #include <atomic>
++#include <thread>
+ #include <chrono>
+ #include <vector>
+ 
+@@ -72,6 +73,8 @@
+ std::atomic<uint64_t> gDeferredBytesPeak{0};
+ std::atomic<uint64_t> gDeferredTotal{0};
+ std::atomic<uint64_t> gDeferredFull{0};
++// Minato (patch 0027): the waits for a deferred command buffer's result that went on without it.
++std::atomic<uint64_t> gDeferredSkipped{0};
+ std::mutex gQueuesLock;
+ std::vector<const CommandQueue *> gQueues;
+ 
+@@ -88,6 +91,57 @@
+ {
+     std::lock_guard<std::mutex> lg(gQueuesLock);
+     gQueues.erase(std::remove(gQueues.begin(), gQueues.end(), queue), gQueues.end());
++}
++
++// Minato (patch 0027): while command buffers are deferred, one thread of ANGLE's own (never an app's)
++// waits for the foreground and then commits every queue's FIFO, so that the work of a thread with
++// nothing more to commit goes at the foreground too, not only at that thread's next commit.
++std::atomic<bool> gSubmitterRunning{false};
++
++bool AnyDeferred()
++{
++    std::lock_guard<std::mutex> lg(gQueuesLock);
++    for (const CommandQueue *queue : gQueues)
++    {
++        if (queue->hasDeferred())
++        {
++            return true;
++        }
++    }
++    return false;
++}
++
++void SubmitAllDeferred()
++{
++    std::lock_guard<std::mutex> lg(gQueuesLock);
++    for (const CommandQueue *queue : gQueues)
++    {
++        const_cast<CommandQueue *>(queue)->submitDeferred();
++    }
++}
++
++void StartSubmitter()
++{
++    if (gSubmitterRunning.exchange(true))
++    {
++        return;
++    }
++    std::thread([] {
++        for (;;)
++        {
++            void (*waitForeground)(void) = gWaitForeground.load(std::memory_order_acquire);
++            if (waitForeground != nullptr)
++            {
++                waitForeground();
++            }
++            SubmitAllDeferred();
++            gSubmitterRunning.store(false);
++            if (!AnyDeferred() || gSubmitterRunning.exchange(true))
++            {
++                return;
++            }
++        }
++    }).detach();
+ }
+ 
+ #define ANGLE_MTL_CMD_X(PROC)                        \
+@@ -586,6 +640,15 @@
+ 
+ void CommandQueue::ensureResourceReadyForCPU(Resource *resource)
+ {
++    // Minato (patch 0027): the deferred command buffers go first if commits may go; in the background
++    // no CPU access waits for them: it reads or writes the resource as the CPU has it (a readback has
++    // the pixels from before the deferred work), as no GL call may park its thread there.
++    submitDeferred();
++    if (isResourceBeingUsedByGPU(resource) && heldBack())
++    {
++        gDeferredSkipped.fetch_add(1, std::memory_order_relaxed);
++        return;
++    }
+     mLock.lock();
+     while (isResourceBeingUsedByGPU(resource) && !mMetalCmdBuffers.empty())
+     {
+@@ -646,11 +709,13 @@
+ 
+ bool CommandQueue::waitUntilSerialCompleted(uint64_t serial, uint64_t timeoutNs) const
+ {
+-    // Minato (patch 0025): a wait without an end for a deferred command buffer waits for the
+-    // foreground and commits it; a bounded one waits its time, unless the foreground comes first.
+-    if (timeoutNs >= kForeverNs && isDeferred(serial))
++    // Minato (patch 0027): a wait for a deferred command buffer, of any length, commits the FIFO if
++    // it may go; in the background it answers at once as done, as Android's GPU, which runs in the
++    // background, would have finished: no GL call parks its thread there.
++    (void)kForeverNs;
++    if (isDeferred(serial) && !const_cast<CommandQueue *>(this)->waitForDeferred(serial))
+     {
+-        const_cast<CommandQueue *>(this)->waitForDeferred(serial);
++        return true;
+     }
+     std::unique_lock<std::mutex> lk(mLock);
+     if (isSerialCompleted(serial))
+@@ -769,16 +834,21 @@
+             uint64_t peak = gDeferredBytesPeak.load(std::memory_order_relaxed);
+             while (now > peak && !gDeferredBytesPeak.compare_exchange_weak(peak, now)) {}
+             gDeferredTotal.fetch_add(1, std::memory_order_relaxed);
++            StartSubmitter();
+             return true;
+         }
+-        // The FIFO is full: this commit waits for the foreground, as every commit did before.
++        // Minato (patch 0027): the FIFO is full: its oldest command buffer is committed now instead of
++        // a wait for the foreground. iOS refuses a commit in the background (an error of the command
++        // buffer, not fatal), so its work is lost, as a dropped frame's is, while ANGLE's bookkeeping
++        // completes it. Not counted by the embedder: nothing of it reaches the GPU.
++        (void)waitForeground;
+         gDeferredFull.fetch_add(1, std::memory_order_relaxed);
+-        lk.unlock();
+-        if (waitForeground != nullptr)
+-        {
+-            waitForeground();
+-        }
+-        lk.lock();
++        DeferredEntry oldest = mDeferred.front();
++        mDeferred.pop_front();
++        mDeferredBytes -= oldest.bytes;
++        gDeferredNow.fetch_sub(1, std::memory_order_relaxed);
++        gDeferredBytes.fetch_sub(oldest.bytes, std::memory_order_relaxed);
++        commitNow(oldest.buffer.get(), oldest.serial);
+     }
+ }
+ 
+@@ -834,19 +904,47 @@
+     return false;
+ }
+ 
+-void CommandQueue::waitForDeferred(uint64_t serial)
++bool CommandQueue::hasDeferred() const
+ {
+-    void (*waitForeground)(void) = gWaitForeground.load(std::memory_order_acquire);
+-    while (isDeferred(serial))
++    std::lock_guard<std::mutex> lg(mSubmitLock);
++    return !mDeferred.empty();
++}
++
++bool CommandQueue::heldBack() const
++{
++    int (*enter)(void) = gCommitEnter.load(std::memory_order_acquire);
++    if (enter == nullptr)
+     {
+-        if (waitForeground != nullptr)
++        return false;
++    }
++    if (enter())
++    {
++        // Asked as a commit would ask; the count goes back at once, as nothing is committed.
++        void (*counted)(void) = gCommitCounted.load(std::memory_order_acquire);
++        if (counted != nullptr)
+         {
+-            waitForeground();
++            counted();
+         }
+-        submitDeferred();
++        return false;
+     }
++    return true;
+ }
+ 
++bool CommandQueue::waitForDeferred(uint64_t serial)
++{
++    if (!isDeferred(serial))
++    {
++        return true;
++    }
++    submitDeferred();
++    if (!isDeferred(serial))
++    {
++        return true;
++    }
++    gDeferredSkipped.fetch_add(1, std::memory_order_relaxed);
++    return false;
++}
++
+ bool CommandQueue::waitUntilCommittedScheduled(uint64_t timeoutNs) const
+ {
+     std::unique_lock<std::mutex> lk(mLock);
+@@ -1084,9 +1182,12 @@
+             break;
+ 
+         case WaitUntilFinished:
+-            // Minato (patch 0025): a result is wanted, so a deferred command buffer is committed at
+-            // the foreground first.
+-            mCmdQueue.waitForDeferred(mQueueSerial);
++            // Minato (patch 0027): a result is wanted: a deferred command buffer is committed if it may
++            // go; in the background the caller goes on without the result (glFinish, a readback).
++            if (!mCmdQueue.waitForDeferred(mQueueSerial))
++            {
++                break;
++            }
+             // Only wait if we haven't already waited until finished.
+             if (!mCmdQueue.isSerialCompleted(mQueueSerial))
+             {
+@@ -3058,6 +3159,12 @@
+     *full  = rx::mtl::gDeferredFull.load(std::memory_order_relaxed);
+ }
+ 
++// Minato (patch 0027): the waits for a deferred command buffer's result that went on without it.
++extern "C" ANGLE_EXPORT uint64_t ANGLEMetalDeferredSkipped(void)
++{
++    return rx::mtl::gDeferredSkipped.load(std::memory_order_relaxed);
++}
++
+ extern "C" ANGLE_EXPORT void ANGLEMetalSetCommitGates(void (*gate)(void), void (*counted)(void))
+ {
+     rx::mtl::gCommitCounted.store(counted, std::memory_order_release);
+--- a/src/libANGLE/renderer/metal/mtl_texture_parking.mm
++++ b/src/libANGLE/renderer/metal/mtl_texture_parking.mm
+@@ -43,6 +43,8 @@
+                                            uint64_t *peak,
+                                            uint64_t *total,
+                                            uint64_t *full);
++// Patch 0027: the waits for a deferred command buffer's result that went on without it.
++extern "C" uint64_t ANGLEMetalDeferredSkipped(void);
+ #include <utility>
+ 
+ #include "libANGLE/Context.h"
+@@ -1192,7 +1194,7 @@
+         "park n=%llu raw=%llu packed=%llu kept=%llu pending=%llu parks=%llu aborts=%llu restores=%llu "
+         "restore_p50=%.1f restore_p99=%.1f lzfse=%llu avail_min=%llu avail_last=%llu present_p50=%.1f "
+         "present_p99=%.1f unkept=%llu file=%llu fwrite=%llu ffail=%llu warn=%llu hold=%llu hpeak=%llu defer=%llu "
+-        "dbytes=%llu dpeak=%llu dtotal=%llu dfull=%llu",
++        "dbytes=%llu dpeak=%llu dtotal=%llu dfull=%llu dskip=%llu",
+         static_cast<unsigned long long>(parked), static_cast<unsigned long long>(raw / kMiB),
+         static_cast<unsigned long long>(packed / kMiB), static_cast<unsigned long long>(kept / kMiB),
+         static_cast<unsigned long long>(mPendingBytes / kMiB), static_cast<unsigned long long>(mParks),
+@@ -1207,7 +1209,7 @@
+         static_cast<unsigned long long>(gHeldPeak.load(std::memory_order_relaxed) / kMiB),
+         static_cast<unsigned long long>(deferNow), static_cast<unsigned long long>(deferBytes / kMiB),
+         static_cast<unsigned long long>(deferPeak / kMiB), static_cast<unsigned long long>(deferTotal),
+-        static_cast<unsigned long long>(deferFull));
++        static_cast<unsigned long long>(deferFull), static_cast<unsigned long long>(ANGLEMetalDeferredSkipped()));
+     return length > 0 && static_cast<size_t>(length) < size ? length : 0;
+ }
+ 

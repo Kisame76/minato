@@ -807,6 +807,9 @@ enum apkrt_gate_kind {
 ///   - present_try: never waits: 0 while the window's gate is open, 2 while it is closed, 1 once the window
 ///     is gone or for an ID the host never gave; -EINVAL for ID 0. libEGL's swap flushes when it sees 2 and
 ///     then waits with present (ADR-0029, decision 15).
+/// A window the host removed with apkrt_window_remove_untold answers 3 ("drop") at present and present_try until
+/// apkrt_window_told, as Android's BufferQueue takes frames until the app's destroy callback has returned: libEGL's
+/// swap then succeeds without drawing; the background gate answers 1 for it.
 /// Every change the host makes ends a wait's round. A deliverable signal ends the wait with -EINTR once
 /// its handler ran; with SA_RESTART the runtime makes the call again. -EINVAL for another kind.
 #define APKRT_NR_WINDOW_GATE 4105

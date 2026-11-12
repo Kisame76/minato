@@ -50,6 +50,20 @@ struct SessionBridgeTests {
 
         func setGate(_ window: UInt64, open: Bool) { calls.append(.setGate(window, open: open)) }
         func removeWindow(_ window: UInt64) { calls.append(.removeWindow(window)) }
+        /// The windows removed until told, and those told, apart from `calls`.
+        var removedUntilTold: [UInt64] = []
+        var told: [UInt64] = []
+        func removeWindowUntilTold(_ window: UInt64) {
+            calls.append(.removeWindow(window))
+            removedUntilTold.append(window)
+        }
+        func windowTold(_ window: UInt64) { told.append(window) }
+        /// The surfaces' windows removed until told, apart from `calls` (which records them as removeSurface).
+        var surfacesUntilTold: [UInt64] = []
+        func removeSurfaceUntilTold(_ window: UInt64) {
+            calls.append(.removeSurface(window))
+            surfacesUntilTold.append(window)
+        }
         func setBackground(_ on: Bool) { calls.append(.setBackground(on)) }
 
         func setWindowSize(_ window: UInt64, width: Int32, height: Int32) {
@@ -263,6 +277,35 @@ struct SessionBridgeTests {
         #expect(handled.answers.map(\.result) == [1])
         let seconds = try #require(host.answerSeconds.first)
         #expect(seconds > SessionBridge.backgroundAnswerBudget - 0.1 && seconds <= SessionBridge.backgroundAnswerBudget)
+    }
+
+    /// The window goes until its destroy callback has answered: its swaps succeed without a frame until then, as
+    /// Android's BufferQueue takes frames until surfaceDestroyed has returned, and fail after it.
+    @Test func backgroundRemovesTheWindowUntilItsDestroyCallbackAnswered() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        host.answers = [1]
+        bridge.handle(.background, host: host)
+        #expect(host.removedUntilTold == [1])
+        #expect(host.told == [1])
+        #expect(bridge.untoldWindow == 0)
+    }
+
+    /// An answer that comes after the budget tells the window when it comes; none before it.
+    @Test func aDestroyAnswerAfterTheBudgetTellsTheWindowWhenItComes() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        let handled = bridge.handle(.background, host: host)
+        #expect(host.removedUntilTold == [1])
+        #expect(host.told.isEmpty)
+        #expect(bridge.untoldWindow == 1)
+        let wait = try #require(handled.wait)
+        #expect(wait.callback == .onNativeWindowDestroyed)
+        _ = bridge.finished(wait, result: 1, host: host)
+        #expect(host.told == [1])
+        #expect(bridge.untoldWindow == 0)
     }
 
     /// Each callback comes with the serial of its first event, so that the host can time the guest's answer to the
@@ -915,6 +958,31 @@ struct SessionBridgeTests {
         #expect(host.take() == [])
         bridge.finished(wait, result: 1, host: host)
         #expect(host.take() == [.post(.stop), .post(.trimMemory(level: 20)), .post(.saveInstanceState)])
+    }
+
+    /// At the background a surface's window goes until the guest removes the surface, after its surfaceDestroyed
+    /// callbacks: its swaps succeed without a frame until then, as a SurfaceView's BufferQueue takes frames until
+    /// surfaceDestroyed has returned (SDL backs its context up there, with no failed swap); the next window tells the
+    /// surfaces still untold.
+    @Test func theBackgroundRemovesASurfaceUntilTheGuestRemovesIt() {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.surfaceRequested(Self.make(5), host: host)
+        bridge.surfaceRequested(Self.make(6, z: 1), host: host)
+        bridge.handle(.inactive, host: host)
+        host.answers = [1]
+        bridge.handle(.background, host: host)
+        #expect(host.surfacesUntilTold == [2, 3])
+        #expect(host.told == [1])
+        #expect(bridge.untoldSurfaces == [2, 3])
+        bridge.surfaceRequested(Self.remove(5), host: host)
+        #expect(host.told == [1, 2])
+        #expect(bridge.untoldSurfaces == [3])
+        bridge.handle(.foreground, host: host)
+        bridge.handle(.active, host: host)
+        bridge.handle(.menuClosed, host: host)
+        #expect(host.told == [1, 2, 3])
+        #expect(bridge.untoldSurfaces.isEmpty)
     }
 
     /// An app that ends with the focus: its surfaces go with the window, after PAUSE and the focus, and their

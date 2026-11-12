@@ -27,6 +27,7 @@ struct context_entry {
 struct surface_entry {
     EGLSurface surface;
     unsigned swaps;
+    unsigned dropped;
 };
 
 static pthread_once_t once = PTHREAD_ONCE_INIT;
@@ -34,7 +35,7 @@ static int on;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static struct context_entry contexts[kContexts];
 static struct surface_entry surfaces[kSurfaces];
-static unsigned swaps_since, failed_since;
+static unsigned swaps_since, failed_since, dropped_since;
 static __thread EGLContext thread_context;
 
 static void *report(void *unused);
@@ -128,6 +129,7 @@ void minato_trace_swap(EGLSurface surface, uint64_t window, EGLBoolean result, E
             entry = &surfaces[index];
             entry->surface = surface;
             entry->swaps = 0;
+            entry->dropped = 0;
         }
     }
     if (entry != NULL) {
@@ -137,6 +139,27 @@ void minato_trace_swap(EGLSurface surface, uint64_t window, EGLBoolean result, E
     if (swaps != 0 && swaps <= kFirstSwaps) {
         minato_trace("eglSwapBuffers(surface %p, window %llu) #%u: %s, error 0x%x", surface,
                      (unsigned long long)window, swaps, result ? "EGL_TRUE" : "EGL_FALSE", error);
+    }
+}
+
+/* A swap on a gone window dropped by the experiment's switch (surface.c): the first per surface, then counts. */
+void minato_trace_dropped(EGLSurface surface, uint64_t window) {
+    unsigned swaps = 0;
+    pthread_mutex_lock(&lock);
+    dropped_since++;
+    struct surface_entry *entry = NULL;
+    for (int index = 0; index < kSurfaces && entry == NULL; index++) {
+        if (surfaces[index].surface == surface) {
+            entry = &surfaces[index];
+        }
+    }
+    if (entry != NULL) {
+        swaps = ++entry->dropped;
+    }
+    pthread_mutex_unlock(&lock);
+    if (swaps == 1) {
+        minato_trace("eglSwapBuffers(surface %p, window %llu): window gone, swap dropped", surface,
+                     (unsigned long long)window);
     }
 }
 
@@ -172,13 +195,15 @@ static void *report(void *unused) {
                 length += written > 0 ? (size_t)written : 0;
             }
         }
-        const unsigned swaps = swaps_since, failed = failed_since;
+        const unsigned swaps = swaps_since, failed = failed_since, dropped = dropped_since;
         swaps_since = 0;
         failed_since = 0;
+        dropped_since = 0;
         pthread_mutex_unlock(&lock);
         line[length < sizeof line ? length : sizeof line - 1] = '\0';
-        __android_log_print(ANDROID_LOG_INFO, "libEGL", "trace: %d contexts%s; swaps in the last second %u, %u failed",
-                            live, line, swaps, failed);
+        __android_log_print(ANDROID_LOG_INFO, "libEGL",
+                            "trace: %d contexts%s; swaps in the last second %u, %u failed, %u dropped", live, line,
+                            swaps, failed, dropped);
     }
     return NULL;
 }

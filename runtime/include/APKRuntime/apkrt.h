@@ -335,6 +335,16 @@ int apkrt_window_set_size(uint64_t id, int32_t width, int32_t height);
 /// Returns 0, or -1 for a window that is removed or unknown. A window that comes back is a new ID.
 int apkrt_window_remove(uint64_t id);
 
+/// For the app: as apkrt_window_remove, but until apkrt_window_told the window's present gate answers "drop" (3): a
+/// swap on it succeeds and draws nothing, as Android's BufferQueue takes frames until the app's surfaceDestroyed (or
+/// onNativeWindowDestroyed) has returned. The bridge removes the session's window so at the background and tells
+/// the runtime when the destroy callback has answered.
+int apkrt_window_remove_untold(uint64_t id);
+
+/// For the app: the app's destroy callback for the window has returned; its gates answer "gone" from now on. Nothing
+/// for a window that is not waiting for it.
+void apkrt_window_told(uint64_t id);
+
 /// For the app: the window's presents so far, for the FPS label; 0 once it is removed.
 uint64_t apkrt_window_presents(uint64_t id);
 

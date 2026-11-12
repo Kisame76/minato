@@ -76,6 +76,7 @@ MINATO_HIDDEN void minato_trace_context_made(EGLContext context);
 MINATO_HIDDEN void minato_trace_context_destroyed(EGLContext context);
 MINATO_HIDDEN void minato_trace_current(EGLContext context);
 MINATO_HIDDEN void minato_trace_swap(EGLSurface surface, uint64_t window, EGLBoolean result, EGLint error);
+MINATO_HIDDEN void minato_trace_dropped(EGLSurface surface, uint64_t window);
 MINATO_HIDDEN void minato_trace_surface_destroyed(EGLSurface surface);
 
 /* The host window's ID of a window surface of libEGL's, 0 for any other surface (surface.c). */

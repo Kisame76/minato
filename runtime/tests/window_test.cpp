@@ -68,7 +68,7 @@ constexpr long eintr = 4, eagain = 11, efault = 14, enodev = 19, einval = 22, en
 
 constexpr std::uint64_t present = APKRT_GATE_PRESENT, background = APKRT_GATE_BACKGROUND,
                         present_try = APKRT_GATE_PRESENT_TRY;
-constexpr long go_on = 0, gone = 1, closed = 2;
+constexpr long go_on = 0, gone = 1, closed = 2, drop = 3;
 
 template <typename T>
 std::uint64_t address(T *pointer) {
@@ -683,6 +683,26 @@ TEST(an_open_gate_answers_at_once_and_a_closed_one_waits_again) {
     CHECK(apkrt_window_set_gate(id, 1) == 0);
     CHECK(waiter.result() == go_on);
     apkrt_window_remove(id);
+}
+
+TEST(a_window_removed_untold_drops_its_presents_until_the_app_is_told) {
+    // As Android's BufferQueue takes frames until the app's destroy callback has returned: "drop" at the present
+    // gates, also for a thread that waited at the closed gate, "gone" at the background gate; "gone" once told.
+    const auto id = apkrt_window_add(nullptr, 1080, 2340);
+    Waiter waiter([id] { return gate(id, present); });
+    CHECK(waiter.sleeps());
+    CHECK(apkrt_window_remove_untold(id) == 0);
+    CHECK(waiter.result() == drop);
+    CHECK(gate(id, present) == drop);
+    CHECK(gate(id, present_try) == drop);
+    CHECK(gate(id, background) == gone);
+    CHECK(apkrt_window_remove(id) == -1);
+    apkrt_window_told(id);
+    CHECK(gate(id, present) == gone);
+    CHECK(gate(id, present_try) == gone);
+    apkrt_window_told(id);  // again, and for a window never removed so: nothing
+    apkrt_window_told(id + 1000);
+    CHECK(gate(id, present) == gone);
 }
 
 TEST(removal_answers_gone_at_once_also_to_a_thread_that_waits) {

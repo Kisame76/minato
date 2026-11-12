@@ -362,7 +362,15 @@ static uint64_t now_ns(void) {
    signaled already. ANGLE flushes for GL_SYNC_FLUSH_COMMANDS_BIT until Metal scheduled the command buffer,
    which a buffer behind a GPU wait is not, in one host call: once the sync is not signaled already, the
    flush is glFlush here, which does not wait. */
+static GLenum wait_in_slices(GLsync sync, GLbitfield flags, GLuint64 timeout);
+
+/* Without a current context Android answers 0 where ANGLE answers GL_WAIT_FAILED (no_context.c). */
 GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+    const GLenum result = wait_in_slices(sync, flags, timeout);
+    return result == GL_WAIT_FAILED && minato_gles_no_context() ? 0 : result;
+}
+
+static GLenum wait_in_slices(GLsync sync, GLbitfield flags, GLuint64 timeout) {
     const uint64_t start = now_ns();
     if (flags & GL_SYNC_FLUSH_COMMANDS_BIT) {
         flags &= ~(GLbitfield)GL_SYNC_FLUSH_COMMANDS_BIT;
