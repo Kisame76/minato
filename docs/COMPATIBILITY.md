@@ -1,6 +1,6 @@
 # Compatibility
 
-What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-11. Numbers in
+What runs in Minato today, what is missing, and what will never work. Status as of 2026-11-12. Numbers in
 parentheses refer to the records indexed in [DESIGN.md](DESIGN.md).
 
 The goal is that every app whose purpose fits the limits at the end of this page works after its import, without
@@ -127,8 +127,8 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 ## The gaps, counted
 
-The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-11: **15 closed, 4 of them except for
-a limit that is named, and 7 partly closed.**
+The compatibility plan lists 22 gaps that stop real apps. Recounted on 2026-11-12: **17 closed, 6 of them except for
+a limit that is named, and 5 partly closed.**
 
 **Closed:**
 
@@ -161,19 +161,21 @@ a limit that is named, and 7 partly closed.**
 - Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while iOS has
   the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
   WorkManager (androidx.work 2.12.0) logs what Android 15 logs and finds its waiting work again after a restart.
+- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
+  connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone; with
+  Local Network switched off for Minato they fail with Android's errors for a host it cannot reach, and none hangs.
+  Multicast and service discovery are not in.
+  The active network's link properties (addresses, DNS servers, routes, MTU) are filled from the iPhone's network;
+  what iOS lets Minato read of them is not checked on the iPhone yet.
+- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects. Pages
+  that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` load as on Android, on
+  the iPhone too. A page from the app's assets sees `minato-asset:` as its protocol where Android says `file:`. A page
+  also shows under a window's theme background (a splash that the app takes away once the page is ready), and
+  `onPageCommitVisible`, `getContentHeight`, `getContentWidth` and a `PictureListener` answer as they do on Android;
+  the check of these on the iPhone is still to come.
 
 **Partly closed:**
 
-- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
-  connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone.
-  Multicast and service discovery are not in, and what an app sees after you switch the local network off for Minato
-  in iOS's Settings is not checked on the iPhone yet. The active network's link properties (addresses, DNS servers,
-  routes, MTU) are filled from the iPhone's network; what iOS lets Minato read of them is not checked on the iPhone
-  yet.
-- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects. Pages
-  that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` load on the Mac and
-  in the Simulator as on Android; the check on the iPhone is still to come. A page from the app's assets sees
-  `minato-asset:` as its protocol where Android says `file:`.
 - Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the keyboard's inset
   work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad and its extra
   keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS offers a mouse
