@@ -53,6 +53,12 @@ if(APK_HOST_BUILD)
   target_link_libraries(data_hints_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.data_hints COMMAND data_hints_test "${APK_FIXTURES_DIR}")
 
+  # The net under the syscall rewrite: the svc words of a library before the import equal the ones rewritten, kept as
+  # data or refused, address by address, in small libraries built here and in every built library of the directory.
+  add_executable(site_net_test tests/site_net_test.cpp)
+  target_link_libraries(site_net_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.site_net COMMAND site_net_test "${APK_FIXTURES_DIR}")
+
   # The reference code is assembled by the host toolchain and serves as the oracle for the stubs.
   enable_language(ASM)
   add_executable(rewrite_test tests/rewrite_test.cpp tests/rewrite_reference.S)
