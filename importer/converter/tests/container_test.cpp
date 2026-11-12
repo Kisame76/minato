@@ -1328,22 +1328,21 @@ TEST(a_container_with_an_island_inside_an_ll_sc_sequence_carries_the_monitor_fla
     CHECK((read_info(plain.bytes).flags & APK_CONTAINER_MONITOR_INSIDE) == 0);
 }
 
-TEST(refuses_what_cannot_run) {
-
-    auto darwin_syscall = static_program();
-    darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
-    CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
-    // The refusal carries the same words as an x18 refusal: where each word lies and what stands in front of it.
-    std::string svc_text;
-    try {
-        convert(darwin_syscall);
-    } catch (const Incompatible &refusal) {
-        svc_text = refusal.what();
+// Linux ignores the immediate of svc (proved on Android 15): every svc #imm is a syscall, rewritten to a branch into
+// the same veneer as svc #0, and nothing about it is refused.
+TEST(rewrites_a_svc_with_any_immediate_like_svc_zero) {
+    for (const std::uint32_t immediate : {0u, 1u, 0x80u, 0xe4d3u, 0xffffu}) {
+        auto prog = static_program();
+        prog.put<std::uint32_t>(0x218, 0xd400'0001u | (immediate << 5));
+        const auto container = convert(prog);
+        const auto info = read_info(container.bytes);
+        CHECK(container.report.syscalls == 2);  // the program's own svc #0 at 0x208 and this one
+        CHECK(branch_target(container.bytes, info.image_offset + 0x218).has_value());
+        CHECK(apk::container::refusals(prog.bytes).empty());
     }
-    CHECK(svc_text.find("; unwind: ") != std::string::npos);
-    CHECK(svc_text.find("; refused words: 0x218 (.text, outside every FDE, not loaded, after a return)") !=
-          std::string::npos);
+}
 
+TEST(refuses_what_cannot_run) {
     auto tpidrro_read = static_program();
     tpidrro_read.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0: reads the Darwin TSD base
     CHECK_THROWS(Incompatible, convert(tpidrro_read), "TPIDRRO_EL0 at 0x218");
@@ -1540,33 +1539,33 @@ TEST(refusals_name_every_reason_a_file_has) {
     // What converts has no reason.
     CHECK(refusals(static_program().bytes).empty());
 
-    // A Darwin syscall and a register branch on x18: two reasons, in convert()'s order, each as convert() words it.
+    // A TPIDRRO_EL0 read and a register branch on x18: two reasons, in convert()'s order, each as convert() words it.
     // (br x18 would now be an indirect island, so the still-refused register branch here is ret x18.)
     auto both = static_program();
-    both.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
+    both.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0
     both.put<std::uint32_t>(0x21c, 0xd65f'0240);  // ret x18
     const auto reasons = refusals(both.bytes);
     CHECK(reasons.size() == 2);
-    CHECK(contains(reasons.at(0), "svc #0x80 at 0x218"));
+    CHECK(contains(reasons.at(0), "TPIDRRO_EL0 at 0x218"));
     CHECK(contains(reasons.at(1), "x18 at 0x21c cannot run on iOS: it is a register branch"));
 
     // Text relocations come before the code's reasons, as in convert().
     auto text_relocations = static_program();
     text_relocations.dynamic(0x2c0, {{dt_relr, 0x160}, {dt_relrsz, 8}, {22 /* DT_TEXTREL */, 0}, {0, 0}});
-    text_relocations.put<std::uint32_t>(0x218, 0xd400'1001);
+    text_relocations.put<std::uint32_t>(0x218, 0xd53b'd065);
     const auto relocation_reasons = refusals(text_relocations.bytes);
     CHECK(relocation_reasons.size() == 2);
     CHECK(contains(relocation_reasons.at(0), "text relocation"));
-    CHECK(contains(relocation_reasons.at(1), "svc #0x80 at 0x218"));
+    CHECK(contains(relocation_reasons.at(1), "TPIDRRO_EL0 at 0x218"));
 
-    // A layout reason (a segment both writable and executable) and a Darwin syscall: both are named.
+    // A layout reason (a segment both writable and executable) and a TPIDRRO_EL0 read: both are named.
     auto writable_code = static_program();
     writable_code.put<std::uint32_t>(64 + 56 + 4, r | w | x);  // p_flags of the code segment
-    writable_code.put<std::uint32_t>(0x218, 0xd400'1001);
+    writable_code.put<std::uint32_t>(0x218, 0xd53b'd065);
     const auto layout_reasons = refusals(writable_code.bytes);
     CHECK(layout_reasons.size() == 2);
     CHECK(contains(layout_reasons.at(0), "LOAD segment at 0x0 is writable and executable"));
-    CHECK(contains(layout_reasons.at(1), "svc #0x80 at 0x218"));
+    CHECK(contains(layout_reasons.at(1), "TPIDRRO_EL0 at 0x218"));
     CHECK(layout_reasons.front() == refusal_of(writable_code));
 
     // Not AArch64: that one reason, as the code of another machine says nothing about the rest.
@@ -1591,10 +1590,10 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(contains(refusals(big_container.bytes).at(0), "the container would take"));
     CHECK(refusals(big_container.bytes).front() == refusal_of(big_container));
 
-    // An executable (ET_EXEC) AArch64 file with a Darwin syscall: that one reason, the type's; nothing about its code.
+    // An executable (ET_EXEC) AArch64 file with a TPIDRRO_EL0 read: that one reason, the type's; nothing of its code.
     auto executable = static_program();
     executable.put<std::uint16_t>(16, 2);
-    executable.put<std::uint32_t>(0x218, 0xd400'1001);
+    executable.put<std::uint32_t>(0x218, 0xd53b'd065);
     CHECK(refusals(executable.bytes).size() == 1);
     CHECK(contains(refusals(executable.bytes).at(0), "not position independent"));
 
@@ -1609,7 +1608,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     // A scan that fails shows its own reason and nothing from the code it could not read.
     auto beyond = static_program();
     beyond.put<std::uint64_t>(64 + 56 + 32, 0x210);  // p_filesz of the code segment, .text ends at 0x220
-    beyond.put<std::uint32_t>(0x218, 0xd400'1001);
+    beyond.put<std::uint32_t>(0x218, 0xd53b'd065);
     CHECK(refusals(beyond.bytes).size() == 1);
     CHECK(contains(refusals(beyond.bytes).at(0), "reaches beyond"));
 
@@ -1634,12 +1633,7 @@ TEST(refusals_name_every_reason_a_file_has) {
     CHECK(one_line.size() == 1);
     CHECK(one_line.at(0).find('\n') == std::string::npos);
 
-    // The count of what repeats: Darwin syscalls, and relocations into code.
-    auto many_svc = static_program();
-    many_svc.put<std::uint32_t>(0x218, 0xd400'1001);
-    many_svc.put<std::uint32_t>(0x21c, 0xd400'1001);
-    CHECK(contains(refusals(many_svc.bytes).at(0), "svc #0x80 at 0x218"));
-    CHECK(contains(refusals(many_svc.bytes).at(0), "and 1 more"));
+    // The count of what repeats: TPIDRRO_EL0 reads, and relocations into code.
     auto many_tpidrro = static_program();
     many_tpidrro.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0
     many_tpidrro.put<std::uint32_t>(0x21c, 0xd53b'd066);  // mrs x6, TPIDRRO_EL0

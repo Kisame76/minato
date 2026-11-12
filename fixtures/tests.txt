@@ -107,6 +107,8 @@ start-test system
 # What ART's start asks of the kernel, /proc and /sys, and init's environment (ADR-0033 decision 8,
 # ADR-0039 decision 2).
 kernel-test system
+# Linux takes the system call number from x8 and ignores the immediate of svc.
+svc-immediate-test system
 # Per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 priority-test system
 # memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.

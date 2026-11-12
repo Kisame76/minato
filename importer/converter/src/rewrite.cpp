@@ -354,7 +354,6 @@ private:
 
 constexpr unsigned guest_x18 = 18;
 constexpr std::uint32_t x18_bit = 1u << guest_x18;
-constexpr std::uint32_t x8_bit = 1u << 8;  // the Linux arm64 syscall-number register (w8/x8)
 // The two scratch slots in the red zone: 128 bytes below sp, which XNU keeps free on a signal
 // (C_64_REDZONE_LEN) and Linux code never uses (ADR-0020).
 constexpr std::int32_t scratch_slot_0 = -128;
@@ -550,38 +549,6 @@ bool is_register_dump(std::span<const std::byte> code, std::size_t offset) {
     const auto below = stp_pair(16, base, imm7 - 2), above = stp_pair(20, base, imm7 + 2);
     const auto before = word_at(code, offset - 4), after = word_at(code, offset + 4);
     return (before == below && after == above) || (before == above && after == below);
-}
-
-/// Whether `word` is one of the few instructions whose purpose is to set x8 (w8), the Linux arm64 syscall-number
-/// register: a move-wide immediate (MOVZ/MOVN/MOVK, Rd = 8), the MOV-register alias (ORR Xd, XZR, Xm with no shift,
-/// Rd = 8, either width), or a single-register load (LDR/LDUR immediate, register or literal; not a pair, not an
-/// exclusive) into x8. A random data word decodes as *some* x8 writer about one time in eight, so only these shapes
-/// prove the syscall number -- not any instruction that happens to write x8 (Arm ARM C4.1).
-bool sets_syscall_number(std::uint32_t word) {
-    if ((word & 0x1f80'0000) == 0x1280'0000) {              // move wide (immediate)
-        return ((word >> 29) & 3) != 1 && rd_field(word) == 8;  // MOVN 00, MOVZ 10, MOVK 11; opc 01 is unallocated
-    }
-    if ((word & 0x7fe0'ffff) == 0x2a00'03e8) return true;   // MOV Xd, Xm = ORR Xd, XZR, Xm (shift 0), Rd = 8
-    if (is_load_store(word) && !is_exclusive(word) && (word & 0x3800'0000) != 0x2800'0000 && rd_field(word) == 8) {
-        return (a64::register_use(word).writes & x8_bit) != 0;  // a single-register load (not a pair) into x8 (Rt)
-    }
-    return false;
-}
-
-/// Positive local proof that the `svc #imm` at `offset` is a real Linux syscall, not a data word that decodes as
-/// one: within the preceding eight words, in straight-line code (no branch between, every skipped word a
-/// register-using instruction), the syscall number is set in x8 by a `sets_syscall_number` instruction -- the
-/// raw-syscall shape `mov x8, #nr; svc #imm`. Linux takes the number from x8 and ignores the immediate
-/// (arch/arm64/kernel/syscall.c: do_el0_svc reads regs[8]).
-bool is_raw_syscall(std::span<const std::byte> code, std::size_t offset) {
-    for (std::size_t back = 1; back <= 8 && back * 4 <= offset; ++back) {
-        const auto word = word_at(code, offset - back * 4);
-        if (sets_syscall_number(word)) return true;       // x8 set with the syscall number before the svc
-        const auto use = a64::register_use(word);
-        if (is_branch(word)) return false;                // a branch between: not straight-line
-        if ((use.reads | use.writes) == 0) return false;  // not a register-using instruction: likely data
-    }
-    return false;
 }
 
 constexpr bool is_store_exclusive(std::uint32_t word) {
@@ -1587,18 +1554,6 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // those could put an island's memory inside a live LL/SC.
     const auto branch_live = branch_reached_sequence(code);
     const auto monitor_escape = monitor_escapes(code, branch_live, ends_hull);
-    // Words that some load-literal (LDR/LDRSW/SIMD-literal/PRFM) reads as a constant: data even when the word
-    // decodes as an instruction, so a svc #imm among them is kept, not rewritten (the svc decision below).
-    std::vector<bool> literal_target(code.size() / 4, false);
-    for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
-        const auto word = word_at(code, j);
-        if ((word & 0x3b00'0000) != 0x1800'0000) continue;  // the load-literal form
-        const std::int64_t imm19 = static_cast<std::int32_t>(word << 8) >> 13;
-        const std::int64_t target = static_cast<std::int64_t>(j) + imm19 * 4;
-        if (target >= 0 && static_cast<std::uint64_t>(target) + 4 <= code.size()) {
-            literal_target[static_cast<std::size_t>(target) / 4] = true;
-        }
-    }
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
     bool exclusive_sequence = false;
     for (std::size_t offset = 0; offset < code.size(); offset += 4) {
@@ -1714,15 +1669,9 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         } else if ((instruction & register_mask) == mrs_ctr_el0) {
             findings.sites.push_back({at, SiteKind::cache_type_read, rt});
         } else if ((instruction & svc_mask) == svc) {
-            if (instruction == svc) {
-                findings.sites.push_back({at, SiteKind::syscall, 0});
-            } else if ((read_only_data && !read_only_data(at, 4).empty()) || literal_target[offset / 4]) {
-                findings.data_syscalls.push_back(at);  // a data word that decodes as svc #imm: keep it verbatim
-            } else if (is_raw_syscall(code, offset)) {
-                findings.sites.push_back({at, SiteKind::syscall, 0});  // reachable svc #imm: a Linux syscall (x8)
-            } else {
-                findings.other_syscalls.push_back(at);  // neither proven data nor code: refuse (names the symbol)
-            }
+            // Linux takes the syscall number from x8 and never looks at the immediate (el0_svc), so every svc #imm
+            // is a syscall, whatever its immediate and wherever the word stands: one rule, as the kernel has.
+            findings.sites.push_back({at, SiteKind::syscall, 0});
         }
 
         if (is_exclusive(instruction)) {

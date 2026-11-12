@@ -1,10 +1,11 @@
-// The net under the converter's syscall rewrite: for every library, the `svc` words before the import equal the
-// ones the import rewrote, kept as data or refused, address by address, so no site is lost without a word.
+// The net under the converter's syscall rewrite: for every library, the `svc` words before the import equal the ones
+// the import rewrote, address by address, so no site is lost without a word. Every svc #imm is a syscall (Linux
+// takes the number from x8 and ignores the immediate), so there is no group of words kept or refused: one account.
 //
 // The oracle is a plain scan of the executable sections for the words that decode as `svc #imm`; it shares nothing
-// with the rewriter's scan. The converter's own account of each word (rewritten site, data kept verbatim, refused)
-// must cover that set exactly, and the container must show it: a rewritten site is a branch to its veneer, a word
-// kept as data is unchanged, and no other `svc` stands in the executable sections of the image.
+// with the rewriter's scan. The converter's own account (its syscall sites) must be exactly that set, and the container
+// must show it: a rewritten site is a branch to its veneer, and no `svc` stands in the executable sections of the
+// image.
 //
 // The synthetic libraries always run. With a directory of built libraries as the argument, every AArch64 ELF file in
 // it runs too (the NDK fixtures of tools/build-fixtures.sh).
@@ -74,22 +75,17 @@ std::uint64_t file_offset(const std::vector<std::byte> &elf, std::uint64_t addre
     throw std::runtime_error("an address in no section");
 }
 
-struct Account {
-    Addresses rewritten, kept, refused;
-};
-
-Account account_of(const apk::rewrite::Findings &findings) {
-    Account account;
+/// The addresses the converter rewrites as syscalls.
+Addresses rewritten_by(const apk::rewrite::Findings &findings) {
+    Addresses rewritten;
     for (const auto &site : findings.sites) {
-        if (site.kind == apk::rewrite::SiteKind::syscall) account.rewritten.insert(site.address);
+        if (site.kind == apk::rewrite::SiteKind::syscall) rewritten.insert(site.address);
     }
-    account.kept.insert(findings.data_syscalls.begin(), findings.data_syscalls.end());
-    account.refused.insert(findings.other_syscalls.begin(), findings.other_syscalls.end());
-    return account;
+    return rewritten;
 }
 
-/// Whether `name`'s library keeps the books: the three groups of the converter's account are disjoint, together they
-/// are the oracle's set, and the container carries them out. Returns false when the converter refused the file.
+/// Whether `name`'s library keeps the books: the converter rewrites exactly the words of the oracle's set, and the
+/// container carries it out. Returns false when the converter refused the file (for a reason other than an svc).
 bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &elf) {
     const auto raw = svc_words(elf);
     apk::container::CodeScan scan;
@@ -106,57 +102,32 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
         CHECK(refused);
         return false;
     }
-    const auto account = account_of(scan.findings);
-    Addresses all = account.rewritten;
-    all.insert(account.kept.begin(), account.kept.end());
-    all.insert(account.refused.begin(), account.refused.end());
-    // Disjoint: no word is counted twice, so the sums below are the counts of the report.
-    CHECK(account.rewritten.size() + account.kept.size() + account.refused.size() == all.size());
-    if (all != raw) {
-        std::printf("%s: svc words before the import %zu, accounted for %zu\n", name.c_str(), raw.size(), all.size());
+    const auto rewritten = rewritten_by(scan.findings);
+    if (rewritten != raw) {
+        std::printf("%s: svc words before the import %zu, rewritten %zu\n", name.c_str(), raw.size(), rewritten.size());
         for (const auto at : raw) {
-            if (!all.contains(at)) std::printf("  lost: %#llx\n", static_cast<unsigned long long>(at));
+            if (!rewritten.contains(at)) std::printf("  lost: %#llx\n", static_cast<unsigned long long>(at));
         }
-        for (const auto at : all) {
+        for (const auto at : rewritten) {
             if (!raw.contains(at)) std::printf("  invented: %#llx\n", static_cast<unsigned long long>(at));
         }
     }
-    CHECK(all == raw);
-    // An svc #0 is always a syscall: it is never data and never refused.
-    for (const auto at : raw) {
-        if (word_at(elf, file_offset(elf, at)) == svc) CHECK(account.rewritten.contains(at));
-    }
+    CHECK(rewritten == raw);
 
     apk::container::Container container;
     try {
         container = apk::container::convert(elf, {.install_name = "@rpath/net.dylib"});
     } catch (const apk::container::Incompatible &error) {
-        const std::string reason = error.what();
-        if (!account.refused.empty()) {
-            // The refusal names the first word and counts the rest, so the number refused can be read back.
-            CHECK(reason.starts_with("svc #"));
-            const auto more = account.refused.size() - 1;
-            const auto counted = reason.find(" (and ");
-            if (more == 0) {
-                CHECK(counted == std::string::npos || reason.find(" more)") == std::string::npos);
-            } else {
-                CHECK(counted != std::string::npos);
-                CHECK(reason.find(" (and " + std::to_string(more) + " more)") != std::string::npos);
-            }
-        }
+        // An svc is never the reason: every one is a syscall.
+        CHECK(std::string(error.what()).find("svc") == std::string::npos);
         return false;
     }
-    // A converted file has refused none.
-    CHECK(account.refused.empty());
-    CHECK(container.report.syscalls == account.rewritten.size());
+    CHECK(container.report.syscalls == rewritten.size());
     const auto image = container.report.image_offset;
-    for (const auto at : account.rewritten) {
+    for (const auto at : rewritten) {
         CHECK(is_branch(word_at(container.bytes, image + file_offset(elf, at))));
     }
-    for (const auto at : account.kept) {
-        CHECK(word_at(container.bytes, image + file_offset(elf, at)) == word_at(elf, file_offset(elf, at)));
-    }
-    // And nothing else in the code of the image is an svc: a word the rewrite left in place is a site lost.
+    // And no svc is left in the code of the image: a word the rewrite left in place is a site lost.
     std::size_t left = 0;
     for (const auto &section : apk::container::layout_sections(elf)) {
         if (!holds_code(section)) continue;
@@ -164,7 +135,7 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
             if ((word_at(container.bytes, image + section.offset + at) & svc_mask) == svc) ++left;
         }
     }
-    CHECK(left == account.kept.size());
+    CHECK(left == 0);
     return true;
 }
 
@@ -223,17 +194,17 @@ TEST(counts_a_raw_syscall_with_an_immediate) {
 }
 
 TEST(counts_an_svc_that_a_literal_load_reads_as_data) {
-    // ldr x0, =pool; ret; pool: svc #1 (the load reads it, nothing runs it), then an svc #0 for the converter to take.
+    // ldr x0, =pool; ret; pool: svc #1 (the load reads it, nothing runs it), then an svc #0: both are rewritten, the
+    // same risk the converter takes for svc #0.
     const auto elf = library({ldr_x0_literal_8, ret, svc_1, svc, ret});
     CHECK(svc_words(elf).size() == 2);
     CHECK(check_no_site_lost("literal", elf));
 }
 
-TEST(counts_the_svc_it_refuses_and_names_how_many) {
-    const std::vector<std::uint32_t> one = {nop, svc_1, ret};
-    CHECK(!check_no_site_lost("one refused", library(one)));
-    const std::vector<std::uint32_t> three = {svc_1, svc, 0xd400'0041, nop, 0xd400'0061, ret};
-    CHECK(!check_no_site_lost("three refused", library(three)));
+TEST(counts_every_svc_immediate_the_converter_meets) {
+    const auto elf = library({svc_1, svc, 0xd400'0041, nop, 0xd400'0061, 0xd41c'9a61 /* svc #0xe4d3 */, ret});
+    CHECK(svc_words(elf).size() == 5);
+    CHECK(check_no_site_lost("immediates", elf));
 }
 
 TEST(counts_an_svc_that_is_the_last_word_of_its_section) {

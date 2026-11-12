@@ -1,0 +1,6 @@
+svc #0 with x8 = getpid answers the pid: yes
+svc #1 with x8 = getpid answers the pid: yes
+svc #0xe4d3 with x8 = getpid answers the pid: yes
+svc #0xffff with x8 = getpid answers the pid: yes
+svc #172 with x8 = getppid answers the parent: yes
+the parent is not the pid: yes

@@ -856,7 +856,7 @@ X18SiteCounts x18_site_counts(std::span<const std::byte> elf_bytes, const rewrit
 }
 
 /// The tests convert() and refusals() both make, so that the two cannot drift: the machine and the file type, a
-/// Darwin syscall, and a use of x18 that no island handles. Each throws Incompatible.
+/// read of TPIDRRO_EL0, and a use of x18 that no island handles. Each throws Incompatible.
 void require_aarch64_shared(const elf::File &file) {
     if (file.machine != elf::machine_aarch64) {
         throw Incompatible(std::format("machine {}: only AArch64 (arm64-v8a) code runs", elf::machine_name(file.machine)));
@@ -864,34 +864,6 @@ void require_aarch64_shared(const elf::File &file) {
     if (file.type != elf::FileType::shared) {
         throw Incompatible("not position independent (no ET_DYN): nothing can be mapped below 4 GiB on iOS");
     }
-}
-
-void refuse_darwin_syscall(const elf::File &file, std::span<const std::byte> elf_bytes,
-                           const rewrite::Findings &findings) {
-    if (findings.other_syscalls.empty()) return;
-    const auto address = findings.other_syscalls.front();
-    const auto word = file_bytes_at(file, elf_bytes, address, 4, "instruction");
-    std::uint32_t instruction;
-    std::memcpy(&instruction, word.data(), sizeof instruction);
-    const auto more = findings.other_syscalls.size() - 1;
-    const auto sections = layout_sections(elf_bytes);
-    const auto site = describe_site(elf::read_symbols(elf_bytes), sections, address);
-    // Where each such word lies and what stands in front of it, as an x18 refusal tells (hints::describe).
-    std::string hints;
-    try {
-        std::vector<rewrite::Unsupported> uses;
-        for (const auto at : findings.other_syscalls) {
-            std::uint32_t value = 0;
-            const auto bytes = file_bytes_at(file, elf_bytes, at, 4, "instruction");
-            std::memcpy(&value, bytes.data(), sizeof value);
-            uses.push_back({at, "svc", value});
-        }
-        hints = hints::describe(hints::data_hints(file, elf_bytes, sections, uses));
-    } catch (const std::exception &) {
-    }
-    throw Incompatible(std::format("svc #{:#x} at {:#x}{} is no Linux syscall and would run a Darwin one{}{}",
-                                   (instruction >> 5) & 0xffff, address, site,
-                                   more == 0 ? std::string() : std::format(" (and {} more)", more), hints));
 }
 
 void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_bytes,
@@ -1071,7 +1043,6 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
     const auto scan = scan_sections(file, elf_bytes, sections);
     const auto &findings = scan.findings;
     report.code_bytes = scan.code_bytes;
-    refuse_darwin_syscall(file, elf_bytes, findings);
     // A guest mrs TPIDRRO_EL0 would read the Darwin TSD base, where the x18 islands keep the guest's x18; it could
     // then name that granule as an exclusive target and clear an island's monitor (ADR-0020 step C, Q2).
     refuse_tpidrro_read(file, elf_bytes, findings);
@@ -1486,7 +1457,6 @@ std::vector<std::string> refusals(std::span<const std::byte> elf_bytes) {
     if (!sections) return reasons;
     std::optional<CodeScan> scan;
     if (!attempt([&] { scan = scan_sections(*file, elf_bytes, *sections); })) return reasons;
-    attempt([&] { refuse_darwin_syscall(*file, elf_bytes, scan->findings); });
     attempt([&] { refuse_tpidrro_read(*file, elf_bytes, scan->findings); });
     attempt([&] {
         auto plan = c_rename_plan(elf_bytes, scan->findings.x18_unsupported);

@@ -153,9 +153,9 @@ TEST(scan_finds_the_three_patterns_and_nothing_else) {
         {0x1008, SiteKind::syscall, 0},
         {0x100c, SiteKind::thread_pointer_read, 30},
         {0x1010, SiteKind::thread_pointer_write, 31},
+        {0x1014, SiteKind::syscall, 0},
     };
     CHECK(findings.sites == expected);
-    CHECK(findings.other_syscalls == std::vector<std::uint64_t>{0x1014});
 }
 
 // A guest mrs TPIDRRO_EL0 reads the Darwin TSD base the x18 islands use as scratch (slot 11). Android never reads
@@ -243,56 +243,65 @@ TEST(scan_rejects_code_that_is_not_word_aligned) {
                  "aligned");
 }
 
-// svc #imm (imm != 0): Linux ignores the immediate and takes the number from x8, so a reachable one is a syscall;
-// a data word in .text can also decode as svc #imm. The converter veneers it only on the raw-syscall shape (x8 set
-// by a move-immediate, MOV-register or load in straight-line code just before it), keeps it verbatim when it is an
-// LDR-literal target, and otherwise refuses (ADR-0019).
-TEST(scan_veneers_a_reachable_svc_imm_as_a_syscall) {
+// svc #imm (imm != 0): Linux ignores the immediate and takes the number from x8 (el0_svc never reads the immediate;
+// proved on Android 15 by the svc-immediate fixture), so every `svc #imm` is a syscall, as `svc #0` is: one rule for
+// all immediates, wherever the word stands. A data word that happens to decode as one is rewritten too, the same risk
+// the scan already takes for `svc #0`.
+bool has_syscall_site(const apk::rewrite::Findings &findings, std::uint64_t address) {
+    return std::ranges::any_of(findings.sites, [&](const apk::rewrite::Site &site) {
+        return site.kind == apk::rewrite::SiteKind::syscall && site.address == address;
+    });
+}
+
+TEST(scan_veneers_a_svc_imm_after_an_x8_setup_as_a_syscall) {
     const std::uint32_t words[] = {0xd2800548 /* movz x8, #42 */, 0xd4024681 /* svc #0x1234 */};
     const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, 0x1000, findings);
-    CHECK(findings.other_syscalls.empty() && findings.data_syscalls.empty());
-    CHECK(std::ranges::any_of(findings.sites, [](const apk::rewrite::Site &s) {
-        return s.kind == apk::rewrite::SiteKind::syscall && s.address == 0x1004;
-    }));
+    CHECK(has_syscall_site(findings, 0x1004));
 }
 
-TEST(scan_keeps_a_svc_imm_that_is_a_literal_target_as_data) {
-    const std::uint32_t words[] = {0x58000040 /* ldr x0, .+8 */, 0xd503201f /* nop */, 0xd4024681 /* svc #0x1234 */};
-    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
-    apk::rewrite::Findings findings;
-    apk::rewrite::scan(code, 0x1000, findings);
-    CHECK(findings.data_syscalls == (std::vector<std::uint64_t>{0x1008}));
-    CHECK(findings.other_syscalls.empty());
-}
-
-TEST(scan_refuses_a_lone_svc_imm) {
+TEST(scan_veneers_a_lone_svc_imm) {
     const std::uint32_t words[] = {0xd4024681 /* svc #0x1234 */};
     const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, 0x1000, findings);
-    CHECK(findings.other_syscalls == (std::vector<std::uint64_t>{0x1000}));
-    CHECK(findings.data_syscalls.empty());
+    CHECK(has_syscall_site(findings, 0x1000));
 }
 
-TEST(scan_refuses_a_svc_imm_with_a_branch_after_the_x8_write) {
+TEST(scan_veneers_a_svc_imm_with_a_branch_after_the_x8_write) {
     const std::uint32_t words[] = {0xd2800548 /* movz x8, #42 */, 0x14000001 /* b .+4 */, 0xd4024681 /* svc #0x1234 */};
     const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, 0x1000, findings);
-    CHECK(findings.other_syscalls == (std::vector<std::uint64_t>{0x1008}));
+    CHECK(has_syscall_site(findings, 0x1008));
 }
 
-// Only a move-immediate, the MOV-register alias or a load into x8 proves the number: an instruction that merely
-// writes x8 (here add x8, x9, #1) does not, as a random data word decodes as some x8 writer about one time in eight.
-TEST(scan_refuses_a_svc_imm_whose_x8_write_is_not_a_syscall_number_setter) {
+TEST(scan_veneers_a_svc_imm_whatever_writes_x8_before_it) {
     const std::uint32_t words[] = {0x91000528 /* add x8, x9, #1 */, 0xd4024681 /* svc #0x1234 */};
     const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, 0x1000, findings);
-    CHECK(findings.other_syscalls == (std::vector<std::uint64_t>{0x1004}));
-    CHECK(findings.data_syscalls.empty());
+    CHECK(has_syscall_site(findings, 0x1004));
+}
+
+TEST(scan_veneers_a_svc_imm_that_a_literal_load_reads) {
+    const std::uint32_t words[] = {0x58000040 /* ldr x0, .+8 */, 0xd503201f /* nop */, 0xd4024681 /* svc #0x1234 */};
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x1000, findings);
+    CHECK(has_syscall_site(findings, 0x1008));
+}
+
+TEST(scan_veneers_every_immediate_the_same) {
+    for (const std::uint32_t immediate : {0u, 1u, 0x80u, 0xe4d3u, 0xffffu}) {
+        const std::uint32_t words[] = {0xd4000001u | (immediate << 5)};
+        const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+        apk::rewrite::Findings findings;
+        apk::rewrite::scan(code, 0x1000, findings);
+        CHECK(has_syscall_site(findings, 0x1000));
+        CHECK(findings.sites.size() == 1);
+    }
 }
 
 // The final branch of an island goes back to the instruction after the site. Placing the island

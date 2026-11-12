@@ -262,6 +262,8 @@ add_executable(atexit-test suite/atexit-test.c)
 add_executable(start-test suite/start-test.c)
 # kernel-test: what ART's start asks of the kernel, /proc and /sys (ADR-0033, decision 8).
 add_executable(kernel-test suite/kernel-test.c)
+# svc-immediate-test: the system call number comes from x8; the immediate of svc is ignored (Linux's el0_svc).
+add_executable(svc-immediate-test suite/svc-immediate-test.c)
 # priority-test: per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 add_executable(priority-test suite/priority-test.c)
 # memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.

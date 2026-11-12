@@ -4,8 +4,9 @@
 //   mrs xN, TPIDR_EL0   XNU overwrites TPIDR_EL0 (F3). The island loads the guest thread pointer
 //                       from Darwin TSD slot 6 instead: mrs xN, TPIDRRO_EL0; bic; ldr [xN, #48].
 //   msr TPIDR_EL0, xN   Same slot, written; the island saves one scratch register on the stack.
-//   svc #0              XNU takes the syscall number from x16, Linux from x8 (F5). The veneer calls
-//                       the Linux syscall layer through a slot the loader fills in.
+//   svc #imm            XNU takes the syscall number from x16, Linux from x8 (F5) and ignores the immediate, so every
+//                       svc is a syscall, whatever its immediate. The veneer calls the Linux syscall layer through
+//                       a slot the loader fills in.
 //   any use of x18      XNU sets x18 to zero at every context switch (F4). The island runs the
 //                       instruction with a scratch register in place of x18, whose value lives in
 //                       Darwin TSD slot 11 (ADR-0020). Forms that need more than that are listed as
@@ -35,7 +36,7 @@ namespace apk::rewrite {
 enum class SiteKind : std::uint8_t {
     thread_pointer_read,   // mrs xN, TPIDR_EL0
     thread_pointer_write,  // msr TPIDR_EL0, xN
-    syscall,               // svc #0
+    syscall,               // svc #imm, any immediate
     x18,                   // an instruction that uses x18
     x18_nosave,            // an in-sequence x18 use (inside a live LL/SC), islanded over a register proven dead at
                            // the use, touching only TSD slot 11, with no red-zone save (ADR-0020 C3b, C7)
@@ -103,13 +104,6 @@ struct JumpTable {
 
 struct Findings {
     std::vector<Site> sites;
-    /// `svc #imm` (imm != 0) that is neither proven data nor a proven Linux syscall: the converter refuses such a
-    /// file. Linux takes the syscall number from x8 and ignores the immediate, so a reachable one is a syscall and
-    /// goes to `sites` (SiteKind::syscall); a data word that decodes as svc #imm goes to `data_syscalls`.
-    std::vector<std::uint64_t> other_syscalls;
-    /// `svc #imm` kept verbatim as data: a word in read-only data, or an LDR-literal target. Not rewritten and not
-    /// refused; counted in the import report so a later case is visible.
-    std::vector<std::uint64_t> data_syscalls;
     /// `mrs xN, TPIDRRO_EL0` (any destination, x18 included). It reads the Darwin TSD base, where the x18
     /// islands keep the guest's x18 (slot 11, ADR-0020). XNU and Linux leave TPIDRRO_EL0 zero at EL0 and Android
     /// userspace never reads it, so Android code has no reason to; a guest that did could name an island's TSD
