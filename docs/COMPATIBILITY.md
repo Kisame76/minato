@@ -122,8 +122,9 @@ Only what the project has evidence for is stated as working; "untested" means th
 - **Cordova, Capacitor, HTML5 games:** they are a WebView, which shows its pages inside the app. An open-source
   Capacitor app that asked for Android's SDK extension versions no longer stops at that question. An app that serves
   its pages itself under `https://localhost` or `https://appassets.androidplatform.net` (Capacitor's default, and
-  Cordova's since version 10) gets those requests as on Android now; this works on the Mac and in the Simulator and
-  is not confirmed on the iPhone yet.
+  Cordova's since version 10) gets those requests as on Android now; this works on the Mac, in the Simulator and on
+  the iPhone, where all eight WebView test pages behaved as they do on Android 15 and an app built this way reached its
+  first screen.
 
 ## The gaps, counted
 
@@ -212,8 +213,6 @@ a limit that is named, and 5 partly closed.**
 
 In plain terms, as a user meets it:
 
-- Apps built on Capacitor or a newer Cordova that serve their pages under `https://localhost`: the fix is in, but not
-  confirmed on the iPhone yet.
 - Voice input: there is no speech recognition; an app that offers it gets the answers of a phone without a recognition
   service.
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
