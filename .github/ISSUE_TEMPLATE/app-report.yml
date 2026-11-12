@@ -7,9 +7,10 @@ body:
     attributes:
       value: |
         Thanks for reporting it. Minato is in beta, and every report of an app that does not work helps make it work.
-        In Minato, open the app's menu and tap **Report a problem**: it fills in most of this form and copies a
-        report you can paste below. It names the app only if you switch that on there. Please do not attach APK
-        files, and leave out anything personal.
+        In Minato, touch and hold the app (or open its Get Info), tap **Report a Problem**, then **Open GitHub**.
+        That opens this form with most fields filled in and copies a report. Paste it into the last field within ten
+        minutes, on this iPhone. The report names the app only if you switch on **Include the App's Name** there.
+        Please do not attach APK files, and leave out anything personal.
   - type: input
     id: app
     attributes:
@@ -104,6 +105,6 @@ body:
     attributes:
       label: Report from Minato
       description: >-
-        Paste the report that Report a problem copied. It holds no files. This issue is public, so read
+        Paste the report that Report a Problem copied. It holds no files. This issue is public, so read
         it first and remove anything personal.
       render: text

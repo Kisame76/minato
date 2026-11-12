@@ -12,14 +12,17 @@ The form says what to include. Never attach APK files, and leave out anything pe
 
 - For anything larger than a small fix, open an issue first and describe the problem and the approach.
 - The fixed principles (no emulation, no JIT in the core path, one app per process, the framework in-process,
-  arm64-v8a only, 16 KB pages) and the recorded design decisions in [docs/DESIGN.md](docs/DESIGN.md) change only
-  through a new or amended design record. Propose it in an issue, with the options you considered.
+  arm64-v8a only, 16 KB pages) and the recorded design decisions (numbered design records, called ADRs, indexed in
+  [docs/DESIGN.md](docs/DESIGN.md)) change only through a new or amended record. Propose it in an issue, with the
+  options you considered.
 - If something provably cannot work on iOS, say so and show the alternatives rather than working around it quietly.
 - Keep pull requests focused: one change, with its tests, its documentation and its changelog entry.
 
 ## Tests are required
 
-Every change comes with tests, written first. See [docs/TESTING.md](docs/TESTING.md).
+Every change comes with tests, written first. See [docs/TESTING.md](docs/TESTING.md). Building Minato and running
+them needs a Mac with Apple silicon, Xcode and the Android NDK, among other things: the full list and the steps
+are in [docs/BUILDING.md](docs/BUILDING.md).
 
 - **Red first:** the test fails before the change and passes after it. Say in the pull request how it failed.
 - **Android is the reference:** expected output comes from Android 15 in the emulator
@@ -43,7 +46,8 @@ Versions and releases are described in [docs/RELEASING.md](docs/RELEASING.md).
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
   `test:`, `refactor:`, `perf:`, `build:`, `ci:`, `chore:`, `style:`, then one or two plain sentences.
 - Native code builds with warnings as errors; follow the style of the files around your change.
-- Cite the design record a piece of code implements (for example "ADR-0045 decision 6") where it explains why.
+- Cite the design record (ADR) a piece of code implements, with its number and, where it helps, the decision
+  inside it (for example "ADR-0045 decision 6"), where it explains why.
 - The Xcode project is generated: change `project.yml`, not the project in Xcode.
 
 ## Licensing
