@@ -16,7 +16,10 @@ import Foundation
 /// Both are the user's own choices in the sheet, which shows the exact text. The URL never carries the app: opening
 /// the form sends it.
 public struct AppReport: Sendable, Equatable, Identifiable {
-    public static let form = "https://github.com/Kisame76/minato/issues/new"
+    /// The repository's owner and name on GitHub, written only here: the form's URL is made from it, and
+    /// AppReportTests checks that the links of README, CONTRIBUTING, SECURITY and .github/ name the same one.
+    public static let repository = "Kisame76/minato"
+    public static let form = "https://github.com/\(repository)/issues/new"
 
     /// Options of the form's "What happens".
     public enum What: String, Sendable, CaseIterable {

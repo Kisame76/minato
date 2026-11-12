@@ -272,7 +272,7 @@ struct AppReportTests {
         let report = AppReport(entry: try await entry(sandbox), device: device, status: "Ready", issues: [],
                                ending: .startFailed("libmain.so is missing"), log: "I/tag: secret\n")
         let url = report.url
-        #expect(url.absoluteString.hasPrefix("https://github.com/Kisame76/minato/issues/new?"))
+        #expect(url.absoluteString.hasPrefix("https://github.com/\(AppReport.repository)/issues/new?"))
         let fields = try fields(url)
         #expect(fields["template"] == "app-report.yml")
         // The app is never in the URL: opening the form sends it before the user sends anything.
@@ -345,5 +345,40 @@ struct AppReportTests {
             $0.source.fileName = "notes.txt"
         }
         #expect(notAnAPK == nil)
+    }
+
+    /// The repository's owner and name are written once, in AppReport.repository: Report a Problem's form URL is made
+    /// from it, and every link of the repository's public files to its GitHub pages (the issue forms' config, README,
+    /// CONTRIBUTING, SECURITY) must name the same one. A renamed or recreated repository is then that constant plus
+    /// the files this test names, and a link left behind fails here instead of sending users to an old page.
+    @Test func everyLinkToTheRepositoryNamesItsOneSlug() throws {
+        let slug = AppReport.repository
+        let parts = slug.split(separator: "/").map(String.init)
+        #expect(parts.count == 2 && parts.allSatisfy { !$0.isEmpty })
+        #expect(AppReport.form == "https://github.com/\(slug)/issues/new")
+        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        var files = ["README.md", "CONTRIBUTING.md", "SECURITY.md"]
+        let github = root.appending(path: ".github")
+        let walker = try #require(FileManager.default.enumerator(atPath: github.path))
+        for case let path as String in walker where path.hasSuffix(".yml") || path.hasSuffix(".md") {
+            files.append(".github/" + path)
+        }
+        // A GitHub link whose owner or name is the repository's: any other owner or name there is a stale slug.
+        let link = /https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/
+        var linked: Set<String> = []
+        for file in files {
+            guard let text = try? String(contentsOf: root.appending(path: file), encoding: .utf8) else { continue }
+            for match in text.matches(of: link) {
+                let owner = String(match.1), name = String(match.2)
+                guard owner.lowercased() == parts[0].lowercased() || name.lowercased() == parts[1].lowercased()
+                else { continue }
+                #expect("\(owner)/\(name)" == slug, "\(file) links \(owner)/\(name), not \(slug)")
+                linked.insert(file)
+            }
+        }
+        // The forms' config links the security policy, and README and CONTRIBUTING the issue form: if a link is gone,
+        // its file is not checked any more, which this list notices.
+        #expect(linked.isSuperset(of: [".github/ISSUE_TEMPLATE/config.yml", "README.md", "CONTRIBUTING.md"]))
     }
 }
