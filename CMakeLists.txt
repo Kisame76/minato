@@ -169,6 +169,10 @@ if(APK_HOST_BUILD)
   # check's folder all hang ends by the console alone, the requests in at launch, the events and the guest's output out.
   add_test(NAME tools.device_console
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/device_console_test.sh")
+  # tools/warn-native-stale.sh, run at the end of build-framework.sh: a warning when build/framework-native is older
+  # than its sources (a jar built alone), silence when it is fresh, and exit 0 always.
+  add_test(NAME tools.warn_native_stale
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/warn_native_stale_test.sh")
   # tools/provisioning-updates.sh: the builds ask Apple (the Xcode account) only when a profile is about to run out,
   # against profiles made in a temp folder.
   add_test(NAME tools.provisioning_updates
