@@ -7,7 +7,9 @@
    (present), or 0 before one; minato_test_presented_nth the same for the n-th from 0, of the first 16.
    With MINATO_METAL_HOOK=count, minato_test_fence_waits counts every waitForFence:beforeStages: of a render encoder,
    whichever thread encodes it: MoltenVK's barrier fences, which it encodes only with Metal argument buffers, at the
-   start of every render encoder (its events and queries wait in blit encoders). */
+   start of every render encoder (its events and queries wait in blit encoders); and minato_test_longest_gpu_run is the
+   longest GPU run (GPUStartTime to GPUEndTime) of 5 ms or more, in ms, of a command buffer committed (by any thread)
+   that overlaps [start, end) on the uptime clock in ns, or 0. */
 #ifndef MINATO_TEST_HOST_H
 #define MINATO_TEST_HOST_H
 
@@ -21,6 +23,7 @@ extern uint64_t minato_test_window;
 void minato_test_watch_presents(void);
 int64_t minato_test_presented_at(void);
 int64_t minato_test_presented_nth(uint64_t n);
+double minato_test_longest_gpu_run(uint64_t start, uint64_t end);
 
 /* With MINATO_WINDOW_BUFFERS=fake, puts window_host.m's fake buffers in the place of graphics/host's, after
    minato_graphics_set_providers set those. */

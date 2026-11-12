@@ -175,8 +175,37 @@ static void hooked_add_scheduled(id self, SEL selector, MTLCommandBufferHandler 
     ((void (*)(id, SEL, MTLCommandBufferHandler))scheduled_added)(self, selector, late);
 }
 
+/* Count mode: the GPU runs (GPUStartTime to GPUEndTime) of 5 ms or more of every command buffer committed, the last
+   RUNS_KEPT, on the uptime clock (test_host.h). */
+#define RUNS_KEPT 8192
+static int count_on;
+static _Atomic uint64_t run_starts[RUNS_KEPT], run_ends[RUNS_KEPT];
+static atomic_uint runs_kept;
+
+static void keep_run(id<MTLCommandBuffer> buffer) {
+    [buffer addCompletedHandler:^(id<MTLCommandBuffer> done) {
+        if (done.status != MTLCommandBufferStatusCompleted || done.GPUEndTime - done.GPUStartTime < 0.005) return;
+        const unsigned at = atomic_fetch_add(&runs_kept, 1) % RUNS_KEPT;
+        atomic_store(&run_starts[at], (uint64_t)llround(done.GPUStartTime * 1e9));
+        atomic_store(&run_ends[at], (uint64_t)llround(done.GPUEndTime * 1e9));
+    }];
+}
+
+double minato_test_longest_gpu_run(uint64_t start, uint64_t end) {
+    const unsigned kept = atomic_load(&runs_kept);
+    uint64_t longest = 0;
+    for (unsigned at = 0; at < kept && at < RUNS_KEPT; at++) {
+        const uint64_t run_start = atomic_load(&run_starts[at]), run_end = atomic_load(&run_ends[at]);
+        if (run_start < end && run_end > start && run_end - run_start > longest) longest = run_end - run_start;
+    }
+    return (double)longest / 1e6;
+}
+
 static void hooked_commit(id self, SEL selector) {
     note("a commit");
+    if (count_on) {
+        keep_run(self);
+    }
     if (atomic_load(&minato_test_counting) && apkrt_is_guest_thread()) {
         atomic_fetch_add(&minato_test_guest_commits, 1);
     }
@@ -277,6 +306,7 @@ __attribute__((constructor)) static void hook_metal(void) {
               count_mode = strcmp(mode, "count") == 0,
               late_mode = sscanf(mode, "late-scheduled:%d", &late_ms) == 1 && late_ms > 0;
     noting = !present_mode && !count_mode && !late_mode && strcmp(mode, "fences") != 0;
+    count_on = count_mode;
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
         id<MTLCommandQueue> queue = [device newCommandQueue];

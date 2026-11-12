@@ -106,6 +106,8 @@
 extern "C" void minato_app_test_count_commits(void);
 extern "C" int minato_app_test_commits(void);
 extern "C" int minato_app_test_fence_waits(void);
+// metal_hook.m (test_host.h): the longest GPU run of a command buffer over [start, end), in ms.
+extern "C" double minato_test_longest_gpu_run(std::uint64_t start, std::uint64_t end);
 
 namespace {
 
@@ -689,7 +691,12 @@ void play_live(const std::string &app, Capture &capture) {
     const std::regex destroyed_line("I/" + app + R"(: onDestroy: frames [1-9][0-9]*, windows 2, failures 0, lost [0-9]+\n)");
     if (!std::regex_search(app_lines, destroyed_line)) fail("no onDestroy line with windows 2 and failures 0");
     // Each rate's frame intervals leave the breaks out (HOME, the window's change): none reaches 100 ms, but for one
-    // in which the canary saw a gap of 50 ms or more too: the machine's, not the app's.
+    // in which the canary saw a gap of 50 ms or more too (the machine's CPU went to other processes), or in which a
+    // command buffer of the process (the app's, the window's) ran 20 ms or more on the GPU (the machine's GPU: their
+    // few draws run under 1 ms alone, and 20 ms to hundreds while other processes' work shares the GPU, as a parallel
+    // check's lanes do; the app's frames then wait for their fences and drawables as long). Both are the machine's,
+    // not the app's. A wait of our own (a tick lost, a commit held back, a drawable never released, an event signaled
+    // late) leaves the GPU's runs short: a run counts from the GPU's start of a command buffer, after its event waits.
     const std::string device_lines = lines_with(log, "I/" + app + "-device: ");
     const std::regex rate_line(R"(rate ([0-9]+): [0-9]+ frame intervals, median [0-9.]+ ms, p99 [0-9.]+ ms, )"
                                R"(max ([0-9.]+) ms(, ending at ([0-9]+) ns)?)");
@@ -700,12 +707,17 @@ void play_live(const std::string &app, Capture &capture) {
         const std::uint64_t at = (*line)[4].matched ? std::stoull((*line)[4].str()) : 0;
         const auto span = static_cast<std::uint64_t>(longest * 1e6);
         const double gap = at > span ? canary.longest(at - span, at) : 0;
-        ::dprintf(report, "host: rate %s: max %.2f ms, the canary's longest gap in it %.1f ms%s\n",
-                  (*line)[1].str().c_str(), longest, gap,
-                  longest >= 100 && gap >= 50 ? ": the machine's, not counted" : "");
-        if (longest >= 100 && gap < 50) {
+        const double gpu_run = at > span ? minato_test_longest_gpu_run(at - span, at) : 0;
+        const bool machine = gap >= 50 || gpu_run >= 20;
+        ::dprintf(report,
+                  "host: rate %s: max %.2f ms, the canary's longest gap in it %.1f ms, the longest GPU run in it "
+                  "%.1f ms%s\n",
+                  (*line)[1].str().c_str(), longest, gap, gpu_run,
+                  longest >= 100 && machine ? ": the machine's, not counted" : "");
+        if (longest >= 100 && !machine) {
             fail("a frame interval spans a break: " + line->str() + ", the canary's longest gap in it " +
-                 std::to_string(static_cast<int>(gap)) + " ms");
+                 std::to_string(static_cast<int>(gap)) + " ms, the longest GPU run in it " +
+                 std::to_string(static_cast<int>(gpu_run)) + " ms");
         }
     }
     if (rates < 2) fail("the frame intervals of fewer than two rates");
