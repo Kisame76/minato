@@ -10,8 +10,10 @@ import UIKit
 
 /// Answers tools/session-check.sh in the Simulator and on the iPhone (ADR-0032, test 6). A restarted process
 /// gets no launch arguments, so the script leaves its requests as files in tmp/session-check/, which every process
-/// reads; nothing happens without that folder. Each process appends what it does to
-/// tmp/session-check/events, one line per event: "<seconds since 1970> <pid> <event>".
+/// reads; nothing happens without that folder. On the iPhone, where each copy is a session with the phone's file
+/// service, the script can hand them in at launch and as minato://check URLs instead (CheckRequests,
+/// takeLaunchRequests, take) and read the events and the guest's output from the console (CheckConsole). Each process
+/// appends what it does to tmp/session-check/events, one line per event: "<seconds since 1970> <pid> <event>".
 ///   way      "url", "workspace" or "none": the only way both modes restart (Restart.requestedWay).
 ///   tap      a package: the library taps that app once its entries are loaded, and removes the file.
 ///   quit     game mode opens its menu 1.5 s after its start, or 0.5 s plus the seconds the file names,
@@ -135,6 +137,40 @@ enum SessionCheck {
     /// Whether a check runs (its folder is there): code outside this file asks before it gathers anything for an event.
     static var checking: Bool { isOn }
 
+    /// The launch's requests (MINATO_CHECK_REQUESTS, CheckRequests) become the files the script's copy would have
+    /// made, the folder with them, so a device check needs no copy through the phone's file service at its start.
+    /// Only the process the script launched has them; a process that iOS or the script starts later finds the files.
+    static func takeLaunchRequests(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        if console.isOn {
+            let copy = fcntl(2, F_DUPFD_CLOEXEC, 3)
+            if copy >= 0 { consoleDescriptor.store(copy, ordering: .releasing) }
+        }
+        let requests = CheckRequests.launch(environment: environment)
+        guard !requests.isEmpty else { return }
+        do {
+            try CheckRequests.write(requests, into: folder)
+            event("requests from launch \(requests.map(\.name).joined(separator: " "))")
+        } catch {
+            FileHandle.standardError.write(Data("minato-check: launch requests not written: \(error)\n".utf8))
+        }
+    }
+
+    /// A minato://check/<name>?<value> URL (CheckRequests) during a check: its request as the file the script's copy
+    /// would have made; the session's poll or the next reader takes it as always. True for every minato://check URL,
+    /// taken or not (no check runs, or a name that is no plain file name), so it is never opened as a file.
+    @MainActor
+    static func take(_ url: URL) -> Bool {
+        guard CheckRequests.isCheck(url) else { return false }
+        guard isOn, let request = CheckRequests.request(from: url) else { return true }
+        do {
+            try CheckRequests.write([request], into: folder)
+            event("request from url \(request.name)")
+        } catch {
+            event("request from url \(request.name) not written")
+        }
+        return true
+    }
+
     /// An empty file is no request: on the iPhone the script cannot delete one, only empty it.
     private static func requested(_ name: String) -> Bool {
         text(of: name) != nil
@@ -183,9 +219,11 @@ enum SessionCheck {
             event("window trace on")
         }
         guard requested("guest-log") else { return }
-        for (name, descriptor) in [("guest-log", Int32(2)), ("guest-out", Int32(1))] {
+        for (name, descriptor, prefix) in [("guest-log", Int32(2), CheckConsole.guestLogPrefix),
+                                           ("guest-out", Int32(1), CheckConsole.guestOutPrefix)] {
             let file = open(folder.appending(path: name).path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o644)
             guard file >= 0 else { return event("\(name) failed") }
+            if console.isOn, teeToConsole(descriptor, file: file, prefix: prefix) { continue }
             dup2(file, descriptor)
             close(file)
         }
@@ -196,6 +234,36 @@ enum SessionCheck {
             event("window crc on")
         }
         startFootprintLog()
+    }
+
+    /// With the console (MINATO_CHECK_CONSOLE=1): `descriptor` becomes a pipe that a thread of its own copies to
+    /// `file`, which it then owns, and a line at a time to the console behind `prefix`, so the device check reads the
+    /// guest's log from the console with no copy through the phone's file service. False when no pipe could be made.
+    private static func teeToConsole(_ descriptor: Int32, file: Int32, prefix: String) -> Bool {
+        var ends: [Int32] = [-1, -1]
+        guard pipe(&ends) == 0 else { return false }
+        _ = fcntl(ends[0], F_SETFD, FD_CLOEXEC)
+        _ = fcntl(ends[1], F_SETFD, FD_CLOEXEC)
+        dup2(ends[1], descriptor)
+        close(ends[1])
+        let readEnd = ends[0]
+        let thread = Thread {
+            var lines = CheckConsole.Lines(prefix: prefix)
+            var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+            while true {
+                let count = buffer.withUnsafeMutableBytes { read(readEnd, $0.baseAddress, $0.count) }
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { break }
+                _ = buffer.withUnsafeBytes { write(file, $0.baseAddress, count) }
+                console.guest(&lines, buffer[0..<count])
+            }
+            console.end(&lines)
+            close(readEnd)
+            close(file)
+        }
+        thread.name = "MinatoCheckConsole"
+        thread.start()
+        return true
     }
 
     /// Where the footprint log's sampler lives while the process runs.
@@ -322,8 +390,22 @@ enum SessionCheck {
 
     /// The events on stderr too with MINATO_CHECK_CONSOLE=1, for the device check's console (CheckConsole).
     private static let console = CheckConsole(environment: ProcessInfo.processInfo.environment) { line in
-        FileHandle.standardError.write(Data(line.utf8))
+        var text = line
+        text.withUTF8 { bytes in
+            var done = 0
+            while done < bytes.count {
+                let wrote = write(consoleDescriptor.load(ordering: .acquiring), bytes.baseAddress! + done,
+                                  bytes.count - done)
+                if wrote < 0, errno == EINTR { continue }
+                guard wrote > 0 else { return }
+                done += wrote
+            }
+        }
     }
+
+    /// The console that devicectl or simctl gave the process, descriptor 2 as it was at the launch: the guest's start
+    /// moves descriptor 2 to its log (guestStarts, SessionLogTap), and the console's lines must not go there.
+    private static let consoleDescriptor = Atomic<Int32>(2)
 
     static func event(_ text: String) {
         guard isOn else { return }
@@ -520,6 +602,8 @@ enum SessionCheck {
         let packages = Set(text.split(whereSeparator: \.isNewline).map(String.init))
         let entries = library.entries.filter { packages.contains($0.id) }
         if !entries.isEmpty { await library.remove(entries) }
+        // The last event: a device check that reads the console has no folder to watch for.
+        event("check ended")
         try? FileManager.default.removeItem(at: folder)
     }
 

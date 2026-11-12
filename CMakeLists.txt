@@ -165,6 +165,10 @@ if(APK_HOST_BUILD)
   # own last log lines (where the file service stalled), with device identifiers masked, against a fake devicectl.
   add_test(NAME tools.devicectl_copy_trace
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/devicectl_copy_trace_test.sh")
+  # java-start-check.sh's console transport (CONSOLE=yes): app-start-test's round on a fake iPhone whose copies of the
+  # check's folder all hang ends by the console alone, the requests in at launch, the events and the guest's output out.
+  add_test(NAME tools.device_console
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/device_console_test.sh")
   # tools/provisioning-updates.sh: the builds ask Apple (the Xcode account) only when a profile is about to run out,
   # against profiles made in a temp folder.
   add_test(NAME tools.provisioning_updates

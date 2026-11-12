@@ -27,6 +27,9 @@ struct LibraryScene: View {
                 // The restart's own URL is nothing to do; the stores' certificate export answers with
                 // minato:// too; anything else is a file.
                 guard !Restart.isRestart(url) else { return }
+                #if DEBUG
+                if SessionCheck.take(url) { return }
+                #endif
                 if !signing.handle(url) {
                     // "Open with" shows the file installing in Library (the app navigation's design, section 1).
                     tab = .library

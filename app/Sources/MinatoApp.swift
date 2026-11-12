@@ -36,6 +36,8 @@ struct MinatoApp: App {
             mode = .library(nil)
             return
         }
+        // The check's requests from the launch's environment (CheckRequests), as files before anything reads them.
+        SessionCheck.takeLaunchRequests()
         #endif
         mode = Self.chooseMode()
         // Copies an earlier session left for Photos (ADR-0057 step e), before this one makes any.
@@ -144,6 +146,9 @@ struct MinatoApp: App {
     /// next launch (ADR-0018).
     private static func takeOverDuringSession(_ url: URL) {
         guard !Restart.isRestart(url) else { return }
+        #if DEBUG
+        if SessionCheck.take(url) { return }
+        #endif
         Task {
             let hasAccess = url.startAccessingSecurityScopedResource()
             defer {

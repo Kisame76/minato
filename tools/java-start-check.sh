@@ -80,6 +80,13 @@
 #   APP        a built Minato.app (Debug) to install in place of tools/sim.sh's or, with --device, tools/deploy.sh's
 #              build; on the iPhone it goes over the installed Minato, whose data stays, and the script prints how long
 #              that took and what the certificate hand-over says
+#   CONSOLE    yes: the console transport (the phone's file service hangs on some copies): Minato is launched with
+#              `devicectl device process launch --console` (in the Simulator `simctl launch --console-pty`), the run's
+#              requests go in at launch (MINATO_CHECK_REQUESTS) and mid-session as minato://check URLs, and the events
+#              and the guest's log and stdout come back on the console. Each start's tap ends the library's process
+#              through the restart's fallback (way none, confirm) and the runner launches game mode, since a console
+#              ends with its process; notify-tap-test's rounds, which test iOS's own restart, keep the copies. A
+#              launch whose console says nothing within 10 s goes back to the copies.
 #   LOGS       a folder that keeps each start's guest log and stdout, <app>-<start>.log and .out, and a screenshot
 #              <app>-<start>.png of a start that failed, which shows an alert's text
 #   KEYS       set: only key-test runs (ADR-0068 step 7c2); the typing is the operator's, as simctl sends no keys:
@@ -484,6 +491,7 @@ if [[ -n "${APP:-}" ]] && ! problem=$(tools/check-bundle.sh "$APP"); then
   exit 1
 fi
 WORK=$(mktemp -d)
+CONSOLE_LOG="$WORK/console.log"
 if [[ "$ON_DEVICE" == yes ]]; then
   if [[ -n "${APP:-}" ]]; then
     # Over the installed Minato: never with --remove-existing-content, which would empty its container.
@@ -522,6 +530,11 @@ count_lines() {
   local n
   n=$(grep -c -E "$1" "$2" 2>/dev/null) || true
   echo "${n:-0}"
+}
+ok() { echo "ok    $1"; }
+fail() {
+  echo "FAIL  $1"
+  failures=$((${failures:-0} + 1))
 }
 # A line with the time of day, for the rounds that look for what stalls the iPhone's copies: STAMPS=yes, which the
 # NOTIFY_REAL rounds set, or the caller's for the whole run. A copy of 10 s or more has its line always. The lines go
@@ -640,13 +653,33 @@ devicectl_copy() {
 }
 # Starts app $1, Minato when none, or brings it to the front when it runs.
 launch() {
-  if [[ "$ON_DEVICE" == yes ]]; then
+  # A Minato that runs with its console only comes to the front (a return from the background), as before.
+  if console_use && [[ "${1:-$BUNDLE_ID}" == "$BUNDLE_ID" ]] && ! console_running; then
+    console_launch "$PENDING_REQUESTS"
+    PENDING_REQUESTS=""
+  elif [[ "$ON_DEVICE" == yes ]]; then
     on_device process launch --device "$DEVICE_ID" -q "${1:-$BUNDLE_ID}" >/dev/null
   else
     xcrun simctl launch "$SIM_UDID" "${1:-$BUNDLE_ID}" >/dev/null
   fi
 }
 terminate() {
+  local console=no
+  ! console_reads || console=yes
+  terminate_minato
+  # The console's last lines once Minato is gone (its console ends with it, 2 s at most), then its end: a terminated
+  # Minato needs no relaunch.
+  if [[ $console == yes ]]; then
+    local until=$((SECONDS + 2))
+    while console_running && (( SECONDS < until )); do sleep 0.1; done
+    CONSOLE_TERMINATING=yes
+    console_read
+    CONSOLE_TERMINATING=""
+    console_stop
+    CONSOLE_STATE=off
+  fi
+}
+terminate_minato() {
   if [[ "$ON_DEVICE" == yes ]]; then
     on_device info processes --device "$DEVICE_ID" -q -j "$WORK/processes.json" >/dev/null 2>&1 || return 0
     for pid in $(python3 -c 'import json,sys; print(" ".join(str(p["processIdentifier"]) for p in json.load(open(sys.argv[1]))["result"]["runningProcesses"] if p.get("executable", "").endswith("/Minato.app/Minato")))' "$WORK/processes.json"); do
@@ -677,6 +710,21 @@ reset_events() {
   EVENTS_SHORTER=""
 }
 send_requests() {
+  if console_use; then
+    # For the next launch; to a Minato that runs with a console, each request that changed as a URL as well.
+    local line name
+    PENDING_REQUESTS=$(console_requests)
+    if [[ "$CONSOLE_STATE" == on ]]; then
+      while IFS= read -r line; do
+        name=${line%%=*}
+        [[ "$(cat "$WORK/sent-$name" 2>/dev/null)" != "$line" ]] || continue
+        console_url "$name" "$(cat "$CHECK/$name" 2>/dev/null)"
+      done <<< "$PENDING_REQUESTS"
+    fi
+    while IFS= read -r line; do printf '%s' "$line" > "$WORK/sent-${line%%=*}"; done <<< "$PENDING_REQUESTS"
+    EVENTS_RESET=""
+    return 0
+  fi
   [[ "$ON_DEVICE" == yes ]] || return 0
   rm -rf "$WORK/sent"
   mkdir "$WORK/sent"
@@ -701,6 +749,7 @@ fetch_requests() {
 # ime-surrounding-test-hide: no events at all under its FAIL) is not taken, with one line per start.
 EVENTS_SHORTER=""
 fetch_events() {
+  if console_reads; then console_read; return 0; fi
   [[ "$ON_DEVICE" == yes ]] || return 0
   rm -f "$WORK/events"
   devicectl_copy from --source "$CHECK_REL/events" --destination "$WORK/events" || return 0
@@ -722,6 +771,135 @@ fetch() {
     devicectl_copy from --source "$1" --destination "$CONTAINER/$1" || { rm -f "$CONTAINER/$1"; return 1; }
   else
     [[ -f "$CONTAINER/$1" ]]
+  fi
+}
+# The console transport (CONSOLE=yes). CONSOLE_STATE: off (no console launch yet, or Minato was terminated), on
+# (a launch's console is read), ended (its process ended by itself), dead (the launch's console said nothing within
+# 10 s: the copies again until the next launch). CONSOLE_ROUND=copy: this start keeps the copies (begin_start).
+CONSOLE=${CONSOLE:-}
+CONSOLE_STATE=off
+CONSOLE_ROUND=""
+CONSOLE_PID=""
+CONSOLE_TAKEN=0
+CONSOLE_LAUNCHED=0
+CONSOLE_FIRST=""
+CONSOLE_TERMINATING=""
+PENDING_REQUESTS=""
+console_use() { [[ "$CONSOLE" == yes && "$CONSOLE_ROUND" != copy && "$CONSOLE_STATE" != dead ]]; }
+# Whether Minato runs with a console that is read.
+console_running() { [[ "$CONSOLE_STATE" == on && -n "$CONSOLE_PID" ]] && kill -0 "$CONSOLE_PID" 2>/dev/null; }
+# Whether the start's files and events come from the console now, not from copies.
+console_reads() { console_use && [[ "$CONSOLE_STATE" != off ]]; }
+# The requests as the script has them, one "name=value" line each, a value's newlines and percent signs encoded
+# (CheckRequests.launch decodes them); a request the script does not have goes as "name=", which empties the app's
+# file. The events only after reset_events, as send_requests sends them.
+console_requests() {
+  local name value
+  for name in $REQUESTS; do
+    [[ "$name" != events || -n "$EVENTS_RESET" ]] || continue
+    value=""
+    [[ ! -f "$CHECK/$name" ]] ||
+      value=$(sed -e 's/%/%25/g' "$CHECK/$name" | awk 'NR > 1 { printf "%%0A" } { printf "%s", $0 }')
+    echo "$name=$value"
+  done
+}
+# Stops the console's devicectl or simctl (Minato goes on running).
+console_stop() {
+  if [[ -n "$CONSOLE_PID" ]]; then
+    kill_tree "$CONSOLE_PID" || true  # it may have ended with Minato already
+    wait "$CONSOLE_PID" 2>/dev/null || true
+  fi
+  CONSOLE_PID=""
+}
+# Launches Minato with a console into CONSOLE_LOG, ending one that runs, with the requests $1 ("name=value" lines).
+console_launch() {
+  local requests=$1 environment
+  console_stop
+  environment=$(python3 -c 'import json, sys
+e = {"MINATO_CHECK_CONSOLE": "1"}
+if sys.argv[1]: e["MINATO_CHECK_REQUESTS"] = sys.argv[1]
+print(json.dumps(e))' "$requests")
+  if [[ "$ON_DEVICE" == yes ]]; then
+    python3 tools/require-device.py "$DEVICE_ID" 2>&3 || exit 1
+    xcrun devicectl device process launch --device "$DEVICE_ID" --console --terminate-existing \
+      --environment-variables "$environment" "$BUNDLE_ID" >>"$CONSOLE_LOG" 2>&1 &
+  else
+    SIMCTL_CHILD_MINATO_CHECK_CONSOLE=1 SIMCTL_CHILD_MINATO_CHECK_REQUESTS="$requests" \
+      xcrun simctl launch --console-pty --terminate-running-process "$SIM_UDID" "$BUNDLE_ID" >>"$CONSOLE_LOG" 2>&1 &
+  fi
+  CONSOLE_PID=$!
+  CONSOLE_STATE=on
+  CONSOLE_LAUNCHED=$SECONDS
+  CONSOLE_FIRST=""
+  stamp "console launch"
+}
+# A request to the running Minato as minato://check/$1?$2, through the launch service, not the file service. In the
+# Simulator the request's file is there already (the script writes the app's folder itself), and `simctl openurl` of
+# a minato:// URL waits behind iOS's "Open in Minato?" alert, which then covers every later start.
+console_url() {
+  [[ "$ON_DEVICE" == yes ]] || return 0
+  local url
+  url="minato://check/$1?$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$2")"
+  on_device process launch --device "$DEVICE_ID" -q --payload-url "$url" "$BUNDLE_ID" >/dev/null 2>&1
+}
+# Where the console's lines go: on the iPhone the files the script reads (its copy of the app's folder); in the
+# Simulator, where the app writes those itself, a mirror that console_compare holds against them.
+console_into() { if [[ "$ON_DEVICE" == yes ]]; then echo "$CHECK"; else echo "$WORK/console-mirror"; fi; }
+# In the Simulator, at a start's end: whether the console brought the same lines as the app's own files.
+console_compare() {
+  [[ "$ON_DEVICE" == no ]] || return 0
+  local file got have
+  for file in events guest-log guest-out; do
+    got=$(count_lines . "$WORK/console-mirror/$file")
+    have=$(count_lines . "$CHECK/$file")
+    # A file that is not there is empty.
+    if cmp -s <(cat "$WORK/console-mirror/$file" 2>/dev/null) <(cat "$CHECK/$file" 2>/dev/null); then
+      ok "  the console brought the app's $file, $got lines"
+    else
+      fail "  the console brought $got lines of the app's $file, which has $have"
+      { diff "$CHECK/$file" "$WORK/console-mirror/$file" || true; } | head -n 6 | sed 's/^/      | /'
+    fi
+  done
+}
+# The console's new whole lines into the events and the start's guest-log and guest-out. When the console's process
+# ended: after a "fallback confirmed" (a restart that the fallback ended) Minato is launched again with a console, as
+# iOS would have started it; else the console ended (iOS ended Minato), and the script says so once.
+console_read() {
+  console_reads || return 0
+  local alive=no total
+  [[ -n "$CONSOLE_PID" ]] && kill -0 "$CONSOLE_PID" 2>/dev/null && alive=yes
+  [[ -f "$CONSOLE_LOG" ]] || return 0
+  total=$(wc -l < "$CONSOLE_LOG" | tr -d ' ')
+  if (( ${total:-0} > CONSOLE_TAKEN )); then
+    mkdir -p "$(console_into)"
+    sed -n "$((CONSOLE_TAKEN + 1)),${total}p" "$CONSOLE_LOG" | tr -d '\r' > "$WORK/console.new"
+    awk -v events="$(console_into)/events" -v guest_log="$(console_into)/guest-log" \
+      -v guest_out="$(console_into)/guest-out" '
+        index($0, "minato-check-event ") == 1 { print substr($0, 20) >> events; next }
+        index($0, "minato-guest-log ") == 1 { print substr($0, 18) >> guest_log; next }
+        index($0, "minato-guest-out ") == 1 { print substr($0, 18) >> guest_out; next }' "$WORK/console.new"
+    ! grep -q -E '^minato-(check-event|guest-log|guest-out) ' "$WORK/console.new" || CONSOLE_FIRST=yes
+    CONSOLE_TAKEN=$total
+  fi
+  if [[ "$CONSOLE_STATE" == on && -z "$CONSOLE_FIRST" ]] && (( SECONDS - CONSOLE_LAUNCHED >= 10 )); then
+    echo "note    no console line within 10 s of Minato's launch: the copies again" >&3
+    CONSOLE_STATE=dead
+    return 0
+  fi
+  [[ "$alive" == no && "$CONSOLE_STATE" == on && -n "$CONSOLE_PID" && -z "$CONSOLE_TERMINATING" ]] || return 0
+  wait "$CONSOLE_PID" 2>/dev/null || true
+  CONSOLE_PID=""
+  if [[ -z "$CONSOLE_FIRST" ]]; then
+    # Not one line from this console: devicectl refused it (CoreDeviceError 10002, as tools/device-suite.sh knows it)
+    # or the build has no console lines.
+    echo "note    the console ended without a line: the copies again" >&3
+    CONSOLE_STATE=dead
+  elif tail -n 1 "$EVENTS" 2>/dev/null | grep -q -E '^[0-9.]+ [0-9]+ fallback confirmed$'; then
+    console_launch "$PENDING_REQUESTS"
+    PENDING_REQUESTS=""
+  else
+    CONSOLE_STATE=ended
+    echo "note    console ended: Minato's process ended" >&3
   fi
 }
 # A screenshot into LOGS as $1.png, for a start that failed.
@@ -753,7 +931,15 @@ remove_test_apps() {
     ! wanted install-set-flow-test || echo io.github.kisame76.minato.test.splits; } > "$CHECK/end"
   send_requests
   launch || true
-  for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
+  if console_reads; then
+    # The library logs "check ended" before it removes the folder; on the console there is no folder to look at.
+    local until=$((SECONDS + 10))
+    until console_read; grep -q -E '^[0-9.]+ [0-9]+ check ended$' "$EVENTS" 2>/dev/null || (( SECONDS >= until )); do
+      sleep 0.2
+    done
+  else
+    for _ in $(seq 1 50); do fetch_requests || break; sleep 0.2; done
+  fi
   terminate
   rm -rf "$CHECK"
   if [[ "$ON_DEVICE" == no ]]; then
@@ -805,12 +991,6 @@ restore() {
 trap restore EXIT
 
 failures=0
-ok() { echo "ok    $1"; }
-fail() {
-  echo "FAIL  $1"
-  failures=$((failures + 1))
-}
-
 # The events the app appended, "<seconds> <pid> <event>"; `seen` counts the lines already taken. Waits up to $2
 # seconds for the next event that matches the extended regex $1 and puts it into EVENT, as session-check.sh does.
 seen=0
@@ -844,17 +1024,23 @@ field() {
 # "done", has that line in the file fetched after them.
 SEEN=""
 await_line() {
-  local file=$1 pattern=$2 end=$((SECONDS + $3)) ended
+  local file=$1 pattern=$2 end=$((SECONDS + $3)) ended late=""
   while (( SECONDS < end )); do
     fetch_events
     ended=no
     if tail -n +$((seen + 1)) "$EVENTS" | grep -E '^[0-9.]+ [0-9]+ (could not start|program ended) ' >/dev/null; then
       ended=yes
     fi
-    fetch "$CHECK_REL/$file" || true
+    console_reads || fetch "$CHECK_REL/$file" || true
     if grep -q -E "$pattern" "$CHECK/$file" 2>/dev/null; then
       SEEN=$(now)
       return 0
+    fi
+    # On the console the program's last lines can come a moment after its end's event: one more look a second later.
+    if [[ "$ended" == yes && -z "$late" ]] && console_reads; then
+      late=yes
+      sleep 1
+      continue
     fi
     [[ "$ended" == no ]] || return 1
     sleep 0.2
@@ -871,6 +1057,15 @@ begin_start() {
   terminate
   rm -rf "$CHECK"
   mkdir -p "$CHECK"
+  # On the console the tap's restart ends in the fallback, which ends the library's process, and the runner launches
+  # game mode (a console ends with its process); notify-tap-test's rounds test iOS's own restart and keep the copies.
+  CONSOLE_ROUND=""
+  [[ "$app" != notify-tap-test ]] || CONSOLE_ROUND=copy
+  rm -rf "$WORK/console-mirror"
+  if console_use; then
+    echo none > "$CHECK/way"
+    echo 0.2 > "$CHECK/confirm"
+  fi
   # The guest log is the app's, not dex2oat's: no compile mode after a session, but in the COMPILE round.
   [[ -n "${COMPILE:-}" ]] || echo yes > "$CHECK/no-compile"
   # The menu that waits over the app at a return from the background chooses Continue after 1 s (the menu's pause).
@@ -942,9 +1137,12 @@ begin_start() {
 }
 # The start's files, kept as $WORK/$1-$2.log and .out, after Minato's end.
 end_start() {
-  local file
+  local file console=no
+  # The console's start has its files already (the terminate reads its last lines).
+  ! console_reads || console=yes
   terminate
-  for file in guest-log guest-out; do fetch "$CHECK_REL/$file" || true; done
+  [[ $console == no ]] || console_compare
+  [[ $console == yes ]] || for file in guest-log guest-out; do fetch "$CHECK_REL/$file" || true; done
   cp "$CHECK/guest-log" "$WORK/$1-$2.log" 2>/dev/null || : > "$WORK/$1-$2.log"
   cp "$CHECK/guest-out" "$WORK/$1-$2.out" 2>/dev/null || : > "$WORK/$1-$2.out"
 }
@@ -1117,7 +1315,11 @@ run_media_bench() {
 # A request of SessionCheck while the app runs: $1 is the file's name, on the iPhone sent into the container.
 # A request file $1 for the Debug build, with the text $2 ("yes" without it).
 request() {
-  if [[ "$ON_DEVICE" == yes ]]; then
+  if console_reads; then
+    mkdir -p "$CHECK"
+    echo "${2:-yes}" > "$CHECK/$1"
+    console_url "$1" "${2:-yes}"
+  elif [[ "$ON_DEVICE" == yes ]]; then
     rm -rf "$WORK/one"
     mkdir "$WORK/one"
     echo "${2:-yes}" > "$WORK/one/$1"

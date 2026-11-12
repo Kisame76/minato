@@ -49,4 +49,31 @@ import Testing
         console.event(CheckConsole.line(time: 2, pid: 3, text: "window dump a\nb"))
         #expect(sink.lines.withLock { $0 } == ["minato-check-event 2.000 3 window dump a b\n"])
     }
+
+    /// The guest's log and stdout reach the console too, a line at a time behind their own prefixes, however the
+    /// pipe cuts them; what is left at the end goes as one more line.
+    @Test func theGuestsOutputGoesToTheConsoleALineAtATime() {
+        let sink = Sink()
+        let console = CheckConsole(environment: ["MINATO_CHECK_CONSOLE": "1"], sink: sink.write)
+        var lines = CheckConsole.Lines(prefix: CheckConsole.guestLogPrefix)
+        console.guest(&lines, Array("I/java-test: on".utf8))
+        #expect(sink.lines.withLock { $0 }.isEmpty)
+        console.guest(&lines, Array("Resume\nI/java-test: done\nW/x: ".utf8))
+        console.guest(&lines, Array("half".utf8))
+        console.end(&lines)
+        #expect(sink.lines.withLock { $0 } == ["minato-guest-log I/java-test: onResume\n",
+                                                "minato-guest-log I/java-test: done\n", "minato-guest-log W/x: half\n"])
+        var out = CheckConsole.Lines(prefix: CheckConsole.guestOutPrefix)
+        console.guest(&out, Array("app-start-test: MessageDigest ok\n".utf8))
+        #expect(sink.lines.withLock { $0 }.last == "minato-guest-out app-start-test: MessageDigest ok\n")
+    }
+
+    @Test func withoutTheVariableTheGuestsOutputStaysOffTheConsole() {
+        let sink = Sink()
+        let console = CheckConsole(environment: [:], sink: sink.write)
+        var lines = CheckConsole.Lines(prefix: CheckConsole.guestLogPrefix)
+        console.guest(&lines, Array("I/java-test: done\n".utf8))
+        console.end(&lines)
+        #expect(sink.lines.withLock { $0 }.isEmpty)
+    }
 }
