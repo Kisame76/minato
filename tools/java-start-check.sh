@@ -265,6 +265,10 @@ APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # Minato's Ren'Py memory game (tools/renpy-memory.sh), only with ONLY=renpy-memory-test: it plays for MINUTES.
 [[ " $ONLY " != *" renpy-memory-test "* ]] ||
   APPS+=("renpy-memory-test io.github.kisame76.minato.test.renpymemory")
+# The SDL returns round (run_sdl_returns), only with ONLY=renpy-returns-test: Ren'Py's anim game, the memory game's
+# package (RENPY_RETURNS_APK, by default build/renpy-anim/apk's).
+[[ " $ONLY " != *" renpy-returns-test "* ]] ||
+  APPS+=("renpy-returns-test io.github.kisame76.minato.test.renpymemory")
 # workmanager-test too, when the WorkManager libraries are there to build it with
 # (tools/fetch-workmanager-libraries.py).
 if /usr/bin/python3 tools/fetch-workmanager-libraries.py >/dev/null 2>&1; then
@@ -425,6 +429,7 @@ apk() {
     splits-test|isolated-splits-test) echo "build/$1/$1.apks" ;;
     vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) echo "build/fixtures/apks/$1.apk" ;;
     renpy-splash-test|renpy-stay-test) echo "build/renpy-splash-test/$1.apk" ;;
+    renpy-returns-test) echo "build/renpy-returns-test/renpy-returns-test.apk" ;;
     *) echo "build/$1/$1.apk" ;;
   esac
 }
@@ -444,6 +449,15 @@ for app in "${APPS[@]}"; do
     splits-test|isolated-splits-test) tools/build-splits-test.sh "${app%% *}" >/dev/null ;;
     vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
+    renpy-returns-test)
+      returns_apk=${RENPY_RETURNS_APK:-$(ls build/renpy-anim/apk/*.apk 2>/dev/null | head -n 1)}
+      if [[ ! -f "$returns_apk" ]]; then
+        echo "No Ren'Py anim game: set RENPY_RETURNS_APK or build build/renpy-anim/apk." >&2
+        exit 1
+      fi
+      mkdir -p build/renpy-returns-test
+      cp "$returns_apk" build/renpy-returns-test/renpy-returns-test.apk
+      ;;
     renpy-memory-test)
       if [[ -n "${RENPY_MEMORY_APK:-}" ]]; then
         mkdir -p build/renpy-memory-test
@@ -892,7 +906,7 @@ begin_start() {
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-only"
   [[ "$app" != gamepad-test ]] || echo yes > "$CHECK/pad-rumble"
   # The returns round: a line a second of what the session holds (SessionCheck.liveCounts).
-  [[ "$app" != glsurface-returns-test ]] || echo yes > "$CHECK/live-counts"
+  [[ "$app" != glsurface-returns-test && "$app" != renpy-returns-test ]] || echo yes > "$CHECK/live-counts"
   # Minato's permission alert answers Allow by itself, as the user's tap does (ADR-0063 decision 2).
   case "$app" in
     permission-request-test-fine | permission-request-test-camera | permission-request-test-notifications)
@@ -1451,7 +1465,7 @@ run_resume_cases() {
 # it) at most RETURNS_GROWTH above the start's, so a missing line neither hides a leak nor fails a green run.
 run_returns() {
   local app=glsurface-returns-test package=io.github.kisame76.minato.test.glsurfacereturns round line stops gl
-  local lines=() mtls=()
+  local lines=() mtls=() gls=()
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   for round in 1 2 3 4 5; do
     if ! await_line guest-log "I/$app: surface $round: 30 frames" 60; then
@@ -1470,6 +1484,7 @@ run_returns() {
     gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
     [[ -z "$gl" ]] || echo "note      $gl"
     mtls+=("$(sed -n -E 's/.* mtl=([0-9]+).*/\1/p' <<< "$gl")")
+    gls+=("$gl")
     if (( round == 3 )); then
       request menu
       await_event "menu opened" 15 || fail "  $app: the menu did not open"
@@ -1510,11 +1525,23 @@ PY
     local shown=' (menu |callback on(Pause|Resume|Stop|Restart|Start)|answer |scene did)'
     grep -E "$shown" "$WORK/$app-events.out" | cut -d ' ' -f 1,3- | sed 's/^/      e /' || true
   fi
-  if python3 - "${RETURNS_GROWTH:-32}" "${lines[@]}" -- "${mtls[@]}" <<'PY'; then
+  if python3 - "${RETURNS_GROWTH:-32}" "${lines[@]}" -- "${mtls[@]}" -- "${gls[@]}" <<'PY'; then
 import re
 import sys
 growth, rest = float(sys.argv[1]), sys.argv[2:]
-lines, mtls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+lines, rest = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+mtls, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+# ANGLE's texture sets (the gl line, where there is one): no depth or multisample texture more after a return than
+# after the start's surface, as a window surface that went takes its depth and stencil textures with it.
+def counts(text):
+    pairs = dict(re.findall(r"(\w+)=([0-9]+)/", text or ""))
+    return {name: int(pairs[name]) for name in ("depth", "msaa") if name in pairs}
+sets = [counts(text) for text in gls]
+grown = [f"after surface {n}: {name}= {count}, the start's {sets[0][name]}" for n, held in enumerate(sets[1:], 2)
+         for name, count in held.items() if name in sets[0] and count > sets[0][name]]
+if grown:
+    print("FAIL    a return left ANGLE more depth or multisample textures: " + "; ".join(grown))
+    sys.exit(1)
 pattern = re.compile(r"live windows (\d+) surfaces (\d+) layers (\d+) of (\d+) gpu ([-0-9.]+) foot ([-0-9.]+)$")
 read = [pattern.match(line) for line in lines]
 if len(lines) == 4 and not all(lines):
@@ -1545,6 +1572,108 @@ for name, index in (("the Metal device's bytes", 5), ("the footprint", 6)):
         sys.exit(1)
 print("ok      after three returns the session holds one window, one surface and one layer, and the Metal device's "
       "bytes and the footprint did not grow by a drawable set")
+PY
+    :
+  else
+    failures=$((failures + 1))
+  fi
+}
+
+# The SDL returns round (ONLY=renpy-returns-test): Ren'Py's anim game, whose SDL draws through a SurfaceView with
+# ES 2.0, through RETURNS_TRIPS (4) trips away (RETURNS_AWAY s, 10) and back; Ren'Py builds its display anew at each
+# return, so each return gives SDL's EGL a new window surface. RETURNS_SETTLE s (10) after the start's first frame and
+# after each return's, the session's live line (the windows, surfaces and layers alive, each layer with its drawables,
+# the Metal device's MiB, the footprint) and ANGLE's gl line (the textures alive by class: color= the color
+# textures, the window surfaces' own ones among them, depth= the depth and stencil textures, msaa= the multisample
+# ones, each as count/MiB, mtl= the Metal device's MiB) are read. Each return's texture sets must be the first
+# return's: the windows, surfaces and layers alive the same, depth= and msaa= no more textures, and color=, mtl= and
+# the footprint at most RETURNS_GROWTH MiB (32) above it, less than one full-screen set; so a return's growth is red.
+# The start's values are shown beside them: Ren'Py's first display has its own textures. RETURNS_SHOTS (a folder) keeps
+# a screenshot after the start and after each return, in the Simulator.
+run_sdl_returns() {
+  local app=renpy-returns-test package=io.github.kisame76.minato.test.renpymemory round line gl park returned
+  local lines=() gls=() trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10}
+  if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
+  if ! await_first_frame "$app" 8; then end_start "$app" 1; return; fi
+  for round in $(seq 0 "$trips"); do
+    if (( round > 0 )); then
+      launch "$AWAY"
+      sleep "${RETURNS_AWAY:-10}"
+      launch
+      returned=$SECONDS
+      if ! await_return_frame "$app" "return $round" "$returned"; then
+        failures=$((failures + 1))
+        break
+      fi
+    fi
+    sleep "$settle"
+    fetch_events
+    line=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || line=""
+    fetch "$CHECK_REL/guest-log" || true
+    gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
+    lines+=("$line")
+    gls+=("$gl")
+    echo "note    $( (( round == 0 )) && echo "after the start" || echo "after return $round"): ${line:-no live line}"
+    echo "note      ${gl:-no gl line}"
+    # ANGLE's park line: defer= (command buffers kept for the foreground now), dtotal=, dfull=, dskip= (patch 0025's
+    # and 0027's), for device-regressions' deferral verdict.
+    park=$(grep 'angle park ' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*(angle park )/\1/') || park=""
+    echo "note      ${park:-no angle park line}"
+    # RETURNS_SHOTS: a folder for a screenshot after the start and after each return (the Simulator only).
+    if [[ -n "${RETURNS_SHOTS:-}" && "$ON_DEVICE" == no ]]; then
+      mkdir -p "$RETURNS_SHOTS"
+      xcrun simctl io "$SIM_UDID" screenshot "$RETURNS_SHOTS/$app-$round.png" >/dev/null 2>&1 || true
+    fi
+  done
+  fetch_events
+  cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
+  end_start "$app" 1
+  if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${lines[@]}" -- "${gls[@]}" <<'PY'; then
+import re
+import sys
+growth, trips, rest = float(sys.argv[1]), int(sys.argv[2]), sys.argv[3:]
+lines, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+if len(lines) != trips + 1:
+    print(f"FAIL    {len(lines) - 1} of {trips} returns read")
+    sys.exit(1)
+live = re.compile(r"live windows (\d+) surfaces (\d+) layers (\d+) of (\d+) gpu ([-0-9.]+) foot ([-0-9.]+)$")
+def gl_fields(text):
+    pairs = dict(re.findall(r"(\w+)=([0-9/]+)", text or ""))
+    def split(name):
+        count, _, mib = pairs.get(name, "").partition("/")
+        return (int(count), int(mib)) if count and mib else (None, None)
+    mtl = pairs.get("mtl")
+    return {"color": split("color"), "depth": split("depth"), "msaa": split("msaa"),
+            "mtl": int(mtl) if mtl else None}
+read, held = [live.match(line) for line in lines], [gl_fields(text) for text in gls]
+missing = [("the start" if n == 0 else f"return {n}") for n, (m, g) in enumerate(zip(read, held))
+           if not m or g["depth"][0] is None or g["mtl"] is None]
+if missing:
+    print("FAIL    no live line or no gl line after " + ", ".join(missing))
+    sys.exit(1)
+first, first_gl, bad = read[1], held[1], []
+for n in range(2, trips + 1):
+    m, g = read[n], held[n]
+    if (m[1], m[2], m[3]) != (first[1], first[2], first[3]):
+        bad.append(f"return {n}: windows {m[1]} surfaces {m[2]} layers {m[3]} alive, the first return's "
+                   f"{first[1]} {first[2]} {first[3]}")
+    for name in ("depth", "msaa"):
+        if g[name][0] > first_gl[name][0]:
+            bad.append(f"return {n}: {name}= {g[name][0]} textures, the first return's {first_gl[name][0]}")
+    for name, now, then in (("color=", g["color"][1], first_gl["color"][1]), ("mtl=", g["mtl"], first_gl["mtl"]),
+                            ("the footprint", float(m[6]), float(first[6]))):
+        if now - then > growth:
+            bad.append(f"return {n}: {name} {now - then:.0f} MiB above the first return's")
+print("note    texture sets (live: windows surfaces layers; gl: color depth msaa as count/MiB, mtl MiB; footprint):")
+for n, (m, g) in enumerate(zip(read, held)):
+    label = "start" if n == 0 else f"return {n}"
+    print(f"note      {label:9} live {m[1]} {m[2]} {m[3]}  color {g['color'][0]}/{g['color'][1]}  "
+          f"depth {g['depth'][0]}/{g['depth'][1]}  msaa {g['msaa'][0]}/{g['msaa'][1]}  mtl {g['mtl']}  foot {m[6]}")
+if bad:
+    print("FAIL    a return's texture sets grew: " + "; ".join(bad))
+    sys.exit(1)
+print(f"ok      after {trips} returns the texture sets alive are the first return's: no window, surface, layer, depth "
+      "or multisample texture more, and color, Metal bytes and footprint within a drawable set")
 PY
     :
   else
@@ -2451,6 +2580,8 @@ fi
 
 # The returns round (run_returns above).
 if wanted glsurface-returns-test; then run_returns; fi
+# The SDL returns round (run_sdl_returns above).
+if wanted renpy-returns-test && listed renpy-returns-test; then run_sdl_returns; fi
 
 # The global frame rate limit (Settings > Apps > Frame Rate Limit: 120, 60 or 30 fps, the screen's highest by
 # default). Start 1 with 30, which the request frame-rate-limit stores as the user's pick at each launch: game mode

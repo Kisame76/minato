@@ -12,7 +12,7 @@ What: in the background (the embedder's commit gate holds commits back):
 - CommandQueue::waitUntilSerialCompleted answers a wait for a deferred command buffer, of any length, as done;
 - CommandQueue::ensureResourceReadyForCPU returns at once for a resource the deferred work uses: the CPU reads or
   writes it as it has it (a readback has the pixels from before the deferred work);
-- a full FIFO (32 command buffers or 512 MiB) commits its oldest command buffer instead of a wait: iOS refuses that
+- a full FIFO (32 command buffers or 128 MiB) commits its oldest command buffer instead of a wait: iOS refuses that
   commit (an error of the command buffer, not fatal), its work is lost, as a dropped frame's is, and ANGLE's
   bookkeeping completes it;
 - each wait that went on without its result is counted (ANGLEMetalDeferredSkipped; the park line's dskip=).

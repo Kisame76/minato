@@ -22,10 +22,11 @@ set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^s
 # GL_TEXTURE_EXTERNAL_OES on Metal (patch 0010, ADR-0058 b)).
 # memory_counters: what ANGLE holds in Metal, by class (patch 0015). window_msaa: a 4x window's samples
 # stay on the GPU's tiles (memoryless, patch 0016). texture_parking: idle textures as a packed CPU copy
-# near the memory limit, restored bit for bit (patch 0017, ADR-0075).
+# near the memory limit, restored bit for bit (patch 0017, ADR-0075). buffer_pool: the buffer manager's free list stays
+# at most 64 MiB after the background's buffers complete at a return (patch 0029).
 enable_language(OBJCXX)
 foreach(test IN ITEMS fixed_size commit_gate commit_defer presentation_time rgb_configs external_images
-  memory_counters window_msaa texture_parking)
+  memory_counters window_msaa texture_parking buffer_pool)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)

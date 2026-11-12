@@ -12,7 +12,7 @@ queue's order is kept: a wait until scheduled of a deferred command buffer (the 
 nothing to wait for. Only a wait for a result waits for the foreground and then commits the FIFO: glFinish and every
 WaitUntilFinished flush (queries, buffer reads, readPixels), a CPU access to a resource (ensureResourceReadyForCPU, the
 buffer pool's reuse) and a client wait without an end; a bounded client wait waits its time. A full FIFO, 32 command
-buffers (Metal's queue hands out 64 that are not completed, an uncommitted one included) or 512 MiB of their
+buffers (Metal's queue hands out 64 that are not completed, an uncommitted one included) or 128 MiB of their
 resources, makes the next commit wait for the foreground as 0003 did. Without the deferral set, 0003's gate is
 unchanged. ANGLEMetalDeferredCounters gives the FIFOs' numbers, and ANGLEMetalParkingLine appends " defer=<n>
 dbytes=<MiB> dpeak=<MiB> dtotal=<n> dfull=<n>". A command buffer still deferred when its queue is torn down is
@@ -84,7 +84,7 @@ Remove: not while Minato keeps apps off the GPU in the background.
 +// command buffers the contexts encode into and those in flight.
 +constexpr size_t kMaxDeferred      = 32;
 +constexpr uint64_t kForeverNs      = 3600ull * 1000000000ull;  // a wait this long or longer has no end
-+constexpr size_t kMaxDeferredBytes = 512u << 20;
++constexpr size_t kMaxDeferredBytes = 128u << 20;
 +std::atomic<uint64_t> gDeferredNow{0};
 +std::atomic<uint64_t> gDeferredBytes{0};
 +std::atomic<uint64_t> gDeferredBytesPeak{0};
@@ -306,7 +306,7 @@ Remove: not while Minato keeps apps off the GPU in the background.
 +// go now, counting it as patch 0003's gate does until `counted`, and 0 when it is held back, without
 +// a wait; `waitForeground` waits until commits may go again. A held-back commit keeps its command
 +// buffer in its queue's FIFO and returns; only a wait for its result, or a full FIFO (32 command
-+// buffers or 512 MiB of their resources), waits for the foreground. Set before any context is made.
++// buffers or 128 MiB of their resources), waits for the foreground. Set before any context is made.
 +extern "C" ANGLE_EXPORT void ANGLEMetalSetCommitDeferral(int (*enter)(void), void (*waitForeground)(void))
 +{
 +    rx::mtl::gWaitForeground.store(waitForeground, std::memory_order_release);
