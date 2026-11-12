@@ -65,6 +65,21 @@ int apkconv_convert(const apkconv_signer *signer, const char *elf_path, const ch
 int apkconv_refusals(const char *elf_path, char *reasons, size_t reasons_size, size_t *reasons_needed, char *error,
                      size_t error_size);
 
+/// What the converter does to the executable words of an ELF file, as numbers only: a test aid for the app's Debug
+/// builds, which Get Info shows. Nothing names a library, a symbol or an address.
+typedef struct {
+    uint32_t svc_rewritten;     // svc words rewritten as system calls
+    uint32_t svc_data;          // svc words kept as data, because a PC-relative load reads them
+    uint32_t undefined_words;   // FEAT_LSUI words kept as they are
+    uint32_t x18_islands;       // x18 sites, relocated windows and jump tables
+    uint32_t renames_by_symbol; // whole-function renames of x18 with the bounds of a sized symbol
+    uint32_t renames_by_unwind; // ... with the bounds of an unwind entry, in a library without such a symbol
+} apkconv_counts;
+
+/// Counts the words of `elf_path` in `counts`, without a signer and without writing anything. Returns 0, or -1 with the
+/// reason in `error` for a file that cannot be read or is no library of ours.
+int apkconv_counts_of(const char *elf_path, apkconv_counts *counts, char *error, size_t error_size);
+
 /// Asks the kernel whether this process may load the container `path`, the checks dyld makes
 /// before it maps a file: its code signature is registered (F_ADDFILESIGS_RETURN) and library
 /// validation lets it in (F_CHECK_LV). Loads nothing. Returns 0, or -1 with the reason in `error`.

@@ -577,6 +577,13 @@ final class LibraryModel {
         NotificationHost.shared.removeAll(package: entry.id)
     }
 
+    #if DEBUG
+    /// Debug builds: the folder of the installed version's native libraries, for DebugNativeCounts' line in Get Info.
+    func nativeLibraryFolder(of entry: LibraryEntry) -> URL? {
+        paths?.libraryDirectory(for: entry)
+    }
+    #endif
+
     /// The seconds after which the app closed itself at its last start, for Get Info's footer; nil when it did not.
     func closedItself(_ entry: LibraryEntry) -> Int? {
         paths.flatMap { ClosedItselfStore(folder: $0.applicationSupport).seconds(of: entry.id) }

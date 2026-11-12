@@ -232,6 +232,57 @@ TEST(names_only_the_store_when_both_words_are_in_a_stripped_library) {
     CHECK(!contains(text, "0x49dcdc72"));
 }
 
+// What a library gives the Debug line of Get Info: counts only. Each word of the fixtures above, counted by the form it
+// takes.
+constexpr std::uint32_t svc_0 = 0xd400'0001;
+constexpr std::uint32_t svc_1 = 0xd400'0021;
+constexpr std::uint32_t ldr_x0_literal_8 = 0x5800'0040;  // ldr x0, pc+8
+
+TEST(counts_a_rename_by_symbol_and_one_by_unwind_entry_apart) {
+    const auto by_symbol = apk::container::counts(library({nop, st2_sp_x18, ret}));
+    CHECK(by_symbol.renames_by_symbol == 1 && by_symbol.renames_by_unwind == 0);
+    const auto by_unwind = apk::container::counts(library({nop, st2_sp_x18, ret}, false, {{0x200, 12}}));
+    CHECK(by_unwind.renames_by_symbol == 0 && by_unwind.renames_by_unwind == 1);
+    const auto refused = apk::container::counts(library({nop, st2_sp_x18, ret}, false));
+    CHECK(refused.renames_by_symbol == 0 && refused.renames_by_unwind == 0);
+}
+
+TEST(counts_the_kept_lsui_words_and_leaves_them_out_of_the_islands) {
+    const auto counts = apk::container::counts(library({nop, caspalt_x18, ret}, false));
+    CHECK(counts.undefined_words == 1);
+    CHECK(counts.x18_islands == 0);
+}
+
+TEST(counts_the_svc_words_rewritten_and_the_one_kept_as_data) {
+    const auto counts = apk::container::counts(library({ldr_x0_literal_8, ret, svc_1, svc_0, ret}));
+    CHECK(counts.svc_rewritten == 1);
+    CHECK(counts.svc_data == 1);
+    const auto plain = apk::container::counts(library({nop, svc_0, ret}));
+    CHECK(plain.svc_rewritten == 1 && plain.svc_data == 0 && plain.undefined_words == 0);
+}
+
+TEST(counts_an_island_for_a_plain_read_of_x18) {
+    constexpr std::uint32_t mov_x0_x18 = 0xaa12'03e0;
+    const auto counts = apk::container::counts(library({mov_x0_x18, ret}));
+    CHECK(counts.x18_islands == 1);
+    CHECK(counts.renames_by_symbol == 0 && counts.renames_by_unwind == 0);
+}
+
+TEST(counts_a_window_of_exclusive_accesses_through_x18_as_islands) {
+    // ldxr x0, [x18]; add x0, x0, #1; stxr w1, x0, [x18]; cbnz w1, -12; ret
+    constexpr std::uint32_t ldxr_x0_x18 = 0xc85f'7e40, add_x0_1 = 0x9100'0400, stxr_w1_x0_x18 = 0xc801'7e40,
+                            cbnz_w1_back = 0x35ff'ffa1;
+    const auto counts = apk::container::counts(library({ldxr_x0_x18, add_x0_1, stxr_w1_x0_x18, cbnz_w1_back, ret}));
+    CHECK(counts.x18_islands >= 1);
+    CHECK(counts.x18_islands == 1);
+}
+
+TEST(counts_nothing_for_a_library_without_these_words) {
+    const auto counts = apk::container::counts(library({nop, ret}));
+    CHECK(counts.svc_rewritten == 0 && counts.svc_data == 0 && counts.undefined_words == 0);
+    CHECK(counts.x18_islands == 0 && counts.renames_by_symbol == 0 && counts.renames_by_unwind == 0);
+}
+
 }  // namespace
 
 int main() {

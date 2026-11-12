@@ -370,6 +370,26 @@ extern "C" int apkconv_refusals(const char *elf_path, char *reasons, size_t reas
     }
 }
 
+extern "C" int apkconv_counts_of(const char *elf_path, apkconv_counts *counts, char *error, size_t error_size) {
+    try {
+        if (elf_path == nullptr || counts == nullptr) {
+            throw std::runtime_error("apkconv_counts_of needs a path and a result");
+        }
+        const MappedFile elf(elf_path);
+        const auto found = apk::container::counts(elf.bytes());
+        *counts = {.svc_rewritten = found.svc_rewritten,
+                   .svc_data = found.svc_data,
+                   .undefined_words = found.undefined_words,
+                   .x18_islands = found.x18_islands,
+                   .renames_by_symbol = found.renames_by_symbol,
+                   .renames_by_unwind = found.renames_by_unwind};
+        return 0;
+    } catch (const std::exception &failure) {
+        report(failure, error, error_size);
+        return -1;
+    }
+}
+
 extern "C" int apkconv_check_signature(const char *path, char *error, size_t error_size) {
     try {
         check_signature(path);

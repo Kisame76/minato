@@ -1507,4 +1507,35 @@ CodeScan scan_code(std::span<const std::byte> elf_bytes) {
     return scan_sections(file, elf_bytes, sections_for_scan(elf_bytes));
 }
 
+Counts counts(std::span<const std::byte> elf_bytes) {
+    const auto scan = scan_code(elf_bytes);
+    const auto &findings = scan.findings;
+    Counts result;
+    result.svc_data = static_cast<std::uint32_t>(findings.data_syscalls.size());
+    result.undefined_words = static_cast<std::uint32_t>(findings.undefined_words.size());
+    std::size_t islands = findings.exclusive_regions.size() + findings.jump_tables.size();
+    for (const auto &site : findings.sites) {
+        switch (site.kind) {
+            case rewrite::SiteKind::syscall: ++result.svc_rewritten; break;
+            case rewrite::SiteKind::x18:
+            case rewrite::SiteKind::x18_nosave: ++islands; break;
+            default: break;
+        }
+    }
+    result.x18_islands = static_cast<std::uint32_t>(islands);
+    auto plan = c_rename_plan(elf_bytes, findings.x18_unsupported);
+    keep_c_functions_clear_of_islands(plan, findings);
+    const auto symbols = elf::read_symbols(elf_bytes);
+    const auto sections = layout_sections(elf_bytes);
+    for (const auto &function : plan.functions) {
+        const auto *section = section_of(sections, function.begin);
+        const bool by_symbol =
+            section != nullptr &&
+            sized_function_bounds(symbols, section->address, section->address + section->size, function.begin)
+                .has_value();
+        ++(by_symbol ? result.renames_by_symbol : result.renames_by_unwind);
+    }
+    return result;
+}
+
 }  // namespace apk::container

@@ -198,6 +198,21 @@ Container convert(std::span<const std::byte> elf, const Options &options);
 /// reason is one line: control characters in a name from the file are spaces.
 std::vector<std::string> refusals(std::span<const std::byte> elf);
 
+/// What the converter did to the executable words of a library, as numbers only (a test aid; no name, no address): the
+/// svc words it rewrites as system calls, those it keeps as data because a PC-relative load reads them, the FEAT_LSUI
+/// words it keeps, the x18 islands (sites, relocated windows and jump tables) and the whole-function renames of option
+/// (c), apart by where the function's bounds came from: a sized symbol or, in a library without one, an unwind entry.
+/// Throws what scan_code throws for a file that is no library of ours.
+struct Counts {
+    std::uint32_t svc_rewritten = 0;
+    std::uint32_t svc_data = 0;
+    std::uint32_t undefined_words = 0;
+    std::uint32_t x18_islands = 0;
+    std::uint32_t renames_by_symbol = 0;
+    std::uint32_t renames_by_unwind = 0;
+};
+Counts counts(std::span<const std::byte> elf);
+
 /// The code of a file as the rewriter sees it: what it finds in the executable sections, the only
 /// bytes known to be instructions (R1).
 struct CodeScan {

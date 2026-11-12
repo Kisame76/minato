@@ -12,6 +12,10 @@ struct AppDetailView: View {
     @State private var report: AppReport?
     /// The seconds after which the app closed itself at its last start.
     @State private var closedItself: Int?
+    #if DEBUG
+    /// Debug builds: what the converter did to the app's libraries, numbers only (DebugNativeCounts).
+    @State private var nativeCounts: String?
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -32,6 +36,12 @@ struct AppDetailView: View {
                 if entry.state == .ready, let shown = profile {
                     profileSection(shown)
                 }
+
+                #if DEBUG
+                if let nativeCounts {
+                    Section("Native code (Debug build)") { Text(nativeCounts) }
+                }
+                #endif
 
                 if let report = entry.report {
                     if !report.compatibility.issues.isEmpty {
@@ -128,6 +138,15 @@ struct AppDetailView: View {
                 profile = model.profile(of: entry)
                 closedItself = model.closedItself(entry)
             }
+            #if DEBUG
+            // The converter reads every library, a Unity app's over 100 MB: off the main thread, and the section
+            // appears when the numbers are there.
+            .task {
+                if let folder = model.nativeLibraryFolder(of: entry) {
+                    nativeCounts = await DebugNativeCounts.lineOffMain(libraries: folder)
+                }
+            }
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

@@ -148,6 +148,19 @@ int main(int argc, char **argv) {
         expect(apkconv_refusals(garbage_path, reasons, sizeof reasons, &needed, error, sizeof error) == 1 &&
                    strchr(reasons, '\n') == NULL,
                "apkconv_refusals gives one reason for a file that is no ELF file");
+        // apkconv_counts: numbers for a file that converts (raw-hello makes its system calls with svc), an error for
+        // a file that is no ELF file, and a call without a result is no call.
+        apkconv_counts counts;
+        memset(&counts, 0xff, sizeof counts);
+        error[0] = '\0';
+        expect(apkconv_counts_of(fixture, &counts, error, sizeof error) == 0 && counts.svc_rewritten > 0 &&
+                   counts.svc_data == 0 && counts.undefined_words == 0 && counts.renames_by_symbol == 0 &&
+                   counts.renames_by_unwind == 0,
+               "apkconv_counts_of counts the svc words of a file that converts");
+        error[0] = '\0';
+        expect(apkconv_counts_of(garbage_path, &counts, error, sizeof error) == -1 && error[0] != '\0',
+               "apkconv_counts_of says why it counted nothing in a file that is no ELF file");
+        expect(apkconv_counts_of(fixture, NULL, error, sizeof error) == -1, "apkconv_counts_of needs a result");
     } else {
         printf("     (fixtures missing, conversion skipped)\n");
     }
