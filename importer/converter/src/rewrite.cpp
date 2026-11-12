@@ -551,6 +551,22 @@ bool is_register_dump(std::span<const std::byte> code, std::size_t offset) {
     return (before == below && after == above) || (before == above && after == below);
 }
 
+/// The instructions of FEAT_LSUI (Armv9.6, unprivileged atomics and pairs): CAST, CASPT, SWPT, LDTADD, LDTCLR, LDTSET,
+/// LDTXR and STTXR with their acquire and release forms, and LDTP, STTP, LDTNP and STTNP. A CPU without the feature
+/// (every Apple core and every Android core of today) raises SIGILL on them before they write anything. The masks leave
+/// the register fields free; they were taken from the assembler's own decoding of the whole load/store space, with the
+/// feature on and off, and they match exactly the words that differ.
+constexpr bool is_feat_lsui(std::uint32_t word) {
+    const auto atomic_op = (word >> 12) & 7;
+    return (word & 0xffa0'0000) == 0xc980'0000 ||  // CAST, CASAT, CASLT, CASALT
+           (word & 0xffa1'0000) == 0x4980'0000 ||  // CASPT, CASPAT, CASPLT, CASPALT
+           (word & 0xbf20'fc00) == 0x1920'8400 ||  // SWPT and its forms
+           ((word & 0xbf20'cc00) == 0x1920'0400 &&
+            (atomic_op == 0 || atomic_op == 1 || atomic_op == 3)) ||  // LDTADD, LDTCLR, LDTSET and their forms
+           (word & 0xbfa0'0000) == 0x8900'0000 ||  // LDTXR, LDATXR, STTXR, STLTXR
+           (word & 0xfa00'0000) == 0xe800'0000;    // LDTP, STTP, LDTNP, STTNP
+}
+
 constexpr bool is_store_exclusive(std::uint32_t word) {
     return is_exclusive(word) && !is_load_exclusive(word);
 }
@@ -1577,6 +1593,12 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
         // reads TPIDRRO_EL0, as XNU and Linux leave it zero at EL0.
         if ((instruction & register_mask) == mrs_tpidrro_el0_pattern) {
             findings.tpidrro_reads.push_back(address + offset);
+            continue;
+        }
+        // FEAT_LSUI words are undefined on this CPU, on Android's hardware too: they trap before they write anything,
+        // so they need no island, whatever registers they name. Kept as they are and counted.
+        if (is_feat_lsui(instruction)) {
+            findings.undefined_words.push_back(address + offset);
             continue;
         }
         if (is_covered(offset)) continue;

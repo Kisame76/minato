@@ -137,9 +137,9 @@ void inspect(const std::string &path) {
         x18_islands += findings.exclusive_regions.size() + findings.jump_tables.size();
         std::cout << std::format(
                          "  code: {} bytes; TPIDR_EL0: {} reads, {} writes; CTR_EL0: {} reads; svc: {}, "
-                         "svc kept as data: {}\n",
+                         "svc kept as data: {}; kept, undefined on this CPU: {}\n",
                          scan.code_bytes, thread_pointer_reads, thread_pointer_writes, cache_type_reads, syscalls,
-                         findings.data_syscalls.size())
+                         findings.data_syscalls.size(), findings.undefined_words.size())
                   << std::format("  x18: {} reads, {} write{}, {} saved in register dumps; islands: {}, windows in "
                                  "place: {}, refused: {}",
                                  findings.x18_reads.size(), findings.x18_writes.size(),
@@ -315,6 +315,11 @@ int convert(std::vector<std::string> arguments) {
                                     "(ADR-0020 X7), so the loader refuses the library on a core that clears the exclusive "
                                     "monitor for an access to another granule\n",
                                     report.monitor_inside_islands))
+              << (report.undefined_words == 0
+                      ? std::string()
+                      : std::format("  kept, undefined on this CPU: {} words of FEAT_LSUI, which trap before they "
+                                    "write\n",
+                                    report.undefined_words))
               << std::format("  relocations: {}, ELF image at {:#x}\n", report.relocations, report.image_offset)
               << std::format("  converted in {:.2f} ms\n", elapsed.count());
     return 0;

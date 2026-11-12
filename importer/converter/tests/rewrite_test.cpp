@@ -327,6 +327,49 @@ TEST(scan_veneers_every_immediate_the_same) {
     }
 }
 
+// FEAT_LSUI (Armv9.6): the unprivileged compare-and-swap, swap, atomic add/clear/set, exclusive and pair forms.
+// Undefined on a CPU without the feature (SIGILL before anything is written), so they need no island whatever
+// registers they name: kept as they are and counted apart. The words are the assembler's, with Rt, Rn, Rs or Rt2
+// set to x18 as well.
+constexpr std::uint32_t lsui_words[] = {
+    0x19200482 /* ldtadd */, 0x19201482 /* ldtclr */, 0x19203482 /* ldtset */, 0x19208482 /* swpt */,
+    0x19e00482 /* ldtaddal */, 0x19e08482 /* swptal */, 0x49800082 /* caspt */, 0x49c08082 /* caspalt */,
+    0x89000082 /* sttxr */, 0x89408082 /* ldatxr */, 0xc9800082 /* cast */, 0xc9c08082 /* casalt */,
+    0xe8000082 /* sttnp */, 0xe8c00082 /* ldtp */,
+};
+
+TEST(scan_keeps_every_feat_lsui_word_and_counts_it_even_when_it_names_x18) {
+    for (const std::uint32_t base : lsui_words) {
+        std::vector<std::uint32_t> variants = {base, (base & ~0x1fu) | 18u, (base & ~(0x1fu << 5)) | (18u << 5),
+                                               (base & ~(0x1fu << 16)) | (18u << 16)};
+        // Bits 14:10 are a register (Rt2) in every family but the swap and the atomic operations (the opcode there).
+        if ((base >> 24) != 0x19) variants.push_back((base & ~(0x1fu << 10)) | (18u << 10));
+        for (const std::uint32_t word : variants) {
+            const std::uint32_t words[] = {0xd503201f, word, 0xd65f03c0};
+            const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+            apk::rewrite::Findings findings;
+            apk::rewrite::scan(code, 0x1000, findings);
+            CHECK(findings.undefined_words == (std::vector<std::uint64_t>{0x1004}));
+            CHECK(findings.x18_unsupported.empty());
+            CHECK(findings.x18_reads.empty() && findings.x18_writes.empty());
+            CHECK(findings.sites.empty());
+        }
+    }
+}
+
+TEST(scan_does_not_keep_the_ordinary_atomics_that_the_unprivileged_forms_are_named_after) {
+    // cas x18, x1, [x2]; caspal x18, x19, x2, x3, [x4]; swp x18, x1, [x2]; ldadd x18, x1, [x2]; ldxr x18, [x1]
+    // ... and the word between LDTCLR and LDTSET's opcodes (0b010) and a CAS-shaped word with the T bit clear.
+    for (const std::uint32_t word : {0xc8a07c52u, 0x48e0fc92u, 0xf8208052u, 0xf8200052u, 0xc85f7c32u, 0x19202482u,
+                                     0xc8a07c82u}) {
+        const std::uint32_t words[] = {word, 0xd65f03c0};
+        const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+        apk::rewrite::Findings findings;
+        apk::rewrite::scan(code, 0x1000, findings);
+        CHECK(findings.undefined_words.empty());
+    }
+}
+
 // The final branch of an island goes back to the instruction after the site. Placing the island
 // so that this branch lands on the `b _ref_after_site` of the reference veneer (its 6th word) makes
 // the linker's branch the expected value.

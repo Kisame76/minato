@@ -107,6 +107,11 @@ struct Findings {
     /// `svc #imm` (any immediate, #0 included) that a PC-relative literal load provably reads: data, kept as it is and
     /// not a site. Counted in the import report.
     std::vector<std::uint64_t> data_syscalls;
+    /// Words that are an instruction of FEAT_LSUI (Armv9.6: the unprivileged compare-and-swap, swap, atomic and
+    /// exclusive forms and the unprivileged pairs): undefined on a CPU without that feature, where they raise SIGILL
+    /// before they write anything, on Android hardware as on the iPhone. Kept as they are, whatever registers they
+    /// name, and counted.
+    std::vector<std::uint64_t> undefined_words;
     /// `mrs xN, TPIDRRO_EL0` (any destination, x18 included). It reads the Darwin TSD base, where the x18
     /// islands keep the guest's x18 (slot 11, ADR-0020). XNU and Linux leave TPIDRRO_EL0 zero at EL0 and Android
     /// userspace never reads it, so Android code has no reason to; a guest that did could name an island's TSD

@@ -264,6 +264,9 @@ add_executable(start-test suite/start-test.c)
 add_executable(kernel-test suite/kernel-test.c)
 # svc-immediate-test: the system call number comes from x8; the immediate of svc is ignored (Linux's el0_svc).
 add_executable(svc-immediate-test suite/svc-immediate-test.c)
+# x18-caspalt-test: an encoding that uses x18 in a way no compiler writes (an unprivileged compare-and-swap pair
+# ending in x18, x19, FEAT_LSUI).
+add_executable(x18-caspalt-test suite/x18-caspalt-test.c)
 # priority-test: per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 add_executable(priority-test suite/priority-test.c)
 # memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.

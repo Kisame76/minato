@@ -1255,6 +1255,7 @@ Container convert(std::span<const std::byte> elf_bytes, const Options &options) 
                            .resume = layout.resume});
     };
 
+    report.undefined_words = static_cast<std::uint32_t>(findings.undefined_words.size());
     // Rewrite the sites; each stub goes into the stub area in the order of the sites.
     std::uint64_t stub = stubs_offset;
     for (const auto &site : findings.sites) {

@@ -53,6 +53,11 @@ if(APK_HOST_BUILD)
   target_link_libraries(data_hints_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.data_hints COMMAND data_hints_test "${APK_FIXTURES_DIR}")
 
+  # The refusals of two x18 encodings no compiler writes, with and without a symbol.
+  add_executable(x18_forms_test tests/x18_forms_test.cpp)
+  target_link_libraries(x18_forms_test PRIVATE apkconv apk_defaults apk_testing)
+  add_test(NAME converter.x18_forms COMMAND x18_forms_test)
+
   # The net under the syscall rewrite: the svc words of a library before the import equal the ones rewritten, kept as
   # data or refused, address by address, in small libraries built here and in every built library of the directory.
   add_executable(site_net_test tests/site_net_test.cpp)

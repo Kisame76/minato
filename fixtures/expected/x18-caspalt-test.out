@@ -1,0 +1,1 @@
+caspalt x28, x29, x18, x19 raises SIGILL on a CPU without FEAT_LSUI: yes

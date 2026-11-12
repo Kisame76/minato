@@ -109,6 +109,8 @@ start-test system
 kernel-test system
 # Linux takes the system call number from x8 and ignores the immediate of svc.
 svc-immediate-test system
+# An x18 encoding no compiler writes, as code in a function of its own.
+x18-caspalt-test system
 # Per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 priority-test system
 # memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.

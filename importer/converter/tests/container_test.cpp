@@ -1356,6 +1356,18 @@ TEST(keeps_a_svc_word_that_a_literal_load_reads_as_data) {
     }
 }
 
+// A FEAT_LSUI word is undefined on a CPU without the feature: kept as it is (it traps like Android), counted,
+// nothing refused.
+TEST(keeps_a_feat_lsui_word_that_names_x18_and_counts_it) {
+    auto prog = static_program();
+    prog.put<std::uint32_t>(0x218, 0x49dc'dc72);  // caspalt x28, x29, x18, x19, [x3]
+    const auto container = convert(prog);
+    const auto info = read_info(container.bytes);
+    CHECK(container.report.undefined_words == 1);
+    CHECK(word_at(container.bytes, info.image_offset + 0x218) == 0x49dc'dc72);
+    CHECK(apk::container::refusals(prog.bytes).empty());
+}
+
 TEST(refuses_what_cannot_run) {
     auto tpidrro_read = static_program();
     tpidrro_read.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0: reads the Darwin TSD base
