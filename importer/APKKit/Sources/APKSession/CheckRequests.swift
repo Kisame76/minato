@@ -1,3 +1,6 @@
+// Debug builds only: the session check's code (SessionCheck in the app), which a Release build must not carry
+// (tools/release-debug-strings-check.sh).
+#if DEBUG
 import Foundation
 
 /// The Debug check's requests without the phone's file service. tools/java-start-check.sh leaves its requests as files
@@ -69,3 +72,4 @@ public enum CheckRequests {
         }
     }
 }
+#endif

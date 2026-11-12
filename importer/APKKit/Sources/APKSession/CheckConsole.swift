@@ -1,3 +1,6 @@
+// Debug builds only: the session check's code (SessionCheck in the app), which a Release build must not carry
+// (tools/release-debug-strings-check.sh).
+#if DEBUG
 import Foundation
 
 /// The Debug check's events on the app's console. With MINATO_CHECK_CONSOLE=1 in the launch environment (`devicectl
@@ -59,3 +62,4 @@ public struct CheckConsole: Sendable {
         lines.pending.removeAll()
     }
 }
+#endif

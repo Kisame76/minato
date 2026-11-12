@@ -1,3 +1,6 @@
+// Debug builds only: the session check's code (SessionCheck in the app), which a Release build must not carry
+// (tools/release-debug-strings-check.sh).
+#if DEBUG
 import APKLibrary
 
 /// The Debug build's check events (tmp/session-check/events, written while a check's folder is there) name none of
@@ -38,3 +41,4 @@ extension LastSessionNotice {
         }
     }
 }
+#endif

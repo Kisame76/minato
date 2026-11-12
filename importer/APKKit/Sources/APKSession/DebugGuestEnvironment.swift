@@ -1,3 +1,6 @@
+// Debug builds only: the session check's code (SessionCheck in the app), which a Release build must not carry
+// (tools/release-debug-strings-check.sh).
+#if DEBUG
 import Foundation
 
 /// The guest environment a Debug build takes from a file in Minato's container (ADR-0030 V5's data step), such
@@ -54,3 +57,4 @@ public enum DebugGuestEnvironment {
             && key.allSatisfy { ("A"..."Z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }
     }
 }
+#endif
