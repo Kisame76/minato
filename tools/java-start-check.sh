@@ -112,7 +112,8 @@
 #              sends none: once the app is ready the script prints its points in the window's pixels (the Simulator's
 #              points times the screen's scale) and the four touches to make, and waits for its "done". Its lines
 #              must be Android 15's, whose touches tools/android-reference.sh plays from the same points.
-#   JAVA_TEST  set: java-test's round runs in the Simulator too, where its layout line shows the Simulator's screen
+#   JAVA_TEST  set: java-test's round runs in the Simulator too; its decor's size is the screen's, which the round takes
+#              from a screenshot of the device (not from Minato) in place of the reference's 1290 x 2796
 #   EDGE_SWIPE_SIM set: the edge deferral round (edge-back-test-landscape, two swipes up from the bottom edge) runs in
 #              the Simulator too, where iOS gives the first swipe in landscape to the system for every app
 #   EDGE_CONTROL set: after it, the same swipes over Minato's bare control view controller (EdgeControl), a note
@@ -1229,6 +1230,25 @@ run_start() {
   end_start "$app" "$round"
 }
 
+# The device's screen in pixels, upright, from a screenshot of it (not from Minato): "<width> <height>", or nothing
+# when no screenshot came.
+device_screen() {
+  local shot="$WORK/screen.png"
+  rm -f "$shot"
+  if [[ "$ON_DEVICE" == yes ]]; then
+    on_device capture screenshot --device "$DEVICE_ID" -q --destination "$shot" >/dev/null 2>&1 || true
+  else
+    # A device with two displays (the iPhone Duo) wants one named: the primary's is 1.
+    xcrun simctl io "$SIM_UDID" screenshot "$shot" >/dev/null 2>&1 ||
+      xcrun simctl io "$SIM_UDID" screenshot --display=1 "$shot" >/dev/null 2>&1 || true
+  fi
+  [[ -s "$shot" ]] || { rm -f "$shot"; return 0; }
+  # Only the size is read; the picture of the phone's screen is deleted at once and never kept.
+  sips -g pixelWidth -g pixelHeight "$shot" 2>/dev/null |
+    awk '$1 == "pixelWidth:" { w = $2 } $1 == "pixelHeight:" { h = $2 }
+      END { if (w > 0 && h > 0) print (w < h ? w " " h : h " " w) }'
+  rm -f "$shot"
+}
 # java-test's $1st start, as on the AVD (ADR-0043 step c1): the tap, its window's focus, Home, the return and its own
 # finish. The time to its first onResume comes from the app's own "onResume at" line when it has one.
 run_lifecycle() {
@@ -3679,19 +3699,29 @@ if listed isolated-splits-test; then run_one isolated-splits-test io.github.kisa
 if [[ -n "$JAVA_TEST" ]] && wanted java-test; then
   run_lifecycle 1
   run_lifecycle 2
-  python3 - "$WORK/java-test-1.log" "$WORK/java-test-2.log" fixtures/expected/java-test.logcat "$WORK" <<'EOF' \
-    || failures=$((failures + 1))
+  python3 - "$WORK/java-test-1.log" "$WORK/java-test-2.log" fixtures/expected/java-test.logcat "$WORK" \
+    "$(device_screen)" <<'EOF' || failures=$((failures + 1))
 import os
 import subprocess
 import sys
 sys.path.insert(0, "framework/tests")
 from java_app_run import compare_log
 
-first, second, expected, work = sys.argv[1:]
+first, second, expected, work, screen = sys.argv[1:]
 log = "".join(open(path, encoding="utf-8", errors="replace").read() for path in (first, second))
+# The reference is the AVD's at the M4 plan's display, the iPhone 15 Pro Max's 1290 x 2796 px. Android lays the
+# decor of this edge-to-edge activity out over the whole screen (the AVD at 1206 x 2622 says "decor 1206 x 2622"), so
+# on another device the decor's lines name its screen, taken from a screenshot.
+reference = open(expected, encoding="utf-8").read()
+if screen and screen != "1290 2796":
+    width, height = screen.split()
+    print(f"note    the screen is {width} x {height} pixels, which take the place of Android's 1290 x 2796")
+    reference = reference.replace("layout: decor 1290 x 2796", f"layout: decor {width} x {height}")
+elif not screen:
+    print("note    no screenshot of the device: the decor's size stays Android's 1290 x 2796")
 # At Home the focus goes before onPause, ADR-0032 decision 7's named departure (App's c6 host fixes): iOS takes the
 # focus at willDeactivate, before it tells of the background. Android's other lines and their order stay.
-wanted = open(expected, encoding="utf-8").read().splitlines()
+wanted = reference.splitlines()
 for i in range(len(wanted) - 1):
     if wanted[i:i + 2] == ["I/java-test: onPause, finishing false", "I/java-test: focus false"]:
         wanted[i:i + 2] = wanted[i + 1], wanted[i]

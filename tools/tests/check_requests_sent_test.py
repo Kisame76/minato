@@ -37,7 +37,8 @@ def sent(script, names):
             with open(os.path.join(check, name), "w") as handle:
                 handle.write("yes\n")
         # devicectl_copy to --source <folder> --destination <folder on the iPhone>: kept here instead.
-        program = (lists + body + 'devicectl_copy() { cp -R "$3" "$KEPT"; }\n'
+        # The copy path: send_requests asks console_use first (CONSOLE=yes's way, which sends no files).
+        program = (lists + body + 'devicectl_copy() { cp -R "$3" "$KEPT"; }\nconsole_use() { return 1; }\n'
                    'ON_DEVICE=yes EVENTS_RESET=yes CHECK_REL=check\nsend_requests\n')
         subprocess.run(["bash", "-c", program], check=True,
                        env=dict(os.environ, WORK=work, CHECK=check, KEPT=kept, EVENTS=os.path.join(work, "events")))
