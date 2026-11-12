@@ -104,6 +104,9 @@ struct JumpTable {
 
 struct Findings {
     std::vector<Site> sites;
+    /// `svc #imm` (any immediate, #0 included) that a PC-relative literal load provably reads: data, kept as it is and
+    /// not a site. Counted in the import report.
+    std::vector<std::uint64_t> data_syscalls;
     /// `mrs xN, TPIDRRO_EL0` (any destination, x18 included). It reads the Darwin TSD base, where the x18
     /// islands keep the guest's x18 (slot 11, ADR-0020). XNU and Linux leave TPIDRRO_EL0 zero at EL0 and Android
     /// userspace never reads it, so Android code has no reason to; a guest that did could name an island's TSD

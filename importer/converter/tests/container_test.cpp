@@ -1342,6 +1342,20 @@ TEST(rewrites_a_svc_with_any_immediate_like_svc_zero) {
     }
 }
 
+// A svc word that a literal load reads is data: it stays as it is in the image and is not counted as a syscall.
+TEST(keeps_a_svc_word_that_a_literal_load_reads_as_data) {
+    for (const std::uint32_t word : {0xd400'0001u, 0xd401'a601u}) {
+        auto prog = static_program();
+        prog.put<std::uint32_t>(0x20c, 0x5800'0040);  // ldr x0, .+8: reads the word at 0x214
+        prog.put<std::uint32_t>(0x214, word);
+        const auto container = convert(prog);
+        const auto info = read_info(container.bytes);
+        CHECK(container.report.syscalls == 1);  // only the program's own svc #0 at 0x208
+        CHECK(word_at(container.bytes, info.image_offset + 0x214) == word);
+        CHECK(!branch_target(container.bytes, info.image_offset + 0x214).has_value());
+    }
+}
+
 TEST(refuses_what_cannot_run) {
     auto tpidrro_read = static_program();
     tpidrro_read.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0: reads the Darwin TSD base

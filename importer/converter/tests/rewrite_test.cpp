@@ -285,12 +285,35 @@ TEST(scan_veneers_a_svc_imm_whatever_writes_x8_before_it) {
     CHECK(has_syscall_site(findings, 0x1004));
 }
 
-TEST(scan_veneers_a_svc_imm_that_a_literal_load_reads) {
+// A word that a PC-relative literal load provably reads is data, whatever it decodes as: it stays as it is, for svc #0
+// as for every other immediate, and is counted apart, not as a site.
+TEST(scan_keeps_a_svc_imm_that_a_literal_load_reads_as_data) {
     const std::uint32_t words[] = {0x58000040 /* ldr x0, .+8 */, 0xd503201f /* nop */, 0xd4024681 /* svc #0x1234 */};
     const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
     apk::rewrite::Findings findings;
     apk::rewrite::scan(code, 0x1000, findings);
+    CHECK(!has_syscall_site(findings, 0x1008));
+    CHECK(findings.data_syscalls == (std::vector<std::uint64_t>{0x1008}));
+}
+
+TEST(scan_keeps_a_svc_zero_that_a_literal_load_reads_as_data) {
+    const std::uint32_t words[] = {0x58000040 /* ldr x0, .+8 */, 0xd503201f /* nop */, 0xd4000001 /* svc #0 */};
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x1000, findings);
+    CHECK(!has_syscall_site(findings, 0x1008));
+    CHECK(findings.data_syscalls == (std::vector<std::uint64_t>{0x1008}));
+}
+
+TEST(scan_veneers_a_svc_that_no_literal_load_reads_and_one_that_a_load_elsewhere_reads) {
+    // The load names 0x100c, not the svc at 0x1008 in front of it, nor the svc #0 behind it.
+    const std::uint32_t words[] = {0x58000060 /* ldr x0, .+12 */, 0xd503201f, 0xd4024681, 0xd503201f, 0xd4000001};
+    const std::span code(reinterpret_cast<const std::byte *>(words), sizeof words);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(code, 0x1000, findings);
     CHECK(has_syscall_site(findings, 0x1008));
+    CHECK(has_syscall_site(findings, 0x1010));
+    CHECK(findings.data_syscalls.empty());
 }
 
 TEST(scan_veneers_every_immediate_the_same) {

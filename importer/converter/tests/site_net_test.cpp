@@ -1,11 +1,12 @@
 // The net under the converter's syscall rewrite: for every library, the `svc` words before the import equal the ones
-// the import rewrote, address by address, so no site is lost without a word. Every svc #imm is a syscall (Linux
-// takes the number from x8 and ignores the immediate), so there is no group of words kept or refused: one account.
+// the import rewrote or kept as data, address by address, so no site is lost without a word. Every svc #imm is a
+// syscall (Linux takes the number from x8 and ignores the immediate), except a word that a PC-relative literal load
+// provably reads: that is data, kept as it is and counted apart.
 //
 // The oracle is a plain scan of the executable sections for the words that decode as `svc #imm`; it shares nothing
-// with the rewriter's scan. The converter's own account (its syscall sites) must be exactly that set, and the container
-// must show it: a rewritten site is a branch to its veneer, and no `svc` stands in the executable sections of the
-// image.
+// with the rewriter's scan. The converter's own account (its syscall sites and the words it keeps) must cover that set
+// exactly, and the container must show it: a rewritten site is a branch to its veneer, a kept word is unchanged, and no
+// other `svc` stands in the executable sections of the image.
 //
 // The synthetic libraries always run. With a directory of built libraries as the argument, every AArch64 ELF file in
 // it runs too (the NDK fixtures of tools/build-fixtures.sh).
@@ -21,6 +22,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -75,18 +77,24 @@ std::uint64_t file_offset(const std::vector<std::byte> &elf, std::uint64_t addre
     throw std::runtime_error("an address in no section");
 }
 
-/// The addresses the converter rewrites as syscalls.
-Addresses rewritten_by(const apk::rewrite::Findings &findings) {
-    Addresses rewritten;
+/// The addresses the converter rewrites as syscalls, and the ones it keeps as data (a literal load reads them).
+struct Account {
+    Addresses rewritten, kept;
+};
+
+Account account_of(const apk::rewrite::Findings &findings) {
+    Account account;
     for (const auto &site : findings.sites) {
-        if (site.kind == apk::rewrite::SiteKind::syscall) rewritten.insert(site.address);
+        if (site.kind == apk::rewrite::SiteKind::syscall) account.rewritten.insert(site.address);
     }
-    return rewritten;
+    account.kept.insert(findings.data_syscalls.begin(), findings.data_syscalls.end());
+    return account;
 }
 
 /// Whether `name`'s library keeps the books: the converter rewrites exactly the words of the oracle's set, and the
 /// container carries it out. Returns false when the converter refused the file (for a reason other than an svc).
-bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &elf) {
+bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &elf,
+                        std::optional<std::size_t> expected_kept = std::nullopt) {
     const auto raw = svc_words(elf);
     apk::container::CodeScan scan;
     try {
@@ -102,17 +110,22 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
         CHECK(refused);
         return false;
     }
-    const auto rewritten = rewritten_by(scan.findings);
-    if (rewritten != raw) {
-        std::printf("%s: svc words before the import %zu, rewritten %zu\n", name.c_str(), raw.size(), rewritten.size());
+    const auto account = account_of(scan.findings);
+    Addresses all = account.rewritten;
+    all.insert(account.kept.begin(), account.kept.end());
+    // Disjoint: no word is counted twice, so the sums are the counts of the report.
+    CHECK(account.rewritten.size() + account.kept.size() == all.size());
+    if (all != raw) {
+        std::printf("%s: svc words before the import %zu, accounted for %zu\n", name.c_str(), raw.size(), all.size());
         for (const auto at : raw) {
-            if (!rewritten.contains(at)) std::printf("  lost: %#llx\n", static_cast<unsigned long long>(at));
+            if (!all.contains(at)) std::printf("  lost: %#llx\n", static_cast<unsigned long long>(at));
         }
-        for (const auto at : rewritten) {
+        for (const auto at : all) {
             if (!raw.contains(at)) std::printf("  invented: %#llx\n", static_cast<unsigned long long>(at));
         }
     }
-    CHECK(rewritten == raw);
+    CHECK(all == raw);
+    if (expected_kept) CHECK(account.kept.size() == *expected_kept);
 
     apk::container::Container container;
     try {
@@ -122,12 +135,15 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
         CHECK(std::string(error.what()).find("svc") == std::string::npos);
         return false;
     }
-    CHECK(container.report.syscalls == rewritten.size());
+    CHECK(container.report.syscalls == account.rewritten.size());
     const auto image = container.report.image_offset;
-    for (const auto at : rewritten) {
+    for (const auto at : account.rewritten) {
         CHECK(is_branch(word_at(container.bytes, image + file_offset(elf, at))));
     }
-    // And no svc is left in the code of the image: a word the rewrite left in place is a site lost.
+    for (const auto at : account.kept) {
+        CHECK(word_at(container.bytes, image + file_offset(elf, at)) == word_at(elf, file_offset(elf, at)));
+    }
+    // And no other svc is left in the code of the image: a word the rewrite left in place is a site lost.
     std::size_t left = 0;
     for (const auto &section : apk::container::layout_sections(elf)) {
         if (!holds_code(section)) continue;
@@ -135,7 +151,7 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
             if ((word_at(container.bytes, image + section.offset + at) & svc_mask) == svc) ++left;
         }
     }
-    CHECK(left == 0);
+    CHECK(left == account.kept.size());
     return true;
 }
 
@@ -194,11 +210,11 @@ TEST(counts_a_raw_syscall_with_an_immediate) {
 }
 
 TEST(counts_an_svc_that_a_literal_load_reads_as_data) {
-    // ldr x0, =pool; ret; pool: svc #1 (the load reads it, nothing runs it), then an svc #0: both are rewritten, the
-    // same risk the converter takes for svc #0.
+    // ldr x0, =pool; ret; pool: svc #1 (the load reads it, nothing runs it): kept as data; the svc #0 behind it is
+    // rewritten.
     const auto elf = library({ldr_x0_literal_8, ret, svc_1, svc, ret});
     CHECK(svc_words(elf).size() == 2);
-    CHECK(check_no_site_lost("literal", elf));
+    CHECK(check_no_site_lost("literal", elf, 1));
 }
 
 TEST(counts_every_svc_immediate_the_converter_meets) {
@@ -214,10 +230,10 @@ TEST(counts_an_svc_that_is_the_last_word_of_its_section) {
 }
 
 TEST(counts_an_svc_zero_that_a_literal_load_names) {
-    // The converter takes every svc #0 for a syscall, also one that code loads as data: it is rewritten and counted.
+    // A literal load names the svc #0 itself: data like any other immediate, kept and counted apart.
     const auto elf = library({ldr_x0_literal_8, ret, svc, ret});
     CHECK(svc_words(elf).size() == 1);
-    CHECK(check_no_site_lost("literal svc 0", elf));
+    CHECK(check_no_site_lost("literal svc 0", elf, 1));
 }
 
 TEST(counts_the_syscalls_of_every_executable_section) {

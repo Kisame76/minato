@@ -1554,6 +1554,18 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
     // those could put an island's memory inside a live LL/SC.
     const auto branch_live = branch_reached_sequence(code);
     const auto monitor_escape = monitor_escapes(code, branch_live, ends_hull);
+    // Words that some load-literal (LDR/LDRSW/SIMD-literal/PRFM) reads as a constant: data even when the word
+    // decodes as an instruction, so a svc among them is kept as it is, not rewritten (the svc decision below).
+    std::vector<bool> literal_target(code.size() / 4, false);
+    for (std::size_t j = 0; j + 4 <= code.size(); j += 4) {
+        const auto word = word_at(code, j);
+        if ((word & 0x3b00'0000) != 0x1800'0000) continue;  // the load-literal form
+        const std::int64_t imm19 = static_cast<std::int32_t>(word << 8) >> 13;
+        const std::int64_t target = static_cast<std::int64_t>(j) + imm19 * 4;
+        if (target >= 0 && static_cast<std::uint64_t>(target) + 4 <= code.size()) {
+            literal_target[static_cast<std::size_t>(target) / 4] = true;
+        }
+    }
     // Whether the scan is between a load-exclusive and the store-exclusive or CLREX that ends it.
     bool exclusive_sequence = false;
     for (std::size_t offset = 0; offset < code.size(); offset += 4) {
@@ -1670,8 +1682,13 @@ void scan(std::span<const std::byte> code, std::uint64_t address, Findings &find
             findings.sites.push_back({at, SiteKind::cache_type_read, rt});
         } else if ((instruction & svc_mask) == svc) {
             // Linux takes the syscall number from x8 and never looks at the immediate (el0_svc), so every svc #imm
-            // is a syscall, whatever its immediate and wherever the word stands: one rule, as the kernel has.
-            findings.sites.push_back({at, SiteKind::syscall, 0});
+            // is a syscall, whatever its immediate: one rule, as the kernel has. The one exception is a word that a
+            // PC-relative literal load provably reads: that is data, kept as it is, for svc #0 as for any other.
+            if (literal_target[offset / 4]) {
+                findings.data_syscalls.push_back(at);
+            } else {
+                findings.sites.push_back({at, SiteKind::syscall, 0});
+            }
         }
 
         if (is_exclusive(instruction)) {
