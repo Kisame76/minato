@@ -19,6 +19,9 @@ final class RuntimeSessionHost: SessionHost {
     var windowOpaque = true {
         didSet { updateWindowLayer() }
     }
+    /// Whether the session's window is the app's render surface (a NativeActivity's), which the stall watchdog
+    /// watches as one; a Java app's is not.
+    var sessionWindowRenders = true
     /// The windows on `layer`, whose WebViews graphics/host puts into the session's view (ADR-0056 c2).
     private var windows: Set<UInt64> = []
     /// How many WebViews each window shows, where it shows any.
@@ -50,8 +53,11 @@ final class RuntimeSessionHost: SessionHost {
     func addWindow(width: Int32, height: Int32) -> UInt64 {
         let window = apkrt_window_add(layer.map { Unmanaged.passUnretained($0).toOpaque() }, width, height)
         if window != 0 { windows.insert(window) }
-        // A NativeActivity's render surface is the session's window; a Java app's decor presents within ms.
-        if window != 0 { apkrt_stall_surface_created(window) }
+        // A NativeActivity's render surface is the session's window; a Java app's window is watched for its first
+        // frame only, since its decor draws only when something changed.
+        if window != 0 {
+            if sessionWindowRenders { apkrt_stall_surface_created(window) } else { apkrt_stall_window_created(window) }
+        }
         noteWindow("window \(window) added (the session's window, \(width)x\(height))")
         return window
     }

@@ -444,6 +444,10 @@ void apkrt_stall_surface_created(uint64_t id) {
     apkrt::stall::surface_created(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));
 }
 
+void apkrt_stall_window_created(uint64_t id) {
+    apkrt::stall::window_created(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));
+}
+
 int apkrt_is_background(void) {
     return in_background.load() ? 1 : 0;
 }

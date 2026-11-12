@@ -77,4 +77,14 @@ TEST(the_thread_dump_tags_each_thread_with_its_name) {
     CHECK(dump.find("RenderProbe") != std::string::npos);
 }
 
+TEST(the_thread_dump_puts_minatos_own_threads_under_a_line_of_their_own) {
+    // Here no thread runs guest code, so every thread is Minato's own: each comes after the line that says so, and
+    // none before it. In a session the app's threads come first.
+    const std::string dump = capture_dump();
+    const std::size_t line = dump.find("Minato's own threads, not the app's:");
+    CHECK(line != std::string::npos);
+    CHECK(dump.find("thread ") > line);
+    CHECK(dump.find("RenderProbe") > line);
+}
+
 int main() { return apk::testing::run_all(); }

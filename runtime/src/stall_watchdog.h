@@ -25,6 +25,12 @@ void paused();
 /// timeout. A second call for a live `id` is ignored.
 void surface_created(std::uint64_t id, std::uint64_t now_ns);
 
+/// A Java app's window was created at `now_ns` (apkrt_stall_window_created): its decor draws through hwui only when
+/// something changed, and a WebView's page draws in the host's view, so the watchdog expects its first frame within the
+/// timeout but never takes a still window, after any burst of frames, for a stall. A second call for a live `id` is
+/// ignored.
+void window_created(std::uint64_t id, std::uint64_t now_ns);
+
 /// A frame was presented on the surface `id` at `now_ns` (apkrt_window_presented). A present on an `id` that is not a
 /// tracked app surface -- the decor, a dialog -- is ignored: it is not that surface's frame.
 void presented(std::uint64_t id, std::uint64_t now_ns);

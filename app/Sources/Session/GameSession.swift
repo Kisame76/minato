@@ -161,6 +161,7 @@ final class GameSession {
             let runtime = RuntimeSessionHost(
                 dataFolder: (try? LibraryPaths.standard())?.dataDirectory(for: entry.id).appending(path: "data"),
                 preferRate: { [frameClockSlot] in frameClockSlot.setPreferredRate($0) })
+            runtime.sessionWindowRenders = entry.report?.startsOnJavaPath != true
             self.runtime = runtime
             host = runtime
             waitForAnswer = { RuntimeSessionHost.wait(serial: $0, seconds: $1) }

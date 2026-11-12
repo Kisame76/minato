@@ -411,9 +411,14 @@ int apkrt_window_diagnostic(uint64_t id, char *line, size_t size);
 /// For the host: `id` (apkrt_window_add) is an app surface -- a SurfaceView's surface or a NativeActivity's native
 /// window handed to the app -- so the stall watchdog expects a first frame on it and dumps the threads if none comes
 /// within the timeout, even when the decor has drawn. Call it once per surface, after apkrt_window_add, and for the
-/// session's window too, which is a NativeActivity's surface (a Java app's decor presents at once); not for dialogs
-/// or other requested windows. apkrt_window_remove stops the watch.
+/// session's window of a NativeActivity, which is its surface; not for dialogs or other requested windows.
+/// apkrt_window_remove stops the watch.
 void apkrt_stall_surface_created(uint64_t id);
+
+/// For the host: `id` is a Java app's session window. The stall watchdog expects its first frame within the timeout,
+/// but a window that stops presenting is no stall: its decor draws only when something changed, and a WebView's page
+/// draws in the host's view. apkrt_window_remove stops the watch.
+void apkrt_stall_window_created(uint64_t id);
 
 /// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
 int apkrt_is_background(void);

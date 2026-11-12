@@ -1,5 +1,8 @@
 #include "stall_watchdog.h"
 
+#include "threads.h"
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -31,6 +34,7 @@ struct Surface {
     std::uint64_t last_present_ns = 0;                 // 0: no frame presented on it yet
     std::uint64_t present_times[continuous_frames] = {};  // ring of the last `continuous_frames` present times
     std::uint64_t present_count = 0;
+    bool renders = true;  // a render surface; false for a Java app's window, watched for its first frame only
 };
 
 // Never destroyed: the detached watchdog daemon may touch these during static destruction at a host test exit;
@@ -53,12 +57,26 @@ void paused() {
     is_paused = true;
 }
 
-void surface_created(std::uint64_t id, std::uint64_t now_ns) {
+namespace {
+
+void watch(std::uint64_t id, std::uint64_t now_ns, bool renders) {
     const std::lock_guard<std::mutex> hold(lock);
     for (const Surface &surface : surfaces) {
         if (surface.id == id) return;  // already watched
     }
-    surfaces.push_back(Surface{id, now_ns});
+    Surface surface{id, now_ns};
+    surface.renders = renders;
+    surfaces.push_back(surface);
+}
+
+}  // namespace
+
+void surface_created(std::uint64_t id, std::uint64_t now_ns) {
+    watch(id, now_ns, true);
+}
+
+void window_created(std::uint64_t id, std::uint64_t now_ns) {
+    watch(id, now_ns, false);
 }
 
 void presented(std::uint64_t id, std::uint64_t now_ns) {
@@ -96,11 +114,12 @@ std::string tick(std::uint64_t now_ns) {
             }
             continue;
         }
-        // Stopped presenting: fire only for a continuous renderer. A surface with fewer than `continuous_frames`
-        // presents in the window before its last one is a quiet screen, not a stall -- do not fire or latch (it may
-        // become a continuous renderer and stall later). present_times[present_count % continuous_frames] is the
+        // Stopped presenting: fire only for a render surface that is a continuous renderer; a Java app's window is
+        // watched for its first frame only. A surface with fewer than `continuous_frames` presents in the window before
+        // its last one is a quiet screen, not a stall -- do not fire or latch (it may become a continuous renderer and
+        // stall later). present_times[present_count % continuous_frames] is the
         // oldest of the last `continuous_frames` presents once that many have happened.
-        if (surface.present_count < continuous_frames ||
+        if (!surface.renders || surface.present_count < continuous_frames ||
             surface.last_present_ns - surface.present_times[surface.present_count % continuous_frames] >
                 continuous_window_ns) {
             continue;
@@ -208,22 +227,34 @@ void dump_all_threads(const std::string &reason) {
     thread_act_array_t threads = nullptr;
     mach_msg_type_number_t count = 0;
     if (::task_threads(::mach_task_self(), &threads, &count) != KERN_SUCCESS) return;
-    for (mach_msg_type_number_t i = 0; i < count; ++i) {
-        arm_thread_state64_t state{};
-        mach_msg_type_number_t words = ARM_THREAD_STATE64_COUNT;
-        if (::thread_get_state(threads[i], ARM_THREAD_STATE64, reinterpret_cast<thread_state_t>(&state), &words) ==
-            KERN_SUCCESS) {
-            // The thread's name, via its pthread: prctl(PR_SET_NAME) from the guest lands here as pthread_setname_np,
-            // and Minato names its own threads the same way. A thread with no pthread (none here) or no name is bare.
-            char name[64] = {};
-            if (pthread_t pt = ::pthread_from_mach_thread_np(threads[i]); pt != nullptr) {
-                ::pthread_getname_np(pt, name, sizeof name);
+    // The app's threads first (the guest's, which run guest code on a host thread of the runtime's), then Minato's own
+    // under a line of their own (the session log's tap, the display link, audio, the watchdogs), so a report reads
+    // the app's threads without Minato's helpers mixed in.
+    std::vector<pthread_t> guest;
+    threads::for_each([&guest](threads::GuestThread &thread) {
+        if (const pthread_t host = thread.signals.host.load(); host != pthread_t{}) guest.push_back(host);
+    });
+    for (const bool of_guest : {true, false}) {
+        if (!of_guest) write_line("E/apkrt   : stall: Minato's own threads, not the app's:\n");
+        for (mach_msg_type_number_t i = 0; i < count; ++i) {
+            const pthread_t pt = ::pthread_from_mach_thread_np(threads[i]);
+            const bool is_guest = pt != nullptr && std::find(guest.begin(), guest.end(), pt) != guest.end();
+            if (is_guest != of_guest) continue;
+            arm_thread_state64_t state{};
+            mach_msg_type_number_t words = ARM_THREAD_STATE64_COUNT;
+            if (::thread_get_state(threads[i], ARM_THREAD_STATE64, reinterpret_cast<thread_state_t>(&state),
+                                   &words) != KERN_SUCCESS) {
+                continue;
             }
+            // The thread's name, via its pthread: prctl(PR_SET_NAME) from the guest lands here as
+            // pthread_setname_np, and Minato names its own threads the same way. A thread with no name is bare.
+            char name[64] = {};
+            if (pt != nullptr) ::pthread_getname_np(pt, name, sizeof name);
             dump_thread(static_cast<int>(i), name, __darwin_arm_thread_state64_get_pc(state),
                         __darwin_arm_thread_state64_get_fp(state));
         }
-        ::mach_port_deallocate(::mach_task_self(), threads[i]);
     }
+    for (mach_msg_type_number_t i = 0; i < count; ++i) ::mach_port_deallocate(::mach_task_self(), threads[i]);
     ::vm_deallocate(::mach_task_self(), reinterpret_cast<vm_address_t>(threads),
                     count * sizeof(thread_act_t));
     if (sigquit_is_handled()) ::kill(::getpid(), SIGQUIT);

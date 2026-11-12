@@ -23,6 +23,7 @@ using apkrt::stall::set_timeout_ns;
 using apkrt::stall::surface_created;
 using apkrt::stall::surface_removed;
 using apkrt::stall::tick;
+using apkrt::stall::window_created;
 
 TEST(reports_once_when_an_app_surface_shows_no_first_frame) {
     reset_for_test();
@@ -112,6 +113,28 @@ TEST(a_paused_app_is_never_reported) {
     surface_created(1, 1'000);
     paused();
     CHECK(tick(9'000).empty());  // paused: no report however long it waits
+}
+
+TEST(a_java_window_that_animated_and_then_stays_still_is_not_reported) {
+    // A Java app's window (its decor, drawn by hwui) presents only when something changed: a fade-in gives a burst of
+    // frames, then a still page, or a WebView's page, which draws in the host's view, gives none. That is no stall;
+    // the ANR watchdog covers a main thread that hangs.
+    reset_for_test();
+    set_timeout_ns(100);
+    resumed(1'000);
+    window_created(3, 1'000);
+    for (std::uint64_t i = 0; i < 40; ++i) presented(3, 1'010 + i);  // the fade-in: as many frames as a game's
+    CHECK(tick(5'000).empty());  // long still afterwards
+}
+
+TEST(a_java_window_with_no_first_frame_is_reported) {
+    // A Java app whose window never draws its first frame still hangs at its start.
+    reset_for_test();
+    set_timeout_ns(100);
+    resumed(1'000);
+    window_created(3, 1'000);
+    CHECK(tick(1'050).empty());
+    CHECK(tick(1'200).find("no first frame") != std::string::npos);
 }
 
 namespace {
