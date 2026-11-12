@@ -67,7 +67,7 @@ make_tree() {
   printf 'print("FAKE-DEVICE FAKE-UDID enabled connected")\n' >"$tree/tools/find-device.py"
   printf 'print("FAKE-SIMULATOR Simulator")\n' >"$tree/tools/find-simulator.py"
   for script in gen.sh build-native.sh build-graphics-host.sh build-bench.sh build-fixtures.sh build-bionic.sh \
-      build-java-test-app.sh build-splits-test.sh build-godot.sh sim.sh; do
+      build-java-test-app.sh build-splits-test.sh build-godot.sh renpy-anim.sh sim.sh; do
     printf '#!/bin/sh\necho "build %s $*" >>"%s/build.log"\n' "$script" "$tree" >"$tree/tools/$script"
   done
   for script in deploy.sh hand-over-certificate.sh; do

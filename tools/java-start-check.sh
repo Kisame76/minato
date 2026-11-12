@@ -280,7 +280,7 @@ APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 [[ " $ONLY " != *" renpy-memory-test "* ]] ||
   APPS+=("renpy-memory-test io.github.kisame76.minato.test.renpymemory")
 # The SDL returns round (run_sdl_returns), only with ONLY=renpy-returns-test: Ren'Py's anim game, the memory game's
-# package (RENPY_RETURNS_APK, by default build/renpy-anim/apk's).
+# package (RENPY_RETURNS_APK, by default the one tools/renpy-anim.sh builds from fixtures/renpy/minato-renpy-anim).
 [[ " $ONLY " != *" renpy-returns-test "* ]] ||
   APPS+=("renpy-returns-test io.github.kisame76.minato.test.renpymemory")
 # workmanager-test too, when the WorkManager libraries are there to build it with
@@ -464,9 +464,10 @@ for app in "${APPS[@]}"; do
     vk-ahb-test|window-formats-test|gles-procs-test|present-limit-*) tools/build-fixtures.sh >/dev/null ;;
     renpy-splash-test|renpy-stay-test) ;;
     renpy-returns-test)
+      [[ -n "${RENPY_RETURNS_APK:-}" ]] || tools/renpy-anim.sh >/dev/null
       returns_apk=${RENPY_RETURNS_APK:-$(ls build/renpy-anim/apk/*.apk 2>/dev/null | head -n 1)}
       if [[ ! -f "$returns_apk" ]]; then
-        echo "No Ren'Py anim game: set RENPY_RETURNS_APK or build build/renpy-anim/apk." >&2
+        echo "No Ren'Py anim game: set RENPY_RETURNS_APK or let tools/renpy-anim.sh build it (it needs the SDK)." >&2
         exit 1
       fi
       mkdir -p build/renpy-returns-test
