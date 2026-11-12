@@ -25,7 +25,8 @@ final class NotificationTapUITests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         let text = environment["MINATO_NOTIFICATION"] ?? "Tap me"
         // The notification's cell is a button whose label holds its title and text.
-        let notification = springboard.buttons.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        let cells = springboard.buttons.matching(NSPredicate(format: "label CONTAINS %@", text))
+        let notification = cells.firstMatch
         // The banner of a notification that iOS delivers in the next TEST_RUNNER_MINATO_WAIT seconds, if it comes.
         _ = notification.waitForExistence(timeout: environment["MINATO_WAIT"].flatMap { Double($0) } ?? 0)
         // A drag down from the top edge's left part (its right part is Control Center's). A full-screen app may
@@ -38,12 +39,18 @@ final class NotificationTapUITests: XCTestCase {
                                                                                                          dy: 0.6)))
         }
         XCTAssertTrue(notification.waitForExistence(timeout: 5), "no notification \"\(text)\" in Notification Center")
+        // Several cells may match, and the first is not always one a tap reaches: an earlier entry of Notification
+        // Center below the screen's bottom edge (the iPhone's, at y 932 of 932 points), or a banner still settling.
+        guard let target = reachableCell(of: cells, within: 5) else {
+            XCTFail("no notification \"\(text)\" that a tap reaches: \(cells.count) listed, none hittable")
+            return
+        }
         // The check's output says which of the two the user's tap was.
         print("MINATO-UITEST tapped the \(dragged ? "entry in Notification Center" : "banner")")
-        notification.tap()
+        target.tap()
         // A stack of Minato's notifications opens at the first tap; its newest is tapped then.
-        if !waitUntil(3, { minato.state == .runningForeground }) && notification.exists {
-            notification.tap()
+        if !waitUntil(3, { minato.state == .runningForeground }), let newest = reachableCell(of: cells, within: 2) {
+            newest.tap()
         }
         // A tap in Notification Center that iOS treats as the Lock Screen's (the Simulator's) waits for the unlock,
         // the user's swipe up from the bottom edge, and opens the app then.
@@ -51,6 +58,16 @@ final class NotificationTapUITests: XCTestCase {
             swipeUpFromBottom()
         }
         XCTAssertTrue(minato.wait(for: .runningForeground, timeout: 10), "Minato is not in front after the tap")
+    }
+
+    /// The topmost of `cells` that a tap reaches, waited for up to `seconds`; nil when none becomes hittable.
+    private func reachableCell(of cells: XCUIElementQuery, within seconds: TimeInterval) -> XCUIElement? {
+        var found: XCUIElement?
+        _ = waitUntil(seconds) {
+            found = cells.allElementsBoundByIndex.filter { $0.isHittable }.min { $0.frame.minY < $1.frame.minY }
+            return found != nil
+        }
+        return found
     }
 
     /// The Lock Screen goes, as the user's swipe up from the bottom edge unlocks a device without a passcode (the
