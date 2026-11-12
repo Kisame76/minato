@@ -263,6 +263,14 @@ void scan_loads(Bytes code, std::uint64_t address, Sites &sites) {
     }
 }
 
+/// The class of the word in front of a refused site, for DataHints::Word::before.
+char kind_of_instruction(std::uint32_t word) {
+    if ((word & 0xffff'fc1f) == 0xd65f'0000) return 'r';                                       // ret
+    if ((word & 0xfc00'0000) == 0x1400'0000) return 'b';                                       // b
+    if ((word & 0xfc00'0000) == 0x9400'0000 || (word & 0xffff'fc1f) == 0xd63f'0000) return 'c';  // bl, blr
+    return 'x';
+}
+
 }  // namespace
 
 DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes,
@@ -312,6 +320,32 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
             }
         }
     }
+    std::vector<std::uint64_t> addresses;
+    for (const auto &use : uses) addresses.push_back(use.address);
+    std::ranges::sort(addresses);
+    for (const auto address : addresses) {
+        if (hints.words.size() >= DataHints::kWords) break;
+        DataHints::Word word;
+        word.address = address;
+        const auto holder = std::ranges::find_if(sections, [&](const elf::Section &section) {
+            return (section.flags & elf::section_allocated) != 0 && inside(section, address);
+        });
+        if (holder != sections.end()) {
+            word.section = holder->name;
+            word.executable = (holder->flags & elf::section_executable) != 0;
+            const auto code = bytes_of(*holder);
+            if (address - holder->address >= 4 && address - holder->address + 4 <= code.size()) {
+                std::uint32_t before;
+                std::memcpy(&before, code.data() + (address - holder->address - 4), 4);
+                word.before = kind_of_instruction(before);
+            }
+        }
+        word.in_fde = std::ranges::any_of(
+            fdes, [&](const auto &fde) { return address >= fde.first && address < fde.second; });
+        const auto at = std::ranges::lower_bound(sites.address, address);
+        word.loaded = sites.loaded[static_cast<std::size_t>(at - sites.address.begin())] != 0;
+        hints.words.push_back(word);
+    }
     for (const auto &use : uses) {
         const auto covered = [&](const auto &fde) { return use.address >= fde.first && use.address < fde.second; };
         if (std::ranges::none_of(fdes, covered)) {
@@ -331,13 +365,27 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
 }
 
 std::string describe(const DataHints &hints) {
+    std::string words;
+    for (const auto &word : hints.words) {
+        const char *before = word.before == 'r'   ? "after a return"
+                             : word.before == 'b' ? "after a branch"
+                             : word.before == 'c' ? "after a call"
+                             : word.before == 's' ? "first word of its section"
+                                                  : "after another instruction";
+        words += std::format("{}{:#x} ({}{}, {}, {}, {})", words.empty() ? "; refused words: " : ", ", word.address,
+                             word.section.empty() ? "in no section" : word.section,
+                             word.section.empty() || word.executable ? "" : " (not executable)",
+                             word.in_fde ? "inside an FDE" : "outside every FDE",
+                             word.loaded ? "loaded from code" : "not loaded", before);
+    }
+    if (hints.sites > hints.words.size()) words += std::format(" and {} more", hints.sites - hints.words.size());
     return std::format(
         "; unwind: .eh_frame_hdr {}, .eh_frame {}, {} FDEs, {} of the {} sites outside every FDE; PC-relative loads: "
         "{} of the {} sites loaded from code; sections: {} executable, {} bytes of other sections in executable "
-        "segments, {} of the {} sites in executable sections",
+        "segments, {} of the {} sites in executable sections{}",
         hints.eh_frame_hdr ? "yes" : "no", hints.eh_frame ? "yes" : "no", hints.fdes, hints.sites_outside_fdes,
         hints.sites, hints.sites_loaded_as_data, hints.sites, hints.executable_sections,
-        hints.other_bytes_in_executable_segments, hints.sites_in_executable_sections, hints.sites);
+        hints.other_bytes_in_executable_segments, hints.sites_in_executable_sections, hints.sites, words);
 }
 
 }  // namespace apk::hints

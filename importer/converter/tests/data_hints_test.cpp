@@ -81,7 +81,12 @@ TEST(counts_the_sites_outside_every_fde_and_the_ones_a_load_reads) {
     CHECK(apk::hints::describe(hints) ==
           "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 4 of the 5 sites outside every FDE; PC-relative loads: "
           "1 of the 5 sites loaded from code; sections: 1 executable, 92 bytes of other sections in executable "
-          "segments, 5 of the 5 sites in executable sections");
+          "segments, 5 of the 5 sites in executable sections; refused words: "
+          "0x208 (.text, inside an FDE, not loaded, after a return), "
+          "0x20c (.text, outside every FDE, not loaded, after a return), "
+          "0x210 (.text, outside every FDE, not loaded, after another instruction), "
+          "0x230 (.text, outside every FDE, loaded from code, after another instruction), "
+          "0x238 (.text, outside every FDE, not loaded, after another instruction)");
 }
 
 TEST(a_register_that_adr_set_reaches_a_load_only_within_a_short_straight_line) {

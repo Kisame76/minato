@@ -1333,6 +1333,16 @@ TEST(refuses_what_cannot_run) {
     auto darwin_syscall = static_program();
     darwin_syscall.put<std::uint32_t>(0x218, 0xd400'1001);  // svc #0x80
     CHECK_THROWS(Incompatible, convert(darwin_syscall), "svc #0x80 at 0x218");
+    // The refusal carries the same words as an x18 refusal: where each word lies and what stands in front of it.
+    std::string svc_text;
+    try {
+        convert(darwin_syscall);
+    } catch (const Incompatible &refusal) {
+        svc_text = refusal.what();
+    }
+    CHECK(svc_text.find("; unwind: ") != std::string::npos);
+    CHECK(svc_text.find("; refused words: 0x218 (.text, outside every FDE, not loaded, after a return)") !=
+          std::string::npos);
 
     auto tpidrro_read = static_program();
     tpidrro_read.put<std::uint32_t>(0x218, 0xd53b'd065);  // mrs x5, TPIDRRO_EL0: reads the Darwin TSD base
@@ -1466,7 +1476,8 @@ TEST(an_x18_refusal_carries_the_hints_that_need_no_symbols) {
     const auto text = refusal_of(stripped);
     CHECK(contains(text, "; unwind: .eh_frame_hdr no, .eh_frame no, 0 FDEs, 1 of the 1 sites outside every FDE; "
                          "PC-relative loads: 0 of the 1 sites loaded from code; sections: 1 executable, 8 bytes of "
-                         "other sections in executable segments, 1 of the 1 sites in executable sections"));
+                         "other sections in executable segments, 1 of the 1 sites in executable sections; refused "
+                         "words: 0x21c (.text, outside every FDE, not loaded, "));
 }
 
 /// static_program with a RELR table of `entries` words in a third, read-only LOAD segment: the first an address in

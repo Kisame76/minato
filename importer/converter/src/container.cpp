@@ -874,10 +874,24 @@ void refuse_darwin_syscall(const elf::File &file, std::span<const std::byte> elf
     std::uint32_t instruction;
     std::memcpy(&instruction, word.data(), sizeof instruction);
     const auto more = findings.other_syscalls.size() - 1;
-    const auto site = describe_site(elf::read_symbols(elf_bytes), layout_sections(elf_bytes), address);
-    throw Incompatible(std::format("svc #{:#x} at {:#x}{} is no Linux syscall and would run a Darwin one{}",
+    const auto sections = layout_sections(elf_bytes);
+    const auto site = describe_site(elf::read_symbols(elf_bytes), sections, address);
+    // Where each such word lies and what stands in front of it, as an x18 refusal tells (hints::describe).
+    std::string hints;
+    try {
+        std::vector<rewrite::Unsupported> uses;
+        for (const auto at : findings.other_syscalls) {
+            std::uint32_t value = 0;
+            const auto bytes = file_bytes_at(file, elf_bytes, at, 4, "instruction");
+            std::memcpy(&value, bytes.data(), sizeof value);
+            uses.push_back({at, "svc", value});
+        }
+        hints = hints::describe(hints::data_hints(file, elf_bytes, sections, uses));
+    } catch (const std::exception &) {
+    }
+    throw Incompatible(std::format("svc #{:#x} at {:#x}{} is no Linux syscall and would run a Darwin one{}{}",
                                    (instruction >> 5) & 0xffff, address, site,
-                                   more == 0 ? std::string() : std::format(" (and {} more)", more)));
+                                   more == 0 ? std::string() : std::format(" (and {} more)", more), hints));
 }
 
 void refuse_tpidrro_read(const elf::File &file, std::span<const std::byte> elf_bytes,

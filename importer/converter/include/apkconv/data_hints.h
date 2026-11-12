@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 #include <string>
 
 namespace apk::hints {
@@ -23,6 +24,19 @@ struct DataHints {
     std::size_t executable_sections = 0;      // sections with SHF_EXECINSTR
     std::uint64_t other_bytes_in_executable_segments = 0;  // bytes of non-executable sections inside an RX segment
     std::size_t sites_in_executable_sections = 0;          // sites that lie in a section with SHF_EXECINSTR
+
+    /// What one refused site looks like, without a name of anything: where it lies and what stands in front of it.
+    struct Word {
+        std::uint64_t address = 0;
+        std::string section;       // the section that holds it, empty when none does
+        bool executable = false;   // that section has SHF_EXECINSTR
+        bool in_fde = false;       // an FDE covers it
+        bool loaded = false;       // a PC-relative load of code in the library reads it
+        char before = 's';         // the word in front: r return, b branch, c call, s first word of its section,
+                                   // x any other
+    };
+    std::vector<Word> words;       // the first kWords refused sites, by address
+    static constexpr std::size_t kWords = 8;
 };
 
 /// The hints for the refused `uses` of the library `elf_bytes` (`file` from elf::read, `sections` from read_sections).
@@ -35,7 +49,8 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
 
 /// The text appended to an x18 refusal: "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 2 of the 3 sites outside
 /// every FDE; PC-relative loads: 1 of the 3 sites loaded from code; sections: 1 executable, 92 bytes of other sections
-/// in executable segments, 3 of the 3 sites in executable sections".
+/// in executable segments, 3 of the 3 sites in executable sections; refused words: 0x230 (.text, outside every FDE,
+/// loaded from code, after ret), 0x238 (.text, ...)" (the first eight, and "and N more").
 std::string describe(const DataHints &hints);
 
 }  // namespace apk::hints
