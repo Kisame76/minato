@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A WebView shown the ways apps show one after its page loads: as it is, faded in by alpha, made visible late; the
+     window's pixels at the view's center tell whether the page shows (webview-reveal-test). No network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.webviewreveal" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name="io.github.kisame76.minato.test.webviewreveal.RevealActivity"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

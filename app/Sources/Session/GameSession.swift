@@ -652,7 +652,7 @@ final class GameSession {
     /// container carries them. Each entry and each skipped line is logged. Release builds have none of it.
     private static func debugGuestEnvironment() -> [String] {
         let file = URL.temporaryDirectory.appending(path: "guest-environment")
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         let parsed = DebugGuestEnvironment.parse(text)
         for entry in parsed.entries {
             log.notice("guest environment (Debug): \(entry, privacy: .private(mask: .hash))")
@@ -662,7 +662,14 @@ final class GameSession {
             log.error("guest environment (Debug): \(skipped, privacy: .public) skipped, only MINATO_* keys pass")
             SessionCheck.event("guest environment skipped \(skipped)")
         }
-        return parsed.entries
+        // The session check's WebView trace (guest-log) is the guest's too: its provider reads the guest's environment.
+        var entries = parsed.entries
+        if getenv("MINATO_WEBVIEW_TRACE").map({ String(cString: $0) }) == "1",
+           !entries.contains(where: { $0.hasPrefix("MINATO_WEBVIEW_TRACE=") }) {
+            entries.append("MINATO_WEBVIEW_TRACE=1")
+            SessionCheck.event("guest environment MINATO_WEBVIEW_TRACE=1 (the check's guest log)")
+        }
+        return entries
     }
     #endif
 

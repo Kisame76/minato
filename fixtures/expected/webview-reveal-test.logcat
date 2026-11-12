@@ -1,0 +1,4 @@
+I/webview-reveal-test: plain: the window at the WebView's center shows page
+I/webview-reveal-test: fade: the window at the WebView's center shows page
+I/webview-reveal-test: late: the window at the WebView's center shows page
+I/webview-reveal-test: done

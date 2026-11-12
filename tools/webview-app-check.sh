@@ -6,10 +6,14 @@
 # over https from shouldInterceptRequest, its splash hidden through addJavascriptInterface),
 # webview-prompt-bridge-test (an asset page that calls the app through prompt()) and webview-splash-test (a splash,
 # then a WebView) and webview-redirect-test (redirects a page meets on the network, from the app's own loopback
-# server) and webview-cookie-sites-test (third-party cookies between two sites of that server). The WebView trace
+# server) and webview-cookie-sites-test (third-party cookies between two sites of that server) and
+# webview-commit-test (a splash taken away at each of WebViewClient's points apps use) and webview-reveal-test (a
+# WebView faded in or shown late). The WebView trace
 # is on (MINATO_WEBVIEW_TRACE=1), as a check's guest log has it; its lines are not compared. The run's home folder is the check's own (CFFIXED_USER_HOME), removed before and after.
 # webview-prompt-bridge-test's page sees location.protocol "minato-asset:" where Android's sees "file:" (WebKit takes
 # no handler for file URLs: a named limit), so its expected line is Android's with that protocol.
+# webview-reveal-test's window shows the page where Android's does as transparent pixels (a named limit: the page
+# lies below the window, in the hole), so its expected lines say "transparent" where Android's say "page".
 # webview-localhost-test runs twice: as it is (http and https through the host's scheme handler, ADR-0056's note of
 # 2026-11-11), and with MINATO_WEBVIEW_HTTPS=rewrite, as if WebKit refused that handler (fallback B), against
 # Android's log with B's two named differences: the page's origin is minato-https://, and WebKit tells nothing of a
@@ -20,7 +24,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ $# -eq 0 ]]; then
   set -- webview-localhost-test webview-prompt-bridge-test webview-splash-test webview-redirect-test \
-    webview-cookie-sites-test
+    webview-cookie-sites-test webview-commit-test webview-reveal-test
 fi
 
 # Every app process registers hwui's natives and loads the fonts of bionic's /system (ADR-0043 test 2): shared
@@ -50,6 +54,8 @@ for run in "${runs[@]}"; do
     webview-splash-test) package=io.github.kisame76.minato.test.webviewsplash ;;
     webview-redirect-test) package=io.github.kisame76.minato.test.webviewredirect ;;
     webview-cookie-sites-test) package=io.github.kisame76.minato.test.webviewcookiesites ;;
+    webview-commit-test) package=io.github.kisame76.minato.test.webviewcommit ;;
+    webview-reveal-test) package=io.github.kisame76.minato.test.webviewreveal ;;
     *) echo "webview-app-check: unknown app $app" >&2; exit 2 ;;
   esac
   tools/build-java-test-app.sh "$app" >/dev/null
@@ -60,6 +66,9 @@ for run in "${runs[@]}"; do
   if [[ "$app" == webview-prompt-bridge-test ]]; then
     expected=$OUT/expected.logcat
     sed 's/protocol file:/protocol minato-asset:/' "fixtures/expected/$app.logcat" > "$expected"
+  elif [[ "$app" == webview-reveal-test ]]; then
+    expected=$OUT/expected.logcat
+    sed 's/ shows page$/ shows transparent/' "fixtures/expected/$app.logcat" > "$expected"
   elif [[ -n "$mode" ]]; then
     expected=$OUT/expected.logcat
     sed -e 's#origin https://#origin minato-https://#' -e 's#errors \[.*\]#errors []#' \

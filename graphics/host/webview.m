@@ -401,6 +401,10 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic, strong) MinatoClipView *holder;             // the clip view, once placed
 @property(nonatomic, copy) NSArray<NSValue *> *touchRegion;      // the last touchRegion, in the window's pixels
 @property(nonatomic, copy) NSString *traced;                     // the last trace line's place, to print changes
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *tally;  // the navigation trace's counts
+@property(nonatomic) NSInteger navigations;                      // the main-frame navigations so far
+@property(nonatomic) NSInteger commits;                          // the main frame's commits so far
+@property(nonatomic) uint64_t navigationStart;                   // the current one's start, uptime nanoseconds
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @property(nonatomic) CGFloat cssWidth;                           // the viewport's device-width, 0 before a place
 @property(nonatomic) BOOL wideViewPort;                          // the setting useWideViewPort
@@ -594,6 +598,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
 
 /// COOKIES: the store's whole list, then `then`. "created" is only an order: Created's ms since 2001, or the index.
 - (void)postCookies:(void (^)(void))then {
+    [self tally:@"cookies.posted"];
     const uint64_t token = self.token;
     [self.cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *cookies) {
         NSMutableArray *list = [NSMutableArray new];
@@ -772,6 +777,14 @@ static WKWebsiteDataStore *data_store(id identifier) {
     NSDictionary *call = [self joined:given];
     if (call == nil) return;
     NSString *name = call[@"call"];
+    // The trace counts a whole call by our own name for it, which is letters only (never a page's words).
+    if (navigation_trace_on() && [name isKindOfClass:NSString.class] &&
+        [name rangeOfCharacterFromSet:NSCharacterSet.letterCharacterSet.invertedSet].location == NSNotFound) {
+        [self tally:[@"call." stringByAppendingString:name]];
+        if ([name isEqualToString:@"interfaces"] && [call[@"objects"] isKindOfClass:NSDictionary.class]) {
+            [self tally:@"interfaces.objects" by:(NSInteger)[call[@"objects"] count]];
+        }
+    }
     if ([name isEqualToString:@"make"]) {
         [self make:call];
         return;
@@ -934,6 +947,7 @@ static WKWebsiteDataStore *data_store(id identifier) {
 }
 
 - (void)evaluate:(NSString *)script requestId:(uint64_t)requestId {
+    [self tally:@"bridge.appToPage"];
     const uint64_t token = self.token;
     void (^answer)(id) = ^(id value) {
         NSMutableString *json = [NSMutableString new];
@@ -1022,6 +1036,75 @@ static WKWebsiteDataStore *data_store(id identifier) {
     if (asked == NULL || strcmp(asked, "1") != 0 || [place isEqualToString:self.traced]) return;
     self.traced = place;
     fprintf(stderr, "I/MinatoWebView: host %llu %s\n", (unsigned long long)self.token, place.UTF8String);
+}
+
+/// The navigation trace (MINATO_WEBVIEW_TRACE=1, as the placement trace): per main-frame navigation the scheme, the
+/// host's class (the app's own asset host, localhost, file, other), the path that serves it (the scheme handler, the
+/// handler for http(s), WebKit itself) and its outcome with times (started, redirected, the response's HTTP status
+/// class, committed, finished, failed with the error's domain and code); per view the counts of the guest's calls,
+/// the bridge's calls both ways, the console's messages by level, cookies, the handler's resources and their failures
+/// by error code, and the page's first contentful paint. Never a URL, host name or page text: only classes, counts and
+/// codes.
+static BOOL navigation_trace_on(void) {
+    static int on = -1;
+    if (on < 0) {
+        const char *asked = getenv("MINATO_WEBVIEW_TRACE");
+        on = asked != NULL && strcmp(asked, "1") == 0;
+    }
+    return on == 1;
+}
+
+/// A scheme's name for the trace: the known ones, else "other".
+static NSString *traced_scheme(NSURL *url) {
+    NSString *scheme = url.scheme.lowercaseString;
+    for (NSString *known in @[ @"https", @"http", @"minato-asset", @"minato-https", @"minato-http", @"file", @"data",
+                               @"about", @"blob", @"javascript" ]) {
+        if ([scheme isEqualToString:known]) return known;
+    }
+    return scheme.length == 0 ? @"none" : @"other";
+}
+
+/// A host's class for the trace: the app's own asset host, localhost, a file, none, or another host.
+static NSString *traced_host(NSURL *url) {
+    NSString *scheme = url.scheme.lowercaseString, *host = url.host.lowercaseString;
+    if ([scheme isEqualToString:@"minato-asset"] || [host isEqualToString:@"appassets.androidplatform.net"]) {
+        return @"own";
+    }
+    if ([host isEqualToString:@"localhost"] || [host isEqualToString:@"127.0.0.1"] || [host isEqualToString:@"::1"]) {
+        return @"localhost";
+    }
+    if ([scheme isEqualToString:@"file"]) return @"file";
+    return host.length == 0 ? @"none" : @"other";
+}
+
+- (void)tally:(NSString *)what by:(NSInteger)count {
+    if (!navigation_trace_on()) return;
+    if (self.tally == nil) self.tally = [NSMutableDictionary new];
+    self.tally[what] = @(self.tally[what].integerValue + count);
+}
+
+- (void)tally:(NSString *)what {
+    [self tally:what by:1];
+}
+
+/// One line of the current navigation: its number, the event and the milliseconds since its start.
+- (void)navigationTrace:(NSString *)event {
+    if (!navigation_trace_on()) return;
+    const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    fprintf(stderr, "I/MinatoWebView: host %llu nav %ld %s +%llu ms\n", (unsigned long long)self.token,
+            (long)self.navigations, event.UTF8String,
+            (unsigned long long)(self.navigationStart != 0 ? (now - self.navigationStart) / NSEC_PER_MSEC : 0));
+}
+
+/// The view's counts so far, sorted, on one line.
+- (void)tallyTrace:(NSString *)when {
+    if (!navigation_trace_on()) return;
+    NSMutableString *line = [NSMutableString string];
+    for (NSString *key in [self.tally.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        [line appendFormat:@" %@=%ld", key, (long)self.tally[key].integerValue];
+    }
+    fprintf(stderr, "I/MinatoWebView: host %llu counts at %s:%s\n", (unsigned long long)self.token, when.UTF8String,
+            line.length > 0 ? line.UTF8String : " none");
 }
 
 /// The trace's words for a rectangle in points.
@@ -1344,13 +1427,30 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
         [webView loadRequest:request];
         return;
     }
-    if (action.targetFrame.isMainFrame) self.reload = action.navigationType == WKNavigationTypeReload;
+    if (action.targetFrame.isMainFrame) {
+        self.reload = action.navigationType == WKNavigationTypeReload;
+        if (navigation_trace_on()) {
+            NSURL *url = action.request.URL;
+            NSString *scheme = url.scheme.lowercaseString;
+            const BOOL handled = [webView.configuration urlSchemeHandlerForURLScheme:scheme] != nil;
+            const BOOL web = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"https"];
+            self.navigations++;
+            self.navigationStart = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+            NSString *path = !handled ? @"webkit" : web ? @"handler(http)" : @"handler";
+            [self navigationTrace:[NSString stringWithFormat:@"start scheme=%@ host=%@ path=%@", traced_scheme(url),
+                                                             traced_host(url), path]];
+        }
+    }
     decision(WKNavigationActionPolicyAllow, preferences);
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationResponse:(WKNavigationResponse *)response
                                                        decisionHandler:(void (^)(WKNavigationResponsePolicy))decision {
     if (response.isForMainFrame) [self postStarted];
+    if (response.isForMainFrame && [response.response isKindOfClass:NSHTTPURLResponse.class]) {
+        const NSInteger status = ((NSHTTPURLResponse *)response.response).statusCode;
+        [self navigationTrace:[NSString stringWithFormat:@"response status=%ldxx", (long)status / 100]];
+    }
     NSHTTPURLResponse *http = [response.response isKindOfClass:NSHTTPURLResponse.class]
                                   ? (NSHTTPURLResponse *)response.response
                                   : nil;
@@ -1392,6 +1492,9 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 - (void)webView:(WKWebView *)webView didReceiveServerRedirectForProvisionalNavigation:(WKNavigation *)navigation {
     (void)navigation;
+    [self tally:@"nav.redirects"];
+    [self navigationTrace:[NSString stringWithFormat:@"redirected scheme=%@ host=%@", traced_scheme(webView.URL),
+                                                     traced_host(webView.URL)]];
     MinatoWebItem *coming = self.target >= 0 ? nil : self.pending;
     if (coming != nil && webView.URL != nil) {
         coming.url = webView.URL.absoluteString;  // getUrl answers the redirect's end, getOriginalUrl the request's
@@ -1400,11 +1503,73 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 }
 
 - (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+    [self navigationTrace:@"committed"];
     [self committed];
+    [self commitVisible:webView];
+}
+
+/// onPageCommitVisible: Chromium tells it once the main frame's committed page is ready to draw (a visual state
+/// callback it inserts at the commit), apart from onPageFinished, which waits for the subresources. Here: when a
+/// snapshot of one point after the next screen update comes back, as WebKit answers it only once the committed page's
+/// next presentation update is done (an animation frame would not do: WebKit holds them back while the view's window
+/// is not on screen). A later commit before then tells nothing for this one, as Chromium's callback never comes.
+- (void)commitVisible:(WKWebView *)webView {
+    const NSInteger commit = ++self.commits;
+    NSString *url = either(self.currentURL, webView.URL.absoluteString);
+    WKSnapshotConfiguration *point = [WKSnapshotConfiguration new];
+    point.rect = CGRectMake(0, 0, 1, 1);
+    point.snapshotWidth = @1;
+    point.afterScreenUpdates = YES;
+    __weak MinatoWebView *weakSelf = self;
+    [webView takeSnapshotWithConfiguration:point
+                         completionHandler:^(id image, NSError *failure) {
+                             (void)image;
+                             MinatoWebView *strong = weakSelf;
+                             if (strong == nil) return;
+                             if (strong.commits != commit) {
+                                 [strong navigationTrace:@"commitVisible none (a later commit)"];
+                                 return;
+                             }
+                             const uint64_t posts = strong.window != 0 ? apkrt_window_presents(strong.window) : 0;
+                             [strong navigationTrace:[NSString stringWithFormat:
+                                                                  @"commitVisible delivered%@ window posts=%llu",
+                                                                  failure != nil ? @" (no snapshot)" : @"",
+                                                                  (unsigned long long)posts]];
+                             [strong navigation:@"commitVisible" url:url];
+                             if (!navigation_trace_on() || strong.window == 0) return;
+                             // The window's posts a second later: whether the app drew again once it was told.
+                             const dispatch_time_t second = dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC);
+                             dispatch_after(second, dispatch_get_main_queue(), ^{
+                                 MinatoWebView *later = weakSelf;
+                                 if (later == nil || later.window == 0) return;
+                                 [later navigationTrace:[NSString stringWithFormat:
+                                                                      @"commitVisible +1 s window posts=%llu",
+                                                                      (unsigned long long)apkrt_window_presents(
+                                                                          later.window)]];
+                             });
+                         }];
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     (void)navigation;
+    [self navigationTrace:@"finished"];
+    if (navigation_trace_on()) {
+        // The page's first contentful paint (the Paint Timing API in the host's world): its time, or that none came.
+        __weak MinatoWebView *weakSelf = self;
+        [webView evaluateJavaScript:@"(function() { var p = performance.getEntriesByName('first-contentful-paint');"
+                                    @" return p.length ? p[0].startTime : -1; })()"
+                            inFrame:nil
+                     inContentWorld:host_world()
+                  completionHandler:^(id value, NSError *failure) {
+                      MinatoWebView *strong = weakSelf;
+                      if (strong == nil) return;
+                      const double ms = failure == nil && [value isKindOfClass:NSNumber.class] ? [value doubleValue]
+                                                                                                 : -1;
+                      [strong navigationTrace:ms >= 0 ? [NSString stringWithFormat:@"painted fcp=%.0f ms", ms]
+                                                      : @"painted no contentful paint yet"];
+                      [strong tallyTrace:@"finished"];
+                  }];
+    }
     // WebKit reports the title after the load's end; Chromium before onPageFinished: so the host reads it first, in
     // a world of its own, which the page's JavaScript setting does not reach.
     const BOOL error = self.errorPage;
@@ -1428,6 +1593,12 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 /// A main-frame load that failed: its error, onPageFinished, then Chromium's error page at its URL.
 - (void)failed:(NSError *)error url:(NSString *)url {
     [self postStarted];
+    [self navigationTrace:[NSString stringWithFormat:@"failed domain=%@ code=%ld",
+                                                     [error.domain isEqualToString:NSURLErrorDomain] ? @"url"
+                                                     : [error.domain isEqualToString:@"WebKitErrorDomain"] ? @"webkit"
+                                                                                                            : @"other",
+                                                     (long)error.code]];
+    [self tallyTrace:@"failed"];
     if ([error.domain isEqualToString:NSURLErrorDomain] && error.code == NSURLErrorCancelled) return;
     // WebKit's "frame load interrupted by policy change" (WebKitErrorDomain 102): a load that became a download.
     if ([error.domain isEqualToString:@"WebKitErrorDomain"] && error.code == 102) return;
@@ -1472,6 +1643,9 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
         [self title:message.body];
     } else if ([message.name isEqualToString:@"minatoConsole"] && [message.body isKindOfClass:NSDictionary.class]) {
         NSDictionary *body = message.body;
+        NSString *level = [body[@"level"] isKindOfClass:NSString.class] ? body[@"level"] : @"log";
+        const BOOL known = [@[ @"log", @"warning", @"error", @"tip" ] containsObject:level];
+        [self tally:[@"console." stringByAppendingString:known ? level : @"other"]];
         post(self.token, APKRT_WEBVIEW_REC_CONSOLE, 0, @{
             @"level" : [body[@"level"] isKindOfClass:NSString.class] ? body[@"level"] : @"log",
             @"message" : [body[@"message"] isKindOfClass:NSString.class] ? body[@"message"] : @"",
@@ -1533,6 +1707,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
           defaultText:(NSString *)text initiatedByFrame:(WKFrameInfo *)frame
     completionHandler:(void (^)(NSString *))completion {
     if ([prompt hasPrefix:kBridgePrompt]) {
+        [self tally:@"bridge.pageToApp"];
         [self bridge:prompt done:completion];
         return;
     }
@@ -1545,6 +1720,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 /// The guest serves the request: its head, then its body in answers, then an empty answer.
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)task {
+    [self tally:[@"resource.asked." stringByAppendingString:traced_scheme(task.request.URL)]];
     MinatoResource *resource = [MinatoResource new];
     resource.task = task;
     resource.view = self;
@@ -1746,6 +1922,7 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 
 /// The page's request that the app did not answer, from the network.
 - (void)pass:(uint64_t)rid {
+    [self tally:@"resource.passed"];
     MinatoResource *resource = self.resources[@(rid)];
     NSMutableURLRequest *request = [resource.request mutableCopy];
     request.URL = network_url(request.URL);
@@ -1866,6 +2043,9 @@ static BOOL same_origin(NSURL *a, NSURL *b) {
         [resource.task didFinish];
         return;
     }
+    [self tally:[NSString stringWithFormat:@"resource.failed.%@%ld",
+                                           [error.domain isEqualToString:NSURLErrorDomain] ? @"url" : @"other",
+                                           (long)error.code]];
     [resource.task didFailWithError:error];
     if (resource.mainFrame) return;
     int code;

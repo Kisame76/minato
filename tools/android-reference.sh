@@ -1209,6 +1209,17 @@ run_app() {
     webview-prompt-bridge-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.PromptActivity
       ;;
+    # webview-commit-test: a splash over a WebView whose page the app serves from WebViewAssetLoader's host, taken
+    # away in onPageFinished, onPageCommitVisible, the VisualStateCallback that one posts, or at the pre-draw after
+    # one of them clears a keep-on-screen condition; each round logs WebViewClient's callbacks. It ends with "done".
+    webview-commit-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CommitActivity
+      ;;
+    # webview-reveal-test: a WebView shown as it is, faded in by alpha or made visible late; PixelCopy tells what the
+    # window shows at its center. It ends with "done".
+    webview-reveal-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RevealActivity
+      ;;
     # webview-splash-test (ADR-0056): a splash, then a WebView in its place, then a second activity's WebView. It
     # ends with "done".
     webview-splash-test)

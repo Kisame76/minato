@@ -25,6 +25,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.ViewRootImpl;
 import android.view.ViewStructure;
 import android.view.ViewTreeObserver;
@@ -117,6 +118,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private int mLoads;
     private int mStarted;
     private int mFinished;
+    private int mVisible;
     private int mErrors;
     private final StringBuilder mErrorCodes = new StringBuilder();
     private int mIntercepts;
@@ -164,8 +166,29 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private int[] mTouchRegion;
     private final ViewTreeObserver.OnPreDrawListener mPlacer = () -> {
         place();
+        afterFade();
         return true;
     };
+
+    /** The alpha of the WebView and its ancestors at the last pre-draw. */
+    private float mDrawnAlpha = 1f;
+
+    /**
+     * One more frame once a fade ends. The window is drawn in software, where AOSP's View.draw draws a view whose alpha
+     * just reached 1 through saveLayerAlpha once more (PFLAG3_VIEW_IS_ANIMATING_ALPHA): onDraw's clear then lands in
+     * that layer, not in the window, and the page stays covered until something draws again. The next frame draws
+     * without the layer. Android's WebView draws the page itself, in any layer.
+     */
+    private void afterFade() {
+        float alpha = 1f;
+        for (ViewParent parent = mWebView; parent instanceof View; parent = parent.getParent()) {
+            alpha *= ((View) parent).getAlpha() * ((View) parent).getTransitionAlpha();
+        }
+        if (alpha >= 1f && mDrawnAlpha < 1f) {
+            mWebView.postInvalidateOnAnimation();
+        }
+        mDrawnAlpha = alpha;
+    }
 
     WebViewProviderImpl(WebView webView, WebView.PrivateAccess privateAccess) {
         synchronized (WebViewProviderImpl.class) {
@@ -187,7 +210,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
         Log.i(TAG, "trace " + mTraceId + " " + event + " | host=" + (mHost == HOST_OPEN ? "open"
                 : mHost == HOST_ABSENT ? "absent" : "none") + " loads=" + mLoads + " started=" + mStarted
-                + " finished=" + mFinished + " errors=" + mErrors + (mErrors > 0 ? " codes=" + mErrorCodes : "")
+                + " finished=" + mFinished + " visible=" + mVisible + " errors=" + mErrors
+                + (mErrors > 0 ? " codes=" + mErrorCodes : "")
                 + " intercept=" + mIntercepts + "/" + mInterceptHits + " interfaces=" + interfaces
                 + " eval=" + mEvaluates + " prompt=" + mPrompts + " alert=" + mAlerts + " confirm=" + mConfirms
                 + " client=" + mClient.getClass().getName().replaceAll(".*[.$]", "")
@@ -649,6 +673,7 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
             synchronized (this) {
                 mStarted += phase.equals("started") ? 1 : 0;
                 mFinished += phase.equals("finished") ? 1 : 0;
+                mVisible += phase.equals("commitVisible") ? 1 : 0;
             }
             trace(phase + " " + traced(url));
         }
@@ -670,6 +695,11 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     mHistoryIndex = record.optInt("index", mHistory.size() - 1);
                 }
                 mClient.doUpdateVisitedHistory(mWebView, url, record.optBoolean("reload"));
+                break;
+            case "commitVisible":
+                // Chromium's onPageCommitVisible: the committed page is ready to draw, before or after
+                // onPageFinished; apps take a splash or placeholder away there.
+                mClient.onPageCommitVisible(mWebView, url);
                 break;
             case "finished":
                 mClient.onPageFinished(mWebView, url);
@@ -996,6 +1026,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                 >= Build.VERSION_CODES.KITKAT) {
             throw new IllegalArgumentException("Private browsing is not supported in WebView.");
         }
+        // WebView is a ViewGroup, which does not draw itself by default; Chromium's AwContents turns that off, so
+        // that onDraw runs, which here clears the page's area for the host's view below the window.
+        mWebView.setWillNotDraw(false);
     }
 
     @Override public void setHorizontalScrollbarOverlay(boolean overlay) {}
@@ -1312,8 +1345,20 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
         return null;
     }
-    @Override public WebMessagePort[] createWebMessageChannel() { return new WebMessagePort[0]; }
-    @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {}
+    @Override
+    public WebMessagePort[] createWebMessageChannel() {
+        if (TRACE) {
+            trace("unwritten createWebMessageChannel");  // the page cannot answer an app that waits on its port
+        }
+        return new WebMessagePort[0];
+    }
+
+    @Override
+    public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
+        if (TRACE) {
+            trace("unwritten postWebMessage ports=" + (message.getPorts() != null ? message.getPorts().length : 0));
+        }
+    }
     @Override public WebSettings getSettings() { return mSettings; }
     @Override public void setMapTrackballToArrowKeys(boolean setMap) {}
     @Override public void flingScroll(int vx, int vy) {}
@@ -1400,6 +1445,12 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override
     public void onAttachedToWindow() {
         mWebView.getViewTreeObserver().addOnPreDrawListener(mPlacer);
+        // The page lies in the host's view below the window, which shows it through the area onDraw clears; so the
+        // window takes an alpha channel, as a SurfaceView's does (ViewRootImpl makes it TRANSLUCENT). Chromium draws
+        // into the window instead, which therefore stays opaque on Android.
+        if (mWebView.getParent() != null) {
+            mWebView.getParent().requestTransparentRegion(mWebView);
+        }
     }
 
     @Override

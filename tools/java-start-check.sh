@@ -59,7 +59,9 @@
 # calls the app through prompt(); its page sees location.protocol "minato-asset:", a named limit, where Android's
 # sees "file:"), webview-splash-test and webview-redirect-test (redirects from the app's own loopback server over
 # http: on iOS that cleartext goes through App Transport Security) and webview-cookie-sites-test (third-party cookies
-# between two sites of that server).
+# between two sites of that server) and webview-commit-test (a splash taken away at each of WebViewClient's points)
+# and webview-reveal-test (a WebView faded in or shown late; its window shows transparent
+# pixels where Android's shows the page).
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with
 # performClick 5 s after its label's change, and its device line says so (the Mac's tools/views-check.sh and the AVD
@@ -200,6 +202,8 @@ APPS=("app-start-test io.github.kisame76.minato.test.appstart" "context-test io.
       "webview-splash-test io.github.kisame76.minato.test.webviewsplash"
       "webview-redirect-test io.github.kisame76.minato.test.webviewredirect"
       "webview-cookie-sites-test io.github.kisame76.minato.test.webviewcookiesites"
+      "webview-commit-test io.github.kisame76.minato.test.webviewcommit"
+      "webview-reveal-test io.github.kisame76.minato.test.webviewreveal"
       "documents-tree-test io.github.kisame76.minato.test.documentstree"
       "storage-space-test io.github.kisame76.minato.test.storagespace"
       "network-test io.github.kisame76.minato.test.network"
@@ -3196,6 +3200,13 @@ fi
 run_one webview-splash-test io.github.kisame76.minato.test.webviewsplash
 run_one webview-redirect-test io.github.kisame76.minato.test.webviewredirect
 run_one webview-cookie-sites-test io.github.kisame76.minato.test.webviewcookiesites
+run_one webview-commit-test io.github.kisame76.minato.test.webviewcommit
+if wanted webview-reveal-test; then
+  # The page shows through the window's transparent pixels, where Android's window has the page's own.
+  sed 's/ shows page$/ shows transparent/' fixtures/expected/webview-reveal-test.logcat \
+    > "$WORK/webview-reveal-test-expected.logcat"
+  run_one webview-reveal-test io.github.kisame76.minato.test.webviewreveal "$WORK/webview-reveal-test-expected.logcat"
+fi
 # ADR-0043's test 1: views, a TextView and a Button drawn in software. This check plays no touches, so the Button's
 # click comes from the app's performClick, 5 s after its label's change, which its device line names; the Mac's
 # tools/views-check.sh and the AVD tap it.
