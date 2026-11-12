@@ -18,6 +18,7 @@
 #include "location_syscalls.h"
 #include "audio_codec.h"
 #include "audio_decode.h"
+#include "audio_encode.h"
 #include "battery.h"
 #include "network.h"
 #include "host_calls.h"
@@ -1040,6 +1041,8 @@ __attribute__((no_sanitize("undefined"))) long dispatch(const apkrt_syscall_fram
             return apkrt::audio_decode::call(x[0]);  // the SoundPool plan's step 3
         case APKRT_NR_AUDIO_CODEC:
             return apkrt::audio_codec::call(x[0], x[1]);  // ADR-0060 e2f
+        case APKRT_NR_AUDIO_ENCODE:
+            return apkrt::audio_encode::call(x[0], x[1]);  // MediaRecorder's audio
         case APKRT_NR_SENSOR:
             return apkrt::sensors::call(x[0], x[1]);  // ADR-0061
         case APKRT_NR_LOCATION:

@@ -10,7 +10,7 @@ set(apkrt_syscall_sources src/syscalls.cpp src/sys_files.cpp src/descriptors.cpp
   src/proc.cpp src/sys_cpu.cpp src/properties.cpp src/sys_sockets.cpp src/sys_memfd.cpp src/hardware_buffers.cpp
   src/netlink.cpp src/cameras.cpp
   src/video_decoders.cpp src/media_players.cpp src/watches.cpp src/sensor_syscalls.cpp src/location_syscalls.cpp
-  src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp)
+  src/battery.cpp src/network.cpp src/audio_decode.cpp src/audio_codec.cpp src/audio_encode.cpp)
 add_library(apkrt STATIC src/apkrt.cpp src/guest_tls.c src/loader.cpp src/linker.cpp src/dl.cpp src/program.cpp
   src/environment.cpp src/vfs.cpp src/sensor_hub.cpp src/location_hub.cpp src/hwcap.cpp src/dns_proxy.cpp
   src/stall_watchdog.cpp src/crash_report.cpp src/memory_watermark.cpp src/monitor_probe.cpp src/network_probe.cpp
@@ -187,6 +187,14 @@ if(APK_HOST_BUILD)
   target_link_libraries(audio_codec_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.audio_codec COMMAND audio_codec_test)
   set_tests_properties(runtime.audio_codec PROPERTIES TIMEOUT 60)
+
+  # MediaRecorder's audio: APKRT_NR_AUDIO_ENCODE through the dispatcher. A generated 440 Hz sine is encoded to
+  # AAC-LC in an MPEG-4 file and read back through APKRT_NR_AUDIO_DECODE; no fixture files.
+  add_executable(audio_encode_test tests/audio_encode_test.cpp)
+  target_include_directories(audio_encode_test PRIVATE src)
+  target_link_libraries(audio_encode_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.audio_encode COMMAND audio_encode_test)
+  set_tests_properties(runtime.audio_encode PROPERTIES TIMEOUT 60)
 
   # The guest's /dev/socket/dnsproxyd (ADR-0054 step b): the replies in DnsProxyListener's bytes.
   add_executable(dns_proxy_test tests/dns_proxy_test.cpp)

@@ -1167,6 +1167,70 @@ struct apkrt_audio_codec {
 /// audio_decode's.
 #define APKRT_NR_AUDIO_CODEC 4134
 
+// MARK: - Audio encoding (MediaRecorder's audio)
+//
+// MediaRecorder records an AAC-LC track in an MPEG-4 file with no length limit. The host encodes it on AudioToolbox
+// (ExtAudioFile's AudioConverter on macOS and iOS); one syscall carries every operation, x0 the op and x1 its
+// argument, as audio_codec does. The recording streams: the guest feeds PCM one chunk at a time and takes the file's
+// new bytes back as records, each an offset and a run of bytes, which it writes to the descriptor
+// MediaRecorder.setOutputFile opened with pwrite. The MPEG-4 header is patched at the end, so records are not in file
+// order and a later one may rewrite an earlier offset; pwrite at the record's offset is exactly right for that. The
+// host holds only the current chunk's bytes and a small reserved header, never the whole recording, so its memory is
+// bounded by the chunk, not the recording's length.
+#define APKRT_AUDIO_ENCODE_CREATE 0  // x1 a struct apkrt_audio_encode_create; sets id; 0 or -errno
+#define APKRT_AUDIO_ENCODE_WRITE  1  // x1 an apkrt_audio_encode_io; encodes a PCM chunk and drains records; 0 or -errno
+#define APKRT_AUDIO_ENCODE_FINISH 2  // x1 an apkrt_audio_encode_io (no PCM); closes the track and drains; 0 or -errno
+#define APKRT_AUDIO_ENCODE_ABORT  3  // x1 an id; drops the session and its output; 0 or -errno
+
+struct apkrt_audio_encode_create {
+    uint32_t rate;      // the PCM's sample rate, and the track's (one the AAC encoder takes, e.g. 8000 to 48000)
+    uint32_t channels;  // 1 or 2
+    uint32_t bitrate;   // the AAC bit rate in bits per second, or 0 for the encoder's default
+    uint32_t reserved;  // 0
+    uint64_t id;        // out: the session, from 1
+};
+
+struct apkrt_audio_encode_io {
+    uint64_t id;        // the session
+    uint64_t data;      // WRITE: the PCM (16-bit signed interleaved frames); FINISH or a drain-only WRITE: 0
+    uint64_t size;      // WRITE: its bytes, a whole number of frames, 1 to APKRT_AUDIO_ENCODE_MAX_CHUNK; else 0
+    uint64_t out;       // where the records go: back to back, each a struct apkrt_audio_encode_record then its bytes
+    uint64_t capacity;  // its bytes
+    uint64_t produced;  // out: the bytes written to `out` (record headers and the bytes after them)
+    uint64_t pending;   // out: record bytes not yet drained (WRITE with size 0 to take more); on -ENOSPC the next
+                        // record's size, so the guest can size `out`
+};
+
+struct apkrt_audio_encode_record {
+    uint64_t offset;    // where its bytes go in the output file (pwrite's offset)
+    uint64_t length;    // the bytes that follow this header in `out`
+};
+
+/// The most PCM one WRITE takes, so the host's memory stays bounded by it.
+#define APKRT_AUDIO_ENCODE_MAX_CHUNK (4u << 20)
+/// The most undrained record bytes the host holds before it refuses a WRITE with PCM (so the host's memory is bounded
+/// by this plus one chunk, whatever a guest that never drains does). Above one chunk's largest AAC output, so a guest
+/// that drains each WRITE never trips it.
+#define APKRT_AUDIO_ENCODE_MAX_PENDING (4u << 20)
+/// The most encoder sessions open at once.
+#define APKRT_AUDIO_ENCODE_MAX_SESSIONS 16
+
+/// audio_encode: x0 the op, x1 its argument. CREATE (apkrt_audio_encode_create) opens an encoder and sets id.
+/// WRITE (apkrt_audio_encode_io) with PCM encodes the chunk and drains the file's new bytes to `out` as records; it
+/// ALWAYS takes the PCM and returns 0 (never -ENOSPC): when not even one record fits `out` it returns 0 with
+/// produced 0 and `pending` set, and the guest drains with size-0 WRITEs. A WRITE with size 0 only drains. FINISH
+/// (apkrt_audio_encode_io) closes the track, drains the last records (the patched header among them) and ends the
+/// session once `pending` reaches 0. ABORT (an id) drops the session with no more output. Returns 0; -EFAULT for a
+/// struct, PCM or buffer the guest cannot read or write; -EINVAL for an unknown op, channels other than 1 or 2, a
+/// rate the encoder refuses, a reserved field not 0, a WRITE size past APKRT_AUDIO_ENCODE_MAX_CHUNK or not a whole
+/// number of frames, or a WRITE with PCM after FINISH; -EAGAIN for a WRITE with PCM (nothing taken) while the
+/// undrained records exceed APKRT_AUDIO_ENCODE_MAX_PENDING (the guest drains first); -ENOSPC, only for a call that
+/// took nothing (a drain-only WRITE or a FINISH), with `pending` set to the next record's size when `out` holds not
+/// even one record; -EBADF for an id that is not open; -EBUSY for a CREATE past APKRT_AUDIO_ENCODE_MAX_SESSIONS;
+/// -ENOSYS without the host's encoder; -ENOMEM without memory. The number follows
+/// audio_effect's.
+#define APKRT_NR_AUDIO_ENCODE 4141
+
 // MARK: - Sensors (ADR-0061)
 //
 // One syscall carries every sensor operation, as the video decoder's does: x0 the op, x1 the argument. The guest opens
