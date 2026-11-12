@@ -669,6 +669,8 @@ final class GameSession {
             log.error("guest environment (Debug): \(skipped, privacy: .public) skipped, only MINATO_* keys pass")
             SessionCheck.event("guest environment skipped \(skipped)")
         }
+        // Minato's own switches (MINATO_AUDIO_MUTE) are read in this process, before the session starts.
+        DebugGuestEnvironment.exportToHost(parsed.entries)
         // The session check's WebView trace (guest-log) is the guest's too: its provider reads the guest's environment.
         var entries = parsed.entries
         if getenv("MINATO_WEBVIEW_TRACE").map({ String(cString: $0) }) == "1",

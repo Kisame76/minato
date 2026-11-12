@@ -38,6 +38,16 @@ public enum DebugGuestEnvironment {
         return parsed
     }
 
+    /// Sets each entry in this process's environment too (KEY=VALUE, the value after the first "="): Minato's own
+    /// switches, such as MINATO_AUDIO_MUTE, are read with the host's getenv, and the entries otherwise reach only the
+    /// guest's environment.
+    public static func exportToHost(_ entries: [String]) {
+        for entry in entries {
+            guard let sign = entry.firstIndex(of: "=") else { continue }
+            setenv(String(entry[..<sign]), String(entry[entry.index(after: sign)...]), 1)
+        }
+    }
+
     /// MINATO_ and at least one more character, all of them capitals, digits or "_", as a shell name.
     private static func isAllowed(_ key: String) -> Bool {
         key.hasPrefix(prefix) && key.count > prefix.count

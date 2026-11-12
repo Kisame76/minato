@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import APKSession
@@ -34,6 +35,15 @@ struct DebugGuestEnvironmentTests {
     @Test func takesWindowsLineEnds() {
         let parsed = DebugGuestEnvironment.parse("MINATO_A=1\r\nMINATO_B=2\r\n")
         #expect(parsed.entries == ["MINATO_A=1", "MINATO_B=2"])
+    }
+
+    /// Minato's own switches (MINATO_AUDIO_MUTE, MINATO_MEM_COUNT) are read with the host process's getenv, not the
+    /// guest's: the entries reach it as well, with their value after the first "=".
+    @Test func entriesReachTheHostEnvironment() {
+        unsetenv("MINATO_HOST_ENV_TEST")
+        DebugGuestEnvironment.exportToHost(["MINATO_HOST_ENV_TEST=a=b"])
+        #expect(getenv("MINATO_HOST_ENV_TEST").map { String(cString: $0) } == "a=b")
+        unsetenv("MINATO_HOST_ENV_TEST")
     }
 
     @Test func anEmptyFileGivesNothing() {
