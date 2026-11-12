@@ -77,6 +77,21 @@ public final class NotificationTextTest {
         check(NotificationText.intent(null).isEmpty(), "none");
     }
 
+    /**
+     * A cold tap's content intent travels as one text of at most INTENT_BYTES (2048) characters, its extras as their
+     * parcel in URL-safe Base64 without padding (NotificationService.START_EXTRAS), four characters for three bytes:
+     * so a parcel of 1536 bytes, about 1.5 KB, is the most that could ever fit, and the URI's other text leaves a
+     * little less. COMPATIBILITY.md names this limit.
+     */
+    public void testTheExtrasOfAColdTapFitAboutOnePointFiveKilobytes() {
+        check(NotificationText.INTENT_BYTES == 2048, "the limit is " + NotificationText.INTENT_BYTES);
+        java.util.Base64.Encoder base64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        check(base64.encodeToString(new byte[1536]).length() == NotificationText.INTENT_BYTES, "1536 bytes fill it");
+        check(base64.encodeToString(new byte[1537]).length() > NotificationText.INTENT_BYTES, "one more does not fit");
+        check(NotificationText.intent("i".repeat(NotificationText.INTENT_BYTES)).length() == 2048, "kept at the limit");
+        check(NotificationText.intent("i".repeat(NotificationText.INTENT_BYTES + 1)).isEmpty(), "cut above it");
+    }
+
     public void testTheImportanceIsClamped() {
         check(NotificationText.post(1, "", "", 9, false, 0, "", "", "", null, "")
                 .startsWith("post\t1\t\t\t5\t"), "high");

@@ -91,11 +91,14 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 - **Godot 4:** runs. Our Godot 4.7.2 test game runs with Vulkan (the Mobile renderer) and GLES (the Compatibility
   renderer) and reaches parity with its native iOS build.
-- **Unity with IL2CPP:** the Unity test APK imports and starts on the iPhone, also with IL2CPP libraries whose atomic
-  loops use `x18` (ADR-0020); the native path, ES 3.1 and Vulkan are in place. A large Unity game can still run out
-  of memory on the iPhone sooner than on Android: depth buffers and multisampled framebuffers take more graphics
-  memory under Metal. A multisampled window's samples take none of their own, and textures that were idle are kept as
-  compressed copies when memory gets short.
+- **Unity with IL2CPP:** the IL2CPP libraries of the Unity test APK convert, also those whose atomic loops use `x18`
+  (ADR-0020); the native path, ES 3.1 and Vulkan are in place. Importing the whole APK is partly closed: a smaller
+  engine library of it has no symbols and holds a few words that use `x18` in forms the importer could not run. The
+  importer now keeps the words of an Armv9.6 extension that no current CPU executes, and renames `x18` inside the
+  unwind entry of a stripped library's function; whether that APK imports completely is not confirmed yet and may slip
+  to beta.2. A large Unity game can still run out of memory on the iPhone sooner than on Android: depth buffers and
+  multisampled framebuffers take more graphics memory under Metal. A multisampled window's samples take none of their
+  own, and textures that were idle are kept as compressed copies when memory gets short.
 - **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono games bring no
   ahead-of-time compiled code; the import recognizes them and Get Info lists them as needing a JIT.
 - **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
@@ -192,6 +195,12 @@ a limit that is named, and 5 partly closed.**
   played, as in Android's bundle. The Visualizer shows the app's whole mix, `MediaPlayer` included, after the effects
   and the player's volume, also while a player plays at a speed other than 1. Recording to a file (`MediaRecorder`)
   and the `MediaCodec` encoders are not in.
+- Native code the importer cannot run: every `svc` is a Linux system call whatever its immediate, as on Android; a
+  word of FEAT_LSUI (Armv9.6), which raises SIGILL on a CPU without the feature, is kept as it is and counted in the
+  import report ("kept, undefined on this CPU"); `x18` in a library without symbols is renamed within the bounds of the
+  unwind entry that holds it. A word that uses `x18` in any other form no island or rename can take still refuses the
+  library, and the refusal says where each refused word lies, what stands around it and which address the library's own
+  code forms just below it.
 - Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and Get Info
   says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the switch
   cannot reach, emulators' recompilers). Minato switches Mono to its interpreter when the app starts it, so a .NET app
@@ -220,8 +229,9 @@ In plain terms, as a user meets it:
 - The microphone, the camera and location are new and not yet checked on the iPhone.
 - Jobs, alarms and notifications work only while the app runs: nothing runs while iOS has the app suspended.
 - A notification's tap while Minato is closed opens the app at the notification's screen with its content intent's
-  extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or come to more than
-  about 1.5 KB: then only its strings, numbers and booleans are kept.
+  extras, Bundles, arrays and Parcelables included, unless they hold binders or file descriptors or do not fit the
+  intent's text, which is at most 2048 characters with the extras in Base64, so about 1.5 KB of extras: then only its
+  strings, numbers and booleans are kept.
 - On the iPhone a mouse or trackpad acts as a finger: iOS gives it to apps only through AssistiveTouch.
 - Hidden APIs: Android 15 hides some members of its own classes from an app (reflection and JNI find no such member).
   The lists are in `framework.jar` and the boot jars, and Minato's ART reads them and reports what an app reaches, but
@@ -269,8 +279,8 @@ signatures. A crash names its cause when the app returns to the library.
 - No telephony, NFC, USB host or classic Bluetooth, and no multicast or broadcast networking.
 - A WebView page under `http://` on a public host is refused by iOS, also for an app that allows cleartext traffic on
   Android.
-- Memory: at most about 5 GB for an app when Minato has the `increased-memory-limit` entitlement, about 2.5 GB
-  without it, which is the case for a free account through SideStore (ADR-0012).
+- Memory: an app gets a limited share of the phone's memory; Minato asks for the `increased-memory-limit` entitlement,
+  which a free account through SideStore does not receive (Get Info shows whether it is there).
 - In landscape the first swipe up from the bottom edge goes Home: iOS does not hold it back for any app. The app
   gets the touch and then a cancel, as on Android when the system takes a gesture; back in Minato, its menu
   waits over the app.
