@@ -130,6 +130,12 @@ int main(int argc, char **argv) {
         "-Xforcejitzygote",
         "-XjdwpProvider:none",
         "-Xhidden-api-policy:just-warn",
+        // Native stack unwinding runs through the converted guest libraries via the memory shim and is very slow
+        // for a thread parked in a library with a large .gnu_debugdata section (seconds for one thread), so an ANR
+        // SIGQUIT dump that unwound native stacks would stall the process for seconds. The managed stacks and the
+        // thread states are the dump's value here; the stall watchdog captures native stacks for a genuine native
+        // hang on its own path.
+        "-XX:DumpNativeStackOnSigQuit:false",
     };
     // The Mac tests' measurement switch (M6 e0, tools/boot-start-measure.sh): MINATO_MEASURE_ART_OPTIONS adds options,
     // such as -Xverify:none to measure what verification costs, or -Xint. No app's launch sets it (GuestStart passes
