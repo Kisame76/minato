@@ -139,8 +139,11 @@ static void *trim(void *unused) {
     while (apkrt_window_presents(minato_test_window) < presents) {
         usleep(1000);
     }
-    fprintf(stderr, "host: trim memory at UI_HIDDEN: %s\n",
-            apkrt_session_post(APKRT_EVENT_TRIM_MEMORY, 20, 0, 0) != 0 ? "posted" : "not posted");
+    const uint32_t posted = apkrt_session_post(APKRT_EVENT_TRIM_MEMORY, 20, 0, 0);
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        // window.m lets the shown buffer go on the main thread: its line comes first, as the trim's did before.
+    });
+    fprintf(stderr, "host: trim memory at UI_HIDDEN: %s\n", posted != 0 ? "posted" : "not posted");
     return NULL;
 }
 

@@ -92,6 +92,7 @@ int main(void) {
     usleep(200000);
 
     cpu_post(window, "3)", clear, green);
+    usleep(200000);  // the host shows a post's buffer on its main thread, after the post
     ANativeWindow_release(window);
     return 0;
 }

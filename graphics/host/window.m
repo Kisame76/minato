@@ -28,6 +28,10 @@
      black that alpha changes nothing. The transaction commits only in the foreground and counts for "scheduled", as
      libvulkan's submits do (vulkan.m).
    - At TRIM_MEMORY_UI_HIDDEN the sublayer lets its buffer go too.
+   - Every layer change runs on the main thread (on_main), the guest thread going on at once: a Core Animation
+     transaction committed elsewhere also lays out UIKit's views with pending layout, and UIKit aborts there (the
+     keyboard's window with an Android View app posting). A post's buffer stays read until its main-thread part has
+     run, and that part counts for "scheduled".
    - Step f's check (minato_graphics_set_window_crc, MINATO_WINDOW_CRC): a line per post with the CRC-32 of the
      pixels shown, a table's CRC over a full screen's buffer in some 30 ms, so for checks only.
    - In the Simulator, whose Metal has no B5G6R5Unorm and whose Core Animation shows no 'L565' IOSurface [measured,
@@ -501,11 +505,41 @@ static BOOL any_visible(const uint8_t *bits, size_t row, int32_t width, int32_t 
     return NO;
 }
 
+/* Core Animation's layer changes belong to the main thread: a transaction committed on another thread also lays out
+   UIKit's views with pending layout there (the keyboard's), and UIKit aborts (_AssertAutoLayoutOnAllowedThreadsOnly).
+   Each place that changes a layer calls this first; off the main thread it says so once a process on stderr. */
+static void main_thread_only(const char *where) {
+    static atomic_int said;
+    if (!pthread_main_np() && atomic_exchange(&said, 1) == 0) {
+        fprintf(stderr, "minato window: %s changed a layer off the main thread\n", where);
+    }
+}
+
+/* Runs `work` on the main thread: at once when the caller is it, else queued on the main queue, whose order keeps
+   the posts' order. A post's layer part goes there; the guest thread does not wait for it. */
+
+static void on_main(dispatch_block_t work) {
+    if (pthread_main_np()) {
+        work();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), work);
+    }
+}
+
+/* Posts of the Simulator's path whose present waits for the main thread: a later post goes there too, in order. */
+static atomic_uint main_pending;
+
 static void set_hidden(CALayer *layer, BOOL hidden) {
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    layer.hidden = hidden;
-    [CATransaction commit];
+    on_main(^{
+        if (layer.hidden == hidden) {
+            return;
+        }
+        main_thread_only("the hide");
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        layer.hidden = hidden;
+        [CATransaction commit];
+    });
 }
 
 /* RGB_565's pixels as RGBA_8888, each channel widened as Metal's unorm conversion does. */
@@ -694,8 +728,9 @@ static void clear_drawables(CAMetalLayer *layer) {
 }
 
 /* Shows the buffer as the window layer's sublayer's contents, in the foreground, and counts the post; hides the layer
-   for a buffer without a visible pixel on a layer that is not opaque. NO always: no GPU read follows, and Core
-   Animation's use is IOSurfaceIsInUse's. */
+   for a buffer without a visible pixel on a layer that is not opaque. The layer part runs on the main thread
+   (on_main), and the buffer's read ends there: YES, but NO without a layer. Core Animation's own use after that is
+   IOSurfaceIsInUse's. */
 /* The window trace (Debug builds only, off by default: a device run of a test app whose window stays black): with
    minato_graphics_set_window_trace(1) or MINATO_WINDOW_TRACE=1, the first 10 posts of each window write one line each
    to stderr, the guest log in a session:
@@ -744,31 +779,42 @@ static void trace_post(uint64_t window_id, uint64_t post, const char *how, CALay
             above.UTF8String);
 }
 
+static void show_now(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, BOOL visible, CALayer *layer);
+
 static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, BOOL visible) {
     CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id);
     if (layer == nil) {
         trace_post(window_id, buffer->posted, "without a layer", nil, visible);
         return NO;
     }
-    if (!visible && !layer.opaque) {
-        // Hidden over nothing looks as transparent over nothing does; the post counts but shows nothing, and its
-        // record keeps a recording's record k the window's post k.
-        if (!layer.hidden) {
-            set_hidden(layer, YES);
-        }
-        minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-        write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
-        buffer->hidden_visible = visible;  // exact hide-decision visible; the dump marks hidden visible vs transparent
-        apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
-        trace_post(window_id, buffer->posted, "hidden as all transparent", layer, visible);
-        return NO;
-    }
-    atomic_fetch_add(&in_flight, 1);
-    if (apkrt_is_background()) {
-        atomic_fetch_sub(&in_flight, 1);
+    // Hidden over nothing looks as transparent over nothing does; the post counts but shows nothing, and its record
+    // keeps a recording's record k the window's post k.
+    const BOOL hidden = !visible && !layer.opaque;
+    if (!hidden && apkrt_is_background()) {
         trace_post(window_id, buffer->posted, "in the background", layer, visible);
         return NO;
     }
+    // Counted from the post on, so "scheduled" waits for the main thread's part too.
+    atomic_fetch_add(&in_flight, 1);
+    minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+    buffer->hidden_visible = hidden ? visible : NO;  // the exact hide decision; a shown buffer re-arms
+    apkrt_window_presented_as(window_id, hidden ? APKRT_PRESENT_BUFFER_HIDDEN : APKRT_PRESENT_BUFFER_SHOWN);
+    on_main(^{
+        if (hidden) {
+            set_hidden(layer, YES);
+            write_crc(window_id, buffer->posted, buffer, 0, 0, format, NO, YES);
+            trace_post(window_id, buffer->posted, "hidden as all transparent", layer, visible);
+        } else {
+            show_now(window_id, buffer, format, visible, layer);
+        }
+        atomic_fetch_sub(&in_flight, 1);
+        read_done(buffer);
+    });
+    return YES;
+}
+
+/* shown's layer part for a buffer it shows, on the main thread; the buffer is read until it has run. */
+static void show_now(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, BOOL visible, CALayer *layer) {
     static CGColorRef black;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -777,6 +823,7 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     if (minato_present_buffers_shown((__bridge void *)layer) && [layer isKindOfClass:CAMetalLayer.class]) {
         clear_drawables((CAMetalLayer *)layer);
     }
+    main_thread_only("a post's show");
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     layer.hidden = NO;
@@ -787,35 +834,58 @@ static BOOL shown(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t format, B
     buffers.backgroundColor = format != format_rgba_8888 || layer.opaque ? black : NULL;
     buffers.contents = (__bridge id)buffer->surface;
     [CATransaction commit];
-    minato_present_record_post((__bridge void *)layer, (int64_t)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
     write_crc(window_id, buffer->posted, buffer, (int32_t)IOSurfaceGetWidth(buffer->surface),
               (int32_t)IOSurfaceGetHeight(buffer->surface), format, format != format_rgba_8888 || layer.opaque, NO);
-    atomic_fetch_sub(&in_flight, 1);
-    buffer->hidden_visible = NO;  // a shown buffer re-arms, so the stored value always reflects the last decision
-    apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_SHOWN);
     trace_post(window_id, buffer->posted, "shown", layer, visible);
-    return NO;
 }
+
+static BOOL present_now(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format,
+                        BOOL visible, CAMetalLayer *layer);
 
 /* Draws the buffer into the next drawable of the window's layer and presents it, in the foreground (the Simulator).
    YES once the command buffer is committed, whose end ends the buffer's read; NO without a layer or drawable, in the
-   background, or for a buffer without a visible pixel on a layer that is not opaque, which it hides. */
+   background, or for a buffer without a visible pixel on a layer that is not opaque, which it hides. A post that
+   changes the layer (its drawables' device, format or size, a hide, or a hidden layer shown again) runs on the main
+   thread, the read ending there or with its command buffer, and so does every post while one waits there; a plain
+   present stays on the guest thread: Metal's drawables commit no Core Animation transaction. */
 static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format,
                       BOOL visible) {
     CAMetalLayer *layer = (__bridge_transfer CAMetalLayer *)apkrt_window_layer(window_id);
     if (layer == nil) {
         return NO;
     }
+    const BOOL layer_change = layer.hidden || (!visible && !layer.opaque) || layer.device != device ||
+                              layer.pixelFormat != MTLPixelFormatBGRA8Unorm ||
+                              !CGSizeEqualToSize(layer.drawableSize, CGSizeMake(width, height));
+    if (!layer_change && atomic_load(&main_pending) == 0) {
+        return present_now(window_id, buffer, width, height, format, visible, layer);
+    }
+    atomic_fetch_add(&main_pending, 1);
+    atomic_fetch_add(&in_flight, 1);
+    on_main(^{
+        if (!present_now(window_id, buffer, width, height, format, visible, layer)) {
+            read_done(buffer);
+        }
+        atomic_fetch_sub(&in_flight, 1);
+        atomic_fetch_sub(&main_pending, 1);
+    });
+    return YES;
+}
+
+static BOOL present_now(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width, int32_t height, int32_t format,
+                        BOOL visible, CAMetalLayer *layer) {
     if (!visible && !layer.opaque) {
         // Hidden over nothing looks as transparent over nothing does; the post counts but presents nothing.
-        if (!layer.hidden) {
-            set_hidden(layer, YES);
-        }
+        set_hidden(layer, YES);
         buffer->hidden_visible = visible;  // exact hide-decision visible; the dump marks hidden visible vs transparent
         apkrt_window_presented_as(window_id, APKRT_PRESENT_BUFFER_HIDDEN);
         return NO;
     }
     BOOL changed = NO;
+    if (layer.device != device || layer.pixelFormat != MTLPixelFormatBGRA8Unorm ||
+        !CGSizeEqualToSize(layer.drawableSize, CGSizeMake(width, height))) {
+        main_thread_only("a post's drawable size");
+    }
     if (layer.device != device) {
         layer.device = device;
         changed = YES;
@@ -875,6 +945,7 @@ static BOOL presented(uint64_t window_id, MinatoCPUBuffer *buffer, int32_t width
     }];
     if (layer.hidden) {
         // Shown again with this drawable, in the transaction that presents it.
+        main_thread_only("a post's show");
         layer.presentsWithTransaction = YES;
         [commands commit];
         [commands waitUntilScheduled];
@@ -1005,12 +1076,17 @@ static void trimmed(void *context) {
     for (NSNumber *window_id in trimmed_ids) {
         @autoreleasepool {
             CALayer *layer = (__bridge_transfer CALayer *)apkrt_window_layer(window_id.unsignedLongLongValue);
-            CALayer *buffers = layer != nil ? found_buffers_layer(layer) : nil;
-            if (buffers != nil) {
-                [CATransaction begin];
-                [CATransaction setDisableActions:YES];
-                buffers.contents = nil;
-                [CATransaction commit];
+            if (layer != nil) {
+                on_main(^{
+                    CALayer *buffers = found_buffers_layer(layer);
+                    if (buffers != nil) {
+                        main_thread_only("the trim");
+                        [CATransaction begin];
+                        [CATransaction setDisableActions:YES];
+                        buffers.contents = nil;
+                        [CATransaction commit];
+                    }
+                });
             }
         }
     }
