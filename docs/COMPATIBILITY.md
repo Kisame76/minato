@@ -22,12 +22,12 @@ below, run; many real apps still hit a missing piece of the framework.
 
 ## What runs today
 
-**Native apps and games** (a NativeActivity launcher, C or C++ through `native_app_glue`): OpenGL ES 2.0 to 3.1,
-Vulkan 1.3 as MoltenVK offers it, touch, hardware keys, AAudio and OpenSL ES output, Choreographer at 60 or 120 Hz,
-asset access and orientation changes. An app whose launcher subclasses NativeActivity starts on the Java path, so
-the framework calls its native code makes through JNI work. An app whose launcher is `android.app.NativeActivity`
-itself starts on the Java path too when it brings Java code of its own. One without Java code still starts without Java,
-where calls into Android's Java framework fail, until ADR-0069 moves it to the Java path as well.
+**Native apps and games** (a NativeActivity launcher, C or C++ through `native_app_glue`): OpenGL ES 2.0 to 3.1, Vulkan
+1.3 (MoltenVK 1.4.2 reports a 1.3 device), touch, hardware keys, AAudio and OpenSL ES output, Choreographer at 60 or 120
+Hz, asset access and orientation changes. An app whose launcher subclasses NativeActivity starts on the Java path, so
+the framework calls its native code makes through JNI work. An app whose launcher is `android.app.NativeActivity` itself
+starts on the Java path too when it brings Java code of its own. One without Java code still starts without Java, where
+calls into Android's Java framework fail, until ADR-0069 moves it to the Java path as well.
 
 **Java and Kotlin apps,** on AOSP's ART, in its fast interpreter and, once an app was optimized after its first
 close, as compiled code:
@@ -102,8 +102,9 @@ Only what the project has evidence for is stated as working; "untested" means th
   own, and textures that were idle are kept as compressed copies when memory gets short.
 - **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono games bring no
   ahead-of-time compiled code; the import recognizes them and Get Info lists them as needing a JIT.
-- **SDL2 and Ren'Py:** SDL 2.30's AAudio and OpenSL ES output paths are checked bit for bit. Our Ren'Py 8.5.3 test game
-  starts in the Simulator with its picture and sound, and Minato's Ren'Py memory test game plays 15 minutes on the
+- **SDL2 and Ren'Py:** The call sequences of SDL 2.30's AAudio and OpenSL ES output drivers, played with silence by
+  our test apps, are checked bit for bit against Android 15. Our Ren'Py 8.5.3 test game starts in the Simulator with
+  its picture and sound, and Minato's Ren'Py memory test game plays 15 minutes on the
   iPhone with at most 850 MB. Ren'Py versions built on Python 2.7 get past ctypes' callbacks, which need
   executable memory, through trampolines in Minato's own signed code (ADR-0072); no game of that kind is confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
@@ -142,7 +143,8 @@ a limit that is named, and 5 partly closed.**
 - Activity results, start flags and launch modes.
 - SQLite.
 - Speed of Java code: the fast interpreter is the default and an app is compiled once after its first close.
-- Missing NDK libraries: the whole API 35 set exists, some as stubs.
+- Missing NDK libraries: every name that the API 35 NDK exports in the libraries Minato
+  builds exists, some as stubs that answer nothing; the check compares the names with the NDK's own.
 - Files, pickers and shared media.
 - Widgets and menus: every widget the plan listed is in, with the action bar, the text selection menus and the
   magnifier.
