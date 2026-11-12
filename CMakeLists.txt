@@ -185,6 +185,10 @@ if(APK_HOST_BUILD)
   # registration after it), every device xcodebuild asks the tool or builds unsigned; planted violations must fail it.
   add_test(NAME tools.signing_flag_rule
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/signing_flag_rule_test.sh")
+  # tools/boot-simulator.sh, the tools' one way to boot a Simulator, against a fake xcrun: one boot and never
+  # bootstatus; a failed boot or a crashing SpringBoard ends loudly with the device shut down; no other script boots.
+  add_test(NAME tools.boot_simulator
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/boot_simulator_test.sh")
   # java-start-check.sh's mem_notes: picks the first, peak-foot=, warning and last "mem foot=" lines from a
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes

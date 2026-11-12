@@ -43,7 +43,8 @@ xcodebuild -project Minato.xcodeproj -scheme Minato -configuration "$CONFIGURATI
   ${EXTRA_SETTINGS[@]+"${EXTRA_SETTINGS[@]}"}
 
 APP="$DERIVED/Build/Products/$CONFIGURATION-iphonesimulator/Minato.app"
-xcrun simctl boot "$SIM_UDID" 2>/dev/null || true # already booted is fine
+# Once and loudly: a failed boot or a crashing SpringBoard ends here (tools/boot-simulator.sh).
+tools/boot-simulator.sh "$SIM_UDID" || exit 1
 xcrun simctl install "$SIM_UDID" "$APP"
 if [[ -n "${INSTALL_ONLY:-}" ]]; then
   echo "Installed on $SIM_NAME ($SIM_UDID)"

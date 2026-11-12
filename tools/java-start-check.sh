@@ -516,7 +516,8 @@ if [[ "$ON_DEVICE" == yes ]]; then
   CONTAINER="$WORK/container"
 else
   if [[ -n "${APP:-}" ]]; then
-    xcrun simctl boot "$SIM_UDID" 2>/dev/null || true # already booted is fine
+    # Once and loudly: a failed boot or a crashing SpringBoard ends the run (tools/boot-simulator.sh).
+    tools/boot-simulator.sh "$SIM_UDID" || exit 1
     xcrun simctl install "$SIM_UDID" "$APP"
   else
     INSTALL_ONLY=1 tools/sim.sh --headless "$SIM_UDID" >/dev/null
