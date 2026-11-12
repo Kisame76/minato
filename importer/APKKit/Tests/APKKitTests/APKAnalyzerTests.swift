@@ -535,7 +535,7 @@ struct APKAnalyzerTests {
 
     /// Android refuses an APK for its uses-sdk in its installer's parse, after that parse has checked the signature
     /// itself and before the package parser's v1 rule, which needs its targetSdk (ApkLiteParseUtils.java:368-377,
-    /// 569-625). The reviewer's probe: a reference is a codename to the installer.
+    /// 569-625). A reference is a codename to the installer.
     @Test func aUsesSdkRefusalBlocksBetweenTheSignatureAndItsV1Rule() throws {
         let reference = try APKAnalyzer.analyze(Self.usesSdkAPK([
             .android("minSdkVersion", 0x0101_020C, .int(21)),

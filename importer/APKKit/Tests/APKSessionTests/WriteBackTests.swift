@@ -283,7 +283,7 @@ final class WriteBackTests {
         #expect(known == nil && !gone.removable("known.txt") && gone.conflicts == ["known.txt"])
     }
 
-    /// The rule on the review's point 7: a record goes only when its clone is missing at two looks in a row, or
+    /// The rule of two looks: a record goes only when its clone is missing at two looks in a row, or
     /// at the session's end.
     @Test func aCleanCloneSeenMissingIsForgottenBeforeTheAppMakesAnotherFileOfThatName() throws {
         let (t, _) = try tracked()
@@ -343,7 +343,7 @@ final class WriteBackTests {
         #expect(t.tracked("known.txt"))  // missing once since it was back at the last write-back
     }
 
-    /// The review's point 7: an app that saves by deleting the clone and renaming a file to its name has the file
+    /// An app that saves by deleting the clone and renaming a file to its name has the file
     /// back by the next flush; another file there is a conflict, never a silent loss of the save.
     @Test func aSaveByDeletingTheCloneAndRenamingAFileIsAConflictNotALoss() throws {
         let (t, original) = try tracked()
@@ -513,7 +513,7 @@ final class WriteBackTests {
         #expect(t.conflicts.isEmpty && t.removable("known.txt") && original.writes == 1)
     }
 
-    /// The review, point 1: a clone the app writes in bursts through an open descriptor is written back only
+    /// A clone the app writes in bursts through an open descriptor is written back only
     /// after its last writer closed, never a snapshot in between, not even at the background's flush; the change goes
     /// on being looked at while it lasts.
     @Test func aCloneWrittenInBurstsIsWrittenOnlyAfterItsLastWriterClosed() throws {
@@ -640,7 +640,7 @@ final class WriteBackTests {
         #expect(!WriteBack.inTrash(root.appending(path: ".Trashed/a.txt"), trash: nil))
     }
 
-    /// The review, point 8: a scan's look and a write-back's look are counted apart; a clone a scan saw missing
+    /// A scan's look and a write-back's look are counted apart; a clone a scan saw missing
     /// once and that the app closed then is not forgotten at the write-back's first look.
     @Test func aScansLookAndAWriteBacksLookAreCountedApart() throws {
         let (t, _) = try tracked()
@@ -653,7 +653,7 @@ final class WriteBackTests {
         #expect(!t.tracked("known.txt"))
     }
 
-    /// The review, point 5: before the start the app's version is kept for a dirty clone over the limit and a
+    /// Before the start the app's version is kept for a dirty clone over the limit and a
     /// conflict without a copy too, by a clone of the file, nothing hashed.
     @Test func aCloneOverTheLimitAndAConflictWithoutACopyAreKeptBeforeTheStart() throws {
         let (t, _) = try tracked()
@@ -682,7 +682,7 @@ final class WriteBackTests {
         #expect(copies.count == 1 && third.appVersion("known.txt") != nil)
     }
 
-    /// The review, point 3: the original is read by its own path, never its folder, which a security scope of
+    /// The original is read by its own path, never its folder, which a security scope of
     /// one picked file does not cover.
     @Test func anOriginalWhoseFolderCannotBeReadIsReadAll() throws {
         let path = source.appending(path: "known.txt").path
@@ -691,7 +691,7 @@ final class WriteBackTests {
         #expect(FileVersion.read(path: path)?.size == 6)
     }
 
-    /// The second review: a copy takes exactly the version it was given, hashed as it goes, however the app changes
+    /// A copy takes exactly the version it was given, hashed as it goes, however the app changes
     /// the file meanwhile (a sparse growth copies no more, another content of that size nothing), and never replaces a
     /// file of the name it makes.
     @Test func aCopyTakesExactlyTheVersionItWasGiven() throws {
@@ -711,7 +711,7 @@ final class WriteBackTests {
         #expect(text(outside.appending(path: "grown")) == "kept\n" && names(outside) == ["grown"])
     }
 
-    /// The second review: the app's version kept is always its latest, never the first kept (a save after the copy
+    /// The app's version kept is always its latest, never the first kept (a save after the copy
     /// before the sixth failure, a record a session left dirty with its copy).
     @Test func theKeptVersionIsTheAppsLatest() throws {
         let (t, original) = try tracked()
@@ -748,7 +748,7 @@ final class WriteBackTests {
         #expect(known == "second\n" && original.writes == 0)  // written by the new record's original
     }
 
-    /// The second review: an error that may pass (Download out of reach for a moment, no descriptor left) is tried
+    /// An error that may pass (Download out of reach for a moment, no descriptor left) is tried
     /// again, never a conflict at once.
     @Test func aFolderOutOfReachForAMomentIsTriedAgain() throws {
         let (t, _) = try tracked()
@@ -772,7 +772,7 @@ final class WriteBackTests {
         #expect(known == "edited again\n")
     }
 
-    /// B3 of the review: no file is read whole into memory, and none over the limit is read at all; a clone the app
+    /// No file is read whole into memory, and none over the limit is read at all; a clone the app
     /// made huge (a sparse truncate) is a conflict at once, its version the clone itself.
     @Test func aCloneOverTheLimitIsNeverReadAndTheUserDecides() throws {
         let (t, original) = try tracked()
@@ -868,7 +868,7 @@ final class WriteBackTests {
         #expect(!t.reusable("untracked.txt") { original.version() })  // no record: the app's own file
     }
 
-    /// B1 of the review: neither the picker's questions nor a new record wait for a write-back under way, which may
+    /// Neither the picker's questions nor a new record wait for a write-back under way, which may
     /// wait in a coordinated write for the picker's own coordinated read; nor does the guest's close.
     @Test func thePickerAndTheGuestNeverWaitForAWriteBack() throws {
         let slow = Slow(source.appending(path: "known.txt").path)

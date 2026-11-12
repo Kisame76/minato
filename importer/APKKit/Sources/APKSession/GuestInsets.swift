@@ -119,7 +119,7 @@ public struct GuestInsets: Sendable, Equatable {
     public var mandatorySystemGestures: Edges
     /// `WindowInsets.getRoundedCorner`'s radii, turned with the interface, or nil for none.
     public var roundedCorners: Corners?
-    /// The bars floating windows are laid out inside (decision 8, finding 3): the status bar, Android's 24 dp or the
+    /// The bars floating windows are laid out inside (decision 8): the status bar, Android's 24 dp or the
     /// safe area's top where the housing makes it taller, and the gesture navigation bar, the home indicator's inset.
     public var systemBars: Edges
 

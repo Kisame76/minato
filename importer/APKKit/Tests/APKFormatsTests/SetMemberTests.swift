@@ -190,7 +190,7 @@ struct SetMemberTests {
 
     @Test func theManifestIsReadWithinTheAnalyzersLimit() {
         // 16 MiB, as APKAnalyzer reads it: a crafted string pool of a few hundred KB of deflated data could otherwise
-        // cost about a gigabyte to decode (the review). The entry claims one byte more in both its headers;
+        // cost about a gigabyte to decode. The entry claims one byte more in both its headers;
         // only that size is read before the refusal.
         var zip = ZipBuilder()
         zip.add("AndroidManifest.xml", AXMLBuilder().build(AXMLBuilder.Element("manifest", [.plain("package", .string(SplitAPK.package))], [])))

@@ -132,7 +132,7 @@ struct SetChecksTests {
     }
 
     @Test func theExactMatchCountsAndContainsButIsNoMultiset() throws {
-        // Signature.areExactArraysMatch: as many on both sides, and each side's in the other (App's review).
+        // Signature.areExactArraysMatch: as many on both sides, and each side's in the other.
         #expect(try Self.checked([Self.base(signers: [.ec, .ec, .rsa]), Self.split("config.de", signers: [.ec, .rsa, .rsa])])
             .splits.count == 1)
         #expect(try Self.refusal([Self.base(signers: [.ec, .rsa]), Self.split("config.de", signers: [.ec, .ec, .rsa])])
@@ -297,7 +297,7 @@ struct SetChecksTests {
     }
 
     @Test func everySplitMustMatchTheInstalledBase() throws {
-        // Not only the first (the review): joining promises it for each of them.
+        // Not only the first: joining promises it for each of them.
         let de = try Self.split("config.de")
         #expect(try SetChecks.joining([de, Self.split("config.en", signers: [.rsa])], installed: [Self.base()]) == nil)
         #expect(try SetChecks.joining([de, Self.split("config.en", versionCode: 2)], installed: [Self.base()]) == nil)

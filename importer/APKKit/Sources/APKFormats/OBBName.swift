@@ -10,7 +10,7 @@ public struct OBBName: Sendable, Hashable {
 
     public var kind: Kind
     /// The expansion version, the versionCode of the APK the file first came with, in ASCII digits as Android writes
-    /// that int: without a leading zero, and at most `Int32.max` (the review).
+    /// that int: without a leading zero, and at most `Int32.max`.
     public var version: String
     public var package: String
 

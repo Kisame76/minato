@@ -59,7 +59,7 @@ public enum SessionEvent: Sendable, Equatable {
     /// UIKit's keyboard went away by the user's doing, not the guest's (ADR-0068), APKRT_EVENT_IME_HIDDEN: the guest
     /// handles it as Android's input method hiding itself on BACK.
     case imeHidden
-    /// The status bar's and the navigation bar's heights in pixels at a turn (ADR-0041 decision 8, finding 3),
+    /// The status bar's and the navigation bar's heights in pixels at a turn (ADR-0041 decision 8),
     /// APKRT_EVENT_BAR_INSETS: the bars the guest's floating windows are laid out inside.
     case barInsets(top: Int32, bottom: Int32)
     /// The system trims the app's memory, APKRT_EVENT_TRIM_MEMORY: ComponentCallbacks2's level. Android 15 tells an app

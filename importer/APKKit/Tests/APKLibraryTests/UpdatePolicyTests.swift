@@ -67,7 +67,7 @@ struct UpdatePolicyTests {
 
     @Test func leavesTheSameBytesUnchangedBeforeAnyQuestion() {
         // The same bytes carry the same signature, so an answer could change nothing: "Replace" on them used to throw
-        // versionFolderInUse (ADR-0048 b5b2, the review).
+        // versionFolderInUse (ADR-0048 b5b2).
         var unsigned = Self.version(3, signer: SignerIdentity(current: []))
         unsigned.signerProven = false
         #expect(UpdatePolicy.decide(installed: unsigned, new: unsigned) == .unchanged)

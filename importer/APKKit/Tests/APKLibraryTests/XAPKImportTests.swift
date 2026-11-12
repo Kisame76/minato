@@ -9,7 +9,7 @@ import Testing
 
 /// An XAPK in a unit (ADR-0049 c2): its APKs install as a container's do, its OBBs are staged in the version's folder
 /// and moved into data/<package>/obb/ after the switch, where one replaces the installed OBB of its kind (decision 4)
-/// unless the version stays and it is older (App's review), and what it leaves out is named on the entry.
+/// unless the version stays and it is older, and what it leaves out is named on the entry.
 @Suite("XAPK import")
 struct XAPKImportTests {
     typealias Sandbox = LibraryTests.Sandbox
@@ -132,7 +132,7 @@ struct XAPKImportTests {
     }
 
     @Test func theStagedOBBsAreExcludedFromBackupsToo() async throws {
-        // Review: they wait in the new version's folder until the switch, and a crash leaves them there.
+        // They wait in the new version's folder until the switch, and a crash leaves them there.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -173,7 +173,7 @@ struct XAPKImportTests {
     }
 
     @Test func anOBBOfAPackageWithoutAnAPKHereIsNeverTakenOut() async throws {
-        // Review: an XAPK never brings an OBB for another app, so one of a package without an APK in it is
+        // An XAPK never brings an OBB for another app, so one of a package without an APK in it is
         // named before anything is taken out. Its bytes are damaged, so taking it out would refuse the whole XAPK.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -306,7 +306,7 @@ struct XAPKImportTests {
     }
 
     @Test func theXAPKsNamesGoOnOneOfItsEntries() async throws {
-        // Review: copied onto each entry of an XAPK with many apps, they made library.json grow with every
+        // Copied onto each entry of an XAPK with many apps, they made library.json grow with every
         // store.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -346,7 +346,7 @@ struct XAPKImportTests {
         #expect(entry.state == .ready && entry.obbs.isEmpty)
     }
 
-    // MARK: - Which OBB stays (decision 4, App's review)
+    // MARK: - Which OBB stays (decision 4)
 
     @Test func anUpdatesOBBReplacesAnOlderOneOfItsKindAndEverythingElseStays() async throws {
         // Where the version changes, a newer OBB replaces the installed one of its kind and an older one stays out (the
@@ -657,7 +657,7 @@ struct XAPKImportTests {
     }
 
     @Test func aFolderUnderAnOBBsNameLeavesTheInstalledOneAlone() async throws {
-        // Review: a folder the app made under main 2's name, locked, so no move gets past it. The update
+        // A folder the app made under main 2's name, locked, so no move gets past it. The update
         // installs without main 2, which is named, and main 1 stays where the app reads it.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
@@ -681,7 +681,7 @@ struct XAPKImportTests {
     }
 
     @Test func theNewOBBsMoveInBeforeTheOldOnesGo() async throws {
-        // Review: an interruption between the two halves leaves both, never neither.
+        // An interruption between the two halves leaves both, never neither.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -697,7 +697,7 @@ struct XAPKImportTests {
         #expect(try Self.content(sandbox.paths, Self.name("main", 2)) == Self.data("main", 2))
     }
 
-    // MARK: - Links and other things in the OBB folder (the review)
+    // MARK: - Links and other things in the OBB folder
 
     @Test func aLinkUnderAnOBBsNameIsReplacedNeverFollowed() async throws {
         // A guest may put links into its OBB folder: a move replaces one as a link, and an installed OBB that became one
@@ -776,7 +776,7 @@ struct XAPKImportTests {
     }
 
     @Test func aStagedOBBACrashLeftIsReplaced() async throws {
-        // App's review: a crash between the switch and the move leaves a clone in the version's obb/; the unit, still
+        // A crash between the switch and the move leaves a clone in the version's obb/; the unit, still
         // in incoming/, comes again as the same version, and its OBB installs over the leftover.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

@@ -102,7 +102,7 @@ struct PickQueueTests {
     }
 
     /// A presenter's turn goes only once its dismissed sheet is gone: the next owner presented over a sheet on its way
-    /// out would go with it, never answered, and keep the turn (the review); the steps that come meanwhile
+    /// out would go with it, never answered, and keep the turn; the steps that come meanwhile
     /// wait as well, and a check after the callback changes nothing.
     @MainActor @Test func theTurnGoesOnceTheDismissedSheetIsGone() {
         final class Owner {}
@@ -152,7 +152,7 @@ struct PickQueueTests {
         #expect(started == ["open"])
     }
 
-    /// UIKit drops a dismiss sent while a transition runs and never calls back (the reviewer): the sheet seen gone
+    /// UIKit drops a dismiss sent while a transition runs and never calls back: the sheet seen gone
     /// gives the turn all the same.
     @MainActor @Test func aSheetSeenGoneGivesTheTurnWithoutTheCallback() {
         final class Owner {}
@@ -215,7 +215,7 @@ struct PickQueueTests {
     }
 
     /// One presenter's clone work runs one job after the other, each to its end: a cancelled request's never beside
-    /// the next one's (the review).
+    /// the next one's.
     @Test func serialWorkRunsOneJobAfterTheOther() async {
         let work = SerialWork()
         let log = Mutex<[String]>([])

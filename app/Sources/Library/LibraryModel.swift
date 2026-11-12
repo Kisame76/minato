@@ -728,7 +728,7 @@ final class LibraryModel {
     }
 
     /// The answer to an OBB's question: the app it goes to, under a name made for that app, or none, which lets that
-    /// file go as "Don’t Import" does, and OK where no app can take it (ADR-0049 d, App's review). Then the unit's next
+    /// file go as "Don’t Import" does, and OK where no app can take it (ADR-0049 d). Then the unit's next
     /// OBB asks.
     func assign(_ question: OBBQuestion, to app: LibraryEntry?) async {
         obbQuestions.removeAll { $0.id == question.id }

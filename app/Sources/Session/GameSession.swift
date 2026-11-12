@@ -448,7 +448,7 @@ final class GameSession {
     func windowLaidOut(_ pixels: CGSize) {
         windowPixels = pixels
         let size = PixelSize(width: Int32(pixels.width.rounded()), height: Int32(pixels.height.rounded()))
-        // The bars at this layout's turn, which a turn posts to the guest (ADR-0041 decision 8, finding 3).
+        // The bars at this layout's turn, which a turn posts to the guest (ADR-0041 decision 8).
         bridge.systemBars = barInsets(scale: runtime?.layer?.contentsScale ?? 1).systemBars
         let handled = bridge.windowLaidOut(size, host: host)
         layersView?.letterbox = bridge.letterbox
@@ -554,7 +554,7 @@ final class GameSession {
         #else
         let environment: [String] = []
         #endif
-        // The bars the guest's floating windows are laid out inside (ADR-0041 decision 8, finding 3).
+        // The bars the guest's floating windows are laid out inside (ADR-0041 decision 8).
         let bars = barInsets(scale: scale).barInsetsEnvironment
         let guestEnvironment = environment + [bars] + (Self.startIntent.map { ["MINATO_START_INTENT=\($0)"] } ?? [])
         #if DEBUG

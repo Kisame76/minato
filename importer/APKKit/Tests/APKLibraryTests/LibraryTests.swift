@@ -213,8 +213,7 @@ struct LibraryTests {
     }
 
     /// The Download folder is the root of the guest's Download mount, as the OBB folder of its OBB mounts: a link in
-    /// its place goes as a link, never followed, and anything else that is no folder stops the start and stays (the
-    /// review).
+    /// its place goes as a link, never followed, and anything else that is no folder stops the start and stays.
     @Test func aLinkOrAFileWhereTheDownloadFolderBelongs() throws {
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

@@ -105,7 +105,7 @@ struct NativeFindingsTests {
     }
 
     @Test func manyLibrariesThatNeedEachOtherAreFoundInLinearTime() {
-        // 1000 libraries with 1000 NEEDED names each took 9 s with a scan for each pass (the review).
+        // 1000 libraries with 1000 NEEDED names each took 9 s with a scan for each pass.
         let names = (0..<1000).map { "lib\($0).so" }
         var libraries = names.map { Facts(name: $0, refusals: [], needed: names) }
         libraries[0].refusals = ["svc"]

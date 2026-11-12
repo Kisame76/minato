@@ -46,7 +46,7 @@ struct UnitQuestionTests {
 
     @Test(arguments: [true, false])
     func replaceAnswersOnlyTheVersionsTheQuestionListed(setFirst: Bool) async throws {
-        // Replace for one asking set used to answer every set of the unit (the review, b5b2). The set goes
+        // Replace for one asking set used to answer every set of the unit (b5b2). The set goes
         // through importSet and the APK through importFile, so each is answered first once.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

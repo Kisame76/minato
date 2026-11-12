@@ -185,7 +185,7 @@ public final class SheetSteps<Step> {
 }
 
 /// Work that runs one job after the other, each to its end, in the order given: a presenter's clones, so that a
-/// cancelled request's never run beside the next one's (ADR-0057, the review).
+/// cancelled request's never run beside the next one's (ADR-0057).
 public final class SerialWork: Sendable {
     private let last = Mutex<Task<Void, Never>?>(nil)
 

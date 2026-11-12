@@ -201,7 +201,7 @@ struct NativeCodeFindingsTests {
 
     @Test func aDegradedLibraryStaysOutWhileTheCheckRefusesIt() async throws {
         // An entry whose lib/ is gone gets its originals again at the first tap; the check runs again, so the library
-        // stays out and the finding is renewed, not added (App's review).
+        // stays out and the finding is renewed, not added.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -235,7 +235,7 @@ struct NativeCodeFindingsTests {
     }
 }
 
-/// ADR-0055 a3: NEEDED names, and the start path closed over them (App's review).
+/// ADR-0055 a3: NEEDED names, and the start path closed over them.
 @Suite("Native code findings, NEEDED")
 struct NativeCodeNeededTests {
     typealias Sandbox = LibraryTests.Sandbox
@@ -307,7 +307,7 @@ struct NativeCodeNeededTests {
     }
 
     @Test func aNewCheckReplacesTheEarlierFindings() async throws {
-        // App's review: a degraded library is not named for good; the next check starts from the files again.
+        // A degraded library is not named for good; the next check starts from the files again.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

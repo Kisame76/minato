@@ -58,7 +58,7 @@ struct SignersFileTests {
     }
 
     @Test func v1ReSignedWithTheDevelopersCertificateFirstInTheBlock() throws {
-        // The reviewer's case: signed with M, the developer's D first among the block's certificates. Only M signed.
+        // Signed with M, the developer's D first among the block's certificates. Only M signed.
         var v1 = TestSigner.V1([.rotated])
         v1.certificatesBefore = [TestKey.ec.certificate]
         let content = try #require(try Self.content(TestSigner.sign(Self.zip(), v1: v1)))
@@ -66,7 +66,7 @@ struct SignersFileTests {
     }
 
     @Test func v1AnOrphanSignatureBlockSignsNothing() throws {
-        // The reviewer's case: a META-INF/AAA.RSA without its .SF, carrying D, before the real block of M.
+        // A META-INF/AAA.RSA without its .SF, carrying D, before the real block of M.
         var zip = Self.zip()
         zip.add("META-INF/AAA.RSA", TestSigner.pkcs7(signing: Data(), with: .ec, TestSigner.V1([.ec])))
         zip.entries += TestSigner.jarSignatureFiles(for: Self.zip().entries, TestSigner.V1([.rotated]))

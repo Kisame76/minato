@@ -104,7 +104,7 @@ struct ContainerPackTests {
 
     @Test func aSliceOfASecondContainerOfTheSameVersionIsKept() async throws {
         // Two XAPKs of one app version make one set, whose first member is the first XAPK's: the slice of the second
-        // XAPK is kept (App's review).
+        // XAPK is kept.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -136,8 +136,8 @@ struct ContainerPackTests {
     }
 
     @Test func eachVersionOfOneAppInItsContainerKeepsItsOwnSlice() async throws {
-        // Two XAPKs of two versions, each with a base of the same name and a slice naming its own version (App's
-        // review): each slice goes with its own version's set.
+        // Two XAPKs of two versions, each with a base of the same name and a slice naming its own version: each slice
+        // goes with its own version's set.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -265,7 +265,7 @@ struct ContainerPackTests {
 
     @Test func aLooseSliceAndAContainersSplitMakeOneSetWithThePack() async throws {
         // A loose base and slice and an XAPK with the arm64 split of the same version: the group's container is the
-        // XAPK's, the slice's none; it is kept all the same (the review).
+        // XAPK's, the slice's none; it is kept all the same.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

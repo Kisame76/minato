@@ -99,7 +99,7 @@ private extension Data {
     }
 
     @Test func manySymbolsPointingAtOneLongNameCostOneName() throws {
-        // 400k undefined symbols at one 4000 byte name: a string for each of them took 2 GB and 28 s (the review).
+        // 400k undefined symbols at one 4000 byte name: a string for each of them took 2 GB and 28 s.
         let name = Data(repeating: 0x61, count: 4000) + Data([0])
         let file = SymbolELF.make(rawStrings: name, undefinedAt: Array(repeating: 1, count: 400_000))
         var namesMade = 0

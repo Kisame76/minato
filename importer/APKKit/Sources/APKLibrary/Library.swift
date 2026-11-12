@@ -13,7 +13,7 @@ public enum LibraryError: Error, Equatable, Sendable {
     /// A pick with nothing to take over: a folder without `.apk` or `.obb` files, or only links (ADR-0048, decision 1).
     case nothingToImport
     /// Something that is neither a folder nor a link stands where the app's OBB folder belongs, and stays there
-    /// (ADR-0049 c2, the review).
+    /// (ADR-0049 c2).
     case obbFolderIsNoFolder(String)
     /// The same for the app's Download folder, the root of the guest's Download mount (ADR-0057 step b).
     case downloadFolderIsNoFolder(String)
@@ -330,7 +330,7 @@ public actor Library {
 
     /// What an import leaves out of a container, which the entries it makes name (ADR-0049 c2): the container's own
     /// list as its reader names it, already capped, and then the import's, capped the same way, so each last name
-    /// counts the rest of its own list (the review).
+    /// counts the rest of its own list.
     private struct LeftOut {
         var byContainer: [IgnoredFile] = []
         var byImport: [IgnoredFile] = []
@@ -581,7 +581,7 @@ public actor Library {
     /// one's name with other bytes replaces it only `replacing`, as the user answered, and is a conflict otherwise; one
     /// whose bytes are there moves nothing, and one recorded but missing, as a crash after the switch leaves it, moves in.
     /// A name the folder holds a folder or anything else but a file or a link under stays the app's, so that OBB stays
-    /// out and nothing of its kind goes (the review).
+    /// out and nothing of its kind goes.
     private func planOBBs(_ extras: Extras, package: String, recorded: [PackageFile], keepingVersion: Bool,
                           replacing: Bool) -> OBBPlan {
         let folder = paths.dataDirectory(for: package).appendingPathComponent("obb", isDirectory: true)
@@ -650,7 +650,7 @@ public actor Library {
     /// Puts a version's later pack slices into its packs/ under their names (ADR-0049 decision 2): APFS clones,
     /// read-only as the version's APKs are, in a folder left out of backups as the OBB folder is (decision 9). They are
     /// written into packs.partial first and come in whole, swapped with the packs/ there, so the packs an entry names
-    /// never lie half written (App's review); the same version's packs are replaced by those its container brings.
+    /// never lie half written; the same version's packs are replaced by those its container brings.
     /// Returns what it put there, nil for none.
     private func placePacks(_ packs: [(url: URL, file: PackageFile)], in version: URL) throws -> [PackageFile]? {
         guard !packs.isEmpty else { return nil }
@@ -677,8 +677,8 @@ public actor Library {
         return packs.map(\.file)
     }
 
-    /// Stages the OBBs `plan` moves in as APFS clones in `version`'s obb/, after whatever a crash left there (App's
-    /// review), excluded from backups as the OBB folder is (the review). Returns the staging folder.
+    /// Stages the OBBs `plan` moves in as APFS clones in `version`'s obb/, after whatever a crash left there, excluded
+    /// from backups as the OBB folder is. Returns the staging folder.
     private func stageOBBs(_ plan: OBBPlan, from extras: Extras, in version: URL) throws -> URL {
         var staging = version.appendingPathComponent("obb", isDirectory: true)
         try? FileManager.default.removeItem(at: staging)
@@ -694,7 +694,7 @@ public actor Library {
         return staging
     }
 
-    /// Carries out `plan` in `package`'s OBB folder, never through a link (the review): the folder and `source`
+    /// Carries out `plan` in `package`'s OBB folder, never through a link: the folder and `source`
     /// are opened as themselves, the OBBs move in first, each from its name in `source` (`names`, else its own) by
     /// rename over the file or link of its name, and only then do the replaced files of their kinds go, so an
     /// interruption leaves both, never neither.
@@ -733,7 +733,7 @@ public actor Library {
     /// asked about as one APK is (ADR-0034); a set Android refuses becomes an `.invalid` entry. One APK, and a file
     /// that is no APK, go through `importFile`, as before. The unit stays while a set asks, so the question comes again
     /// at the next scan. `replacing` answers "Replace" for the versions the question listed, as it listed them, and for
-    /// no other, which keeps asking (the review); one that asks otherwise now asks again. The first half of
+    /// no other, which keeps asking; one that asks otherwise now asks again. The first half of
     /// `progress` reads each APK once, by its size, and the second imports the sets and files, a share each. Returns a
     /// result for each set and each such file.
     ///
@@ -776,7 +776,7 @@ public actor Library {
                     obbs += containerOBBs.map { ($0.url, $0.name, $0.path, file) }
                     packs += containerPacks.map { ($0.url, $0.pack, $0.path, file) }
                     leftOut[file] = named
-                    // The folders go before their container (App's review): a crash between them leaves a container
+                    // The folders go before their container: a crash between them leaves a container
                     // to take out again, never a hidden folder no unit lists.
                     taken += folders + [file]
                 case .refused(let error):
@@ -908,8 +908,8 @@ public actor Library {
                 onEntry.append((index, IgnoredFile(path: slice.member.fileName, reason: checked.reason)))
             }
         }
-        // What a container leaves out goes on the first of its entries only, never copied onto each (the
-        // review); each set's own names go on its own.
+        // What a container leaves out goes on the first of its entries only, never copied onto each; each set's own
+        // names go on its own.
         var named = Set<URL>()
         for index in groups.indices {
             if let container = containers[index], named.insert(container).inserted {
@@ -966,7 +966,7 @@ public actor Library {
         return files.map(\.lastPathComponent).filter { target(forPicked: $0, assigning: [:]) == nil }
     }
 
-    /// "Don’t Import" for one picked OBB of a unit (ADR-0049 d, App's review): that file goes, found among the unit's
+    /// "Don’t Import" for one picked OBB of a unit (ADR-0049 d): that file goes, found among the unit's
     /// own files, so the name leads nowhere else, and the unit goes with its last file; its other OBBs keep waiting.
     public func discardPickedOBB(_ fileName: String, inUnit unit: URL) {
         guard Self.isDirectChild(unit, of: paths.incoming),
@@ -978,7 +978,7 @@ public actor Library {
 
     /// The apps a picked OBB can go to, by their names as App's question lists them: those ready or needing their
     /// splits, never an incompatible one or a file's entry, which is invalid, nor one whose versionCode names
-    /// no OBB (App's review), which could not take the file.
+    /// no OBB, which could not take the file.
     public func appsForOBBs() -> [LibraryEntry] {
         appsTakingOBBs().filter { Self.obbName(for: $0, picked: "main.obb") != nil }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
@@ -1072,7 +1072,7 @@ public actor Library {
     /// that are no container's stop the import, and the unit waits.
     ///
     /// An XAPK's OBBs are taken out after its APKs, into ".<file>.obbs/", and only those of a package one of its APKs
-    /// names (the review): an XAPK never brings an OBB for another app, and the others are named before
+    /// names: an XAPK never brings an OBB for another app, and the others are named before
     /// anything of theirs is written (ADR-0049 c2).
     private func expand(_ file: URL, in unit: URL) throws -> Expanded {
         let container: Container
@@ -1124,7 +1124,7 @@ public actor Library {
     /// a slice's split from; or why the set leaves it out. It must be its app's, of the app's version and signers, and a
     /// slice of its pack whose name is a module's, as bundletool allows one, and not one the set took already. Its
     /// signers must be proven as the base's are: a slice Minato cannot verify passes only beside a base it cannot
-    /// verify either, as the set then counts as one such APK (App's review), since a certificate's name is easy to copy.
+    /// verify either, as the set then counts as one such APK, since a certificate's name is easy to copy.
     private static func packFile(_ slice: SetMember?, pack: String, size: UInt64, of group: [SetMember],
                                  taken: [String]) -> (file: PackageFile?, reason: String) {
         guard let slice, let app = group.first(where: \.isBase) ?? group.first else {

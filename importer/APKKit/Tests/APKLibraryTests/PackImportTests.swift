@@ -115,7 +115,7 @@ struct PackImportTests {
 
     @Test(arguments: [
         (SplitAPK.make(split: "level3", signers: [.rotated]), "it is signed by another key than the app"),
-        // The app's certificate, named in a signature Minato cannot verify, beside a verified base (App's review):
+        // The app's certificate, named in a signature Minato cannot verify, beside a verified base:
         // anyone can copy a certificate's name.
         (SplitAPK.make(split: "level3", v2: [.init(.ec, algorithms: [TestSigner.ecdsaSHA256Verity])]),
          "its signature cannot be verified"),
@@ -281,7 +281,7 @@ struct PackImportTests {
     }
 
     @Test func theSameVersionReplacesItsPacksWithThoseItsContainerBrings() async throws {
-        // The same APKs again in an .apks with level2 only: level3 goes, and packs/ is never half written (App's review).
+        // The same APKs again in an .apks with level2 only: level3 goes, and packs/ is never half written.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)

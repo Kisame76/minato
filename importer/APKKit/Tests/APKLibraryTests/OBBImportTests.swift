@@ -293,7 +293,7 @@ struct OBBImportTests {
     }
 
     @Test func dontImportLetsTheOneOBBGoAndTheNextOneAsks() async throws {
-        // App's review: the question names one file, so "Don’t Import" lets that one go, from inside its unit; the
+        // The question names one file, so "Don’t Import" lets that one go, from inside its unit; the
         // other waits for its own question, and the unit goes with its last file. The original stays where the user has
         // it (ADR-0018).
         let sandbox = try Sandbox()
@@ -322,7 +322,7 @@ struct OBBImportTests {
     }
 
     @Test func anAppWhoseVersionGivesNoOBBNameIsNoChoice() async throws {
-        // App's review: an int versionCode below zero names no OBB, so the question never offers that app, which could
+        // An int versionCode below zero names no OBB, so the question never offers that app, which could
         // not take the file; one by its own name still goes there.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

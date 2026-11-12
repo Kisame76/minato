@@ -593,8 +593,8 @@ struct SessionBridgeTests {
         #expect(bridge.windowSize == PixelSize(width: Self.height, height: Self.width))
     }
 
-    /// The bars floating windows are laid out inside go to the guest before the configuration (ADR-0041 decision 8,
-    /// finding 3), so a dialog laid out again at the turn centers between the new ones: APKRT_EVENT_BAR_INSETS.
+    /// The bars floating windows are laid out inside go to the guest before the configuration (ADR-0041 decision 8), so
+    /// a dialog laid out again at the turn centers between the new ones: APKRT_EVENT_BAR_INSETS.
     @Test func aTurnPostsTheNewBarsBeforeTheConfiguration() {
         let host = FakeHost()
         var bridge = Self.running(host)

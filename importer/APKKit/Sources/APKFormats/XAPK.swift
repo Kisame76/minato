@@ -3,8 +3,7 @@ import Foundation
 
 /// A file an import leaves out, with the reason (ADR-0049 decision 4): its path in the container, or the path its
 /// manifest.json sends it to where that path is what is wrong. Both are raw text from the container, so control and
-/// format characters, a new line or a bidi override among them, are written out as `\u{…}`, and a long one is cut (the
-/// review).
+/// format characters, a new line or a bidi override among them, are written out as `\u{…}`, and a long one is cut.
 public struct IgnoredFile: Sendable, Hashable, Codable {
     /// [guess] At most this many are named; the last counts the rest (`capped`).
     public static let maxCount = 64
@@ -49,8 +48,7 @@ public struct IgnoredFile: Sendable, Hashable, Codable {
 
 /// What an XAPK holds for an import (ADR-0049 decisions 3 and 4).
 public struct XAPKContents: Sendable, Equatable {
-    /// An OBB taken out under its name, read once, so the import never reads a package from a path (the
-    /// review).
+    /// An OBB taken out under its name, read once, so the import never reads a package from a path.
     public struct OBB: Sendable, Equatable {
         public var item: Container.Item
         public var name: OBBName
@@ -72,7 +70,7 @@ extension Container {
     /// `expansions` names, each going to its `install_path` or else to its `file`, and the files in `Android/` no
     /// expansion names. An OBB goes directly to `Android/obb/<package>/`, as APKPure puts it, under a name of the
     /// pattern for that package (decision 4). An entry gives one OBB at most, and a package one main and one patch, as
-    /// decision 5 keeps them (the review), so the OBBs never outnumber the entries. Any other expansion or file
+    /// decision 5 keeps them, so the OBBs never outnumber the entries. Any other expansion or file
     /// in `Android/`, any other `.obb`, and a file named but missing are left out and named; hidden files, folders and
     /// macOS's copies count for nothing.
     public func xapkContents() throws -> XAPKContents {

@@ -25,7 +25,7 @@ final class PickPresenter: NSObject {
     }
 
     /// Set once the guest no longer wants a request; it also cancels the coordinated read of the file being cloned,
-    /// which may wait for a download, so that the next request's clones do not wait behind it (the reviewer).
+    /// which may wait for a download, so that the next request's clones do not wait behind it.
     private final class Cancel: @unchecked Sendable {
         private let lock = NSLock()
         private var set = false
@@ -56,7 +56,7 @@ final class PickPresenter: NSObject {
     private let locations: LocationAnswer?
     /// The app's name in the alerts.
     private let appName: String
-    /// The clones of one request after the other's, each to its end (the review).
+    /// The clones of one request after the other's, each to its end.
     private let work = SerialWork()
     private let answer: (UInt64, Int?) -> Void
     private lazy var steps = SheetSteps<PickQueue.Step>(owner: self) { [unowned self] in perform($0) }

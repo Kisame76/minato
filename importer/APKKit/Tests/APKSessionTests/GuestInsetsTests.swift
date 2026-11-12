@@ -53,7 +53,7 @@ struct GuestInsetsTests {
         #expect(insets.systemGestures == GuestInsets.Edges(left: 60, top: 0, right: 60, bottom: 40))
     }
 
-    /// The bars floating windows are laid out inside (decision 8, finding 3), which the framework's SystemBarInsets
+    /// The bars floating windows are laid out inside (decision 8), which the framework's SystemBarInsets
     /// reads as MINATO_BAR_INSETS: the status bar is Android's 24 dp, or the safe area's top where the housing makes it
     /// taller; the gesture navigation bar is the home indicator's inset; both at the display's turn.
     @Test func theBarsArePerModelAndTurn() {

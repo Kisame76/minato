@@ -143,9 +143,8 @@ struct ContainerExtractionTests {
     }
 
     @Test func theRunningChecksumSkipsAnEmptyChunk() {
-        // zlib's crc32 given no buffer answers its initial value, which would start the sum again (the review
-        // of a1). Foundation gives an empty Data a pointer today, so the empty buffer here has none. "123456789" is
-        // CRC-32's check value.
+        // zlib's crc32 given no buffer answers its initial value, which would start the sum again. Foundation gives an
+        // empty Data a pointer today, so the empty buffer here has none. "123456789" is CRC-32's check value.
         var crc = Data("123".utf8).withUnsafeBytes { Container.checksum(0, adding: $0) }
         crc = Container.checksum(crc, adding: UnsafeRawBufferPointer(start: nil, count: 0))
         crc = Data("456789".utf8).withUnsafeBytes { Container.checksum(crc, adding: $0) }
@@ -234,7 +233,7 @@ struct ContainerExtractionTests {
     }
 
     @Test func namesTheVolumeTakesForOneAreRefused() throws {
-        // Review: APFS on the Mac, and so in the Simulator, folds case, so two names of ours can be one
+        // APFS on the Mac, and so in the Simulator, folds case, so two names of ours can be one
         // file; each file is made new or not at all, and a collision fails closed. Names Swift takes as equal, as one
         // in two Unicode normalizations, never get that far.
         let unit = try Unit()
@@ -256,7 +255,7 @@ struct ContainerExtractionTests {
     }
 
     @Test(arguments: ["", ".hidden.apk", "a/b.apk", "..", ".", "x\u{0}.apk", "1.apk", String(repeating: "a", count: 252) + ".apk",
-                      // Review: a combining mark hides a slash or a leading dot from a check of Characters.
+                      // A combining mark hides a slash or a leading dot from a check of Characters.
                       "a/\u{301}b.apk", ".\u{301}x.apk"])
     func aNameThatIsNoPlainFileNameOrTakenIsRefused(_ name: String) throws {
         let unit = try Unit()

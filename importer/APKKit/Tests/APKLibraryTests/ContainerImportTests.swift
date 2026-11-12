@@ -127,7 +127,7 @@ struct ContainerImportTests {
     }
 
     @Test func anAPKAndADamagedContainerInOneUnitEachGetTheirEntry() async throws {
-        // App's review: the APK installs, and the container's refusal stands beside it.
+        // The APK installs, and the container's refusal stands beside it.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -210,7 +210,7 @@ struct ContainerImportTests {
     }
 
     @Test func aUnitWaitsForItsContainersAndOBBsButNotForHiddenFiles() async throws {
-        // App's review: hidden files are no containers (.DS_Store, "._x", ".x.icloud"); a unit of an OBB is one since
+        // Hidden files are no containers (.DS_Store, "._x", ".x.icloud"); a unit of an OBB is one since
         // ADR-0049 d.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }

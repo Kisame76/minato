@@ -178,7 +178,7 @@ final class DocumentClonesTests {
         #expect(text(download.appending(path: "known (1).txt")) == "app edit\n")
     }
 
-    /// The review, point 6: a clone says the version it was made with, read from the clone itself, which its
+    /// A clone says the version it was made with, read from the clone itself, which its
     /// write-back record starts from (the original read again may have changed meanwhile); a clone used again has none.
     @Test func aCloneSaysTheVersionItWasMadeWith() throws {
         let clones = clones()
@@ -190,7 +190,7 @@ final class DocumentClonesTests {
     }
 
     /// A name a write-back record holds (a conflict whose clone the guest removed) is not taken by a new clone, which
-    /// would orphan the record's kept version (the reviewer).
+    /// would orphan the record's kept version.
     @Test func aNameARecordHoldsIsNotTakenByANewClone() {
         let clones = DocumentClones(dataFolder: data, download: download, cloning: true,
                                     reusable: { _, _ in true }, busy: { $0 == "known.txt" })
@@ -323,7 +323,7 @@ final class DocumentClonesTests {
     }
 
     /// The limits come before any clone: more than 1000 picks, or more than one for a request of one document
-    /// (without EXTRA_ALLOW_MULTIPLE), clone nothing (the review).
+    /// (without EXTRA_ALLOW_MULTIPLE), clone nothing.
     @Test func theLimitsComeBeforeAnyClone() {
         let clones = clones()
         var cloned = 0
@@ -351,7 +351,7 @@ final class DocumentClonesTests {
     }
 
     /// A request the guest cancelled while its files were cloned writes no manifest and leaves none of the clones it
-    /// made (the review).
+    /// made.
     @Test func aCancelWhileCloningLeavesNoManifestAndNoClone() {
         let clones = clones()
         var cancelled = false
@@ -397,7 +397,7 @@ final class DocumentClonesTests {
     }
 
     /// The Download folder is the root of the guest's mount, so nothing should stand in its place; a link there all the
-    /// same is never followed, by a clone or a cancel's removal (the review).
+    /// same is never followed, by a clone or a cancel's removal.
     @Test func aLinkWhereTheDownloadFolderBelongsIsNotFollowed() throws {
         let clones = clones()
         #expect(clones.answer(id: 1, picks: [known]) == 1)

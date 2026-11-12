@@ -58,7 +58,7 @@ struct ELFDynamicTests {
         #expect(throws: APKError.self) { try ELFDynamic.needed(in: file) }
     }
 
-    // MARK: - Hostile files (the review)
+    // MARK: - Hostile files
 
     @Test(arguments: [UInt64.max - 0x20, 0x1000_0000, UInt64(Int64.max)])
     func aLoadSegmentWhoseFileOffsetOverflowsOrLiesBeyondTheFileIsRefused(_ offset: UInt64) {
