@@ -94,6 +94,20 @@ if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     set_tests_properties(graphics.angle_deferral_full_${mode} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
   endforeach()
 endif()
+# park_locks: the ANGLE lock a thread parked at a full FIFO still holds (patch 0030): in eglSwapBuffers the global EGL
+# mutex (another thread's eglMakeCurrent waits for it), in glFlush only its share group's (another group goes on).
+if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
+  add_executable(angle-park-locks angle_park_locks.mm)
+  target_include_directories(angle-park-locks SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
+  target_compile_options(angle-park-locks PRIVATE -fobjc-arc)
+  target_link_libraries(angle-park-locks PRIVATE apk_defaults "-framework Foundation" "-framework Metal"
+    "-framework QuartzCore")
+  foreach(mode IN ITEMS swap flush)
+    add_test(NAME graphics.angle_park_locks_${mode}
+      COMMAND angle-park-locks "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" ${mode})
+    set_tests_properties(graphics.angle_park_locks_${mode} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+  endforeach()
+endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
 if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")
