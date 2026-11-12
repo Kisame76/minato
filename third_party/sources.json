@@ -1034,7 +1034,7 @@
     ]
   },
   "moltenvk-licenses": {
-    "comment": "The license texts of the projects inside MoltenVK v1.4.2's binary that its release does not carry (ADR-0030, V1 finding 3), at the commits of MoltenVK's ExternalRevisions/ for v1.4.2; fetched only by tools/fetch-moltenvk.sh --licenses into third_party/moltenvk/licenses/, checked against their Git blob IDs, and kept in the repo.",
+    "comment": "The license texts of the projects inside MoltenVK v1.4.2's binary that its release does not carry (ADR-0030), at the commits of MoltenVK's ExternalRevisions/ for v1.4.2; fetched only by tools/fetch-moltenvk.sh --licenses into third_party/moltenvk/licenses/, checked against their Git blob IDs, and kept in the repo.",
     "cap_bytes": 50000,
     "files": [
       {

@@ -8,13 +8,14 @@ ADR-0037 measures it with one scene built twice: as the APKs `bench-gles` and `b
 `MinatoBench.framework`, the same C files built for iOS. Both draw through ANGLE and MoltenVK, so the difference
 between them is what Minato costs.
 
-**Result: parity does not hold yet. 5 of 6 configurations pass; `vulkan-120-heavy` fails, with the APK at 90.83 % of
-the native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max. V5 then measured
-the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK still
-fails on p99 (see [V5](#v5-the-copy-on-the-iphone-adr-0030)). V5's QoS A/B then ruled out the render thread's QoS
-class as the rest. Its queue-path A/B found that `libvulkan`'s queue path costs about a third of the rest and none of
-the late frames. Its late-frames A/B found the rest: the APK's layer was not opaque. With the layer opaque and
-without the copy, the APK is the queue path's 0.17 ms a frame from the native build, with its p99 and no late frames.
+**Result: parity does not hold yet. 5 of 6 configurations pass; `vulkan-120-heavy` fails, with the APK at 90.83 % of the
+native build's FPS and its p99 at 133.33 %.** Measured 2026-09-29 to 30 on an iPhone 15 Pro Max. The copy series then
+measured the copy that `libvulkan` makes at every present: it explains about half of the gap, and without it the APK
+still fails on p99 (see [the copy series](#the-copy-series-the-copy-on-the-iphone-adr-0030)). Its QoS A/B then ruled out
+the render thread's QoS class as the rest. Its queue-path A/B found that `libvulkan`'s queue path costs about a third of
+the rest and none of the late frames. Its late-frames A/B found the rest: the APK's layer was not opaque. With the layer
+opaque and without the copy, the APK is the queue path's 0.17 ms a frame from the native build, with its p99 and no late
+frames.
 
 | Configuration | Native FPS | APK FPS | FPS ratio | Native p99 | APK p99 | p99 ratio | Native spread FPS / p99 | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -44,7 +45,7 @@ higher than the native build's. It shows few 8.33 ms intervals and 7 % at 16.67 
 The Vulkan APK and the native build differ in several things that are Minato's:
 
 - the loader
-- `libvulkan` and its thunks (9 to 15 ns per call on the Mac, V5)
+- `libvulkan` and its thunks (9 to 15 ns per call on the Mac, the copy series)
 - the glue and the runtime's vsync channel
 - the render thread's QoS class: default, against user-interactive
 - the swapchain format: the APK asks for R8G8B8A8 (VkFormat 37), which `libvulkan` copies to the layer's BGRA8 with a
@@ -53,8 +54,8 @@ The Vulkan APK and the native build differ in several things that are Minato's:
 The GLES APK shares the loader, the glue, the vsync channel and the QoS class. It has its own front libs and no copy,
 and at the same load it matches the native build (1.0036 and 1.0000).
 
-The copy was therefore the likely cause, but this series did not measure it; ADR-0037 names this risk. V5 below
-measured it: the copy explains about half of the gap, and the rest lies elsewhere in the Vulkan APK's path, not in
+The copy was therefore the likely cause, but this series did not measure it; ADR-0037 names this risk. The copy series
+below measured it: the copy explains about half of the gap, and the rest lies elsewhere in the Vulkan APK's path, not in
 the render thread's QoS class.
 
 The mean interval gives the cost of the APK's path per frame, though not the copy's alone: 12.78 ms against 11.61 ms,
@@ -67,7 +68,7 @@ The APK's render thread also spends more CPU time per frame. Its CPU p99 of 5.45
 so the GPU sets the rate [guess, from these numbers]. At the light loads the GPU has room within its step, and the same
 path passes (0.9994 and 1.0000).
 
-### V5: the copy on the iPhone (ADR-0030)
+### The copy series: the copy on the iPhone (ADR-0030)
 
 **Result: the copy explains about half of `vulkan-120-heavy`'s gap. Without it the APK reaches 96.03 % of the native
 build's FPS, but its p99 stays a step or two higher (16.670 and 20.838 ms against 12.503 ms), so parity still
@@ -105,8 +106,8 @@ costs 0.67 ms a frame (A's 12.77 ms against B's 12.10 ms), and the rest of the A
   (B − A) / (N − A).
 
 **The builds.** Release benchmark builds that `tools/benchmark.sh --api vulkan` made and installed. Its series was
-complete, so it started no run. `build/v5/tree-at-build.txt` (not in git) has a section for each build, and the
-runs' `run.csv` files name both commits with -dirty (the switch, uncommitted).
+complete, so it started no run. A tree-at-build file in the series' own build folder (not in git) has a section for each
+build, and the runs' `run.csv` files name both commits with -dirty (the switch, uncommitted).
 
 - *First, 19:09:* 26d724f with the switch.
   - Against the series' Vulkan build, these are byte-identical: the bench APKs, `MinatoBench`, MoltenVK, ANGLE,
@@ -125,13 +126,14 @@ runs' `run.csv` files name both commits with -dirty (the switch, uncommitted).
 - The driver stopped at its format check, so apk-52 counts as a second A.
 - 8109689 fixes it, red first: `fixture.libc-test` now prints `LD_LIBRARY_PATH` from the start.
 
-**How it ran.** A driver outside the repo (`build/v5/scripts/v5.sh`) did each run in four steps:
+**How it ran.** A driver script outside the repo did each run in four steps:
 
 1. A pause of 10 min with Minato closed, the series' rule before a heavy run.
-2. The launch and the fetch with `tools/benchmark.sh`'s own commands, into `build/v5/` only. B's launch added
-   `-benchmarkGuestEnvironment MINATO_VULKAN_BGRA8_FIRST=1`.
+2. The launch and the fetch with `tools/benchmark.sh`'s own commands, into the series' own build folder only. B's launch
+   added `-benchmarkGuestEnvironment MINATO_VULKAN_BGRA8_FIRST=1`.
 3. A check that the console names format 37 for A and 44 for B. If not, the driver stops.
-4. After a dropped link, a new fetch once Minato has ended. An invalid run moves to `build/v5/failed/` and runs again.
+4. After a dropped link, a new fetch once Minato has ended. An invalid run moves to a `failed/` folder there and runs
+   again.
 
 Step 4 was never needed. All 7 runs were valid, in portrait, nominal from start to end, and charging at 80 % (apk-53
 at 75 %). The order was
@@ -182,7 +184,7 @@ The runs are `vulkan-120-heavy-<run>`, cut as above. Late is the share of interv
 guess above about B's late frames does not hold: at QoS default the native render thread spends the same CPU time per
 frame and draws no late frame.
 
-- *NU:* the native build as in the series and V5, its render thread at user-interactive. The control.
+- *NU:* the native build as in the series and the copy series, its render thread at user-interactive. The control.
 - *ND:* the same build launched with `-benchmarkRenderQoS default`, which `graphics/bench/native/native.m` reads. Its
   render thread runs at QoS default, as the APK's guest render thread does. `run.csv`'s `qos` column, which the layer
   takes from the presenting thread, says so.
@@ -190,15 +192,16 @@ frame and draws no late frame.
   1. ND's period at least 0.24 ms above NU's (half of the rest) and L at least 0.5 %: QoS explains the rest.
   2. ND's period at most 0.05 ms above NU's and L at most 0.1 %: QoS is ruled out, and the queue path is left.
   3. In between: QoS's share of the rest is (P_ND − P_NU) / 0.48 ms, and two more runs follow.
-- *The build:* `tools/benchmark.sh --api vulkan` at 09:06, 281cf00 with the switch (uncommitted). Against V5's second
-  build only `MinatoBench` differs. Minato's binary, `libvulkan`, `libc.so` and the APKs are byte-identical.
+- *The build:* `tools/benchmark.sh --api vulkan` at 09:06, 281cf00 with the switch (uncommitted). Against the copy
+  series' second build only `MinatoBench` differs. Minato's binary, `libvulkan`, `libc.so` and the APKs are
+  byte-identical.
 - *Tests,* red first: `graphics.recorder` runs the GLES host build with `-benchmarkRenderQoS default` and checks that
   the recording notes QoS default. Another value fails the start with its reason. Graphics CTest 28 of 28 in debug
   and release; `MinatoBench` builds for iphoneos and iphonesimulator.
-- *How it ran:* `build/v5-qos/scripts/qos.sh` (not in git), as V5's driver: a pause of 10 min with Minato closed
-  before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-qos/` only. It stops if
-  `run.csv`'s `qos` does not match the arm. Both runs were valid at the first attempt, in portrait, nominal from
-  start to end, and charging at 80 %. The setup was the series'.
+- *How it ran:* `build/v5-qos/scripts/qos.sh` (not in git), as the copy series' driver: a pause of 10 min with Minato
+  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-qos/` only. It stops if
+  `run.csv`'s `qos` does not match the arm. Both runs were valid at the first attempt, in portrait, nominal from start
+  to end, and charging at 80 %. The setup was the series'.
 
 **The queue-path A/B, 2026-10-01: `libvulkan`'s queue path is about a third of the rest, and none of the late
 frames.** By the rule fixed before the runs this is case 3, between. The native build with `libvulkan`'s queue path in
@@ -217,7 +220,7 @@ The runs are `vulkan-120-heavy-<run>`, cut as above. NU's period is 11.594 ms (i
 11.758 ms (0.007 ms apart). In both NQ runs the share of 8.33 ms intervals falls from about 22 % to 18 %: frames that
 made the next refresh at 120 Hz now miss it.
 
-- *NU:* the native build as in the series, V5 and the QoS A/B, with MoltenVK's own queue path. The control.
+- *NU:* the native build as in the series, the copy series and the QoS A/B, with MoltenVK's own queue path. The control.
 - *NQ:* the same build launched with `-benchmarkQueuePath libvulkan`, which `graphics/bench/native/native.m` reads.
   `graphics/bench/native/queue_path.c` then puts what `libvulkan` changes in what MoltenVK is asked in front of
   MoltenVK (`graphics/vulkan/device.c` and `queue.c`):
@@ -276,8 +279,8 @@ The runs are `vulkan-120-heavy-<run>`, cut as above. To screen is the p50 of the
 to its present. Earliest is the p10 of when a frame took its drawable, counted from frame k−2's present; negative is
 before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms.
 
-- *The data check, before any code* (`build/v5-late/data-check.txt`, not in git), on V5's and the queue A/B's
-  `frames.csv`:
+- *The data check, before any code* (`build/v5-late/data-check.txt`, not in git), on the copy series' and the queue
+  A/B's `frames.csv`:
   - The APK asks in time. Frame k takes its drawable 0.62 to 0.75 ms (p50) after frame k−2's present in every run,
     native and APK, the earliest it can with 3 drawables. The thunks, the vsync channel and glue, and the gates act
     before that point.
@@ -300,7 +303,7 @@ before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms
     drawables [inferred].
   - ANGLE's Metal backend sets no opacity, so both GLES variants draw on the same non-opaque layer, and they pass.
 - *N:* the native build as in the series and the A/Bs, its layer opaque. The control.
-- *B:* the APK with `MINATO_VULKAN_BGRA8_FIRST=1`, as V5's B: no copy, `libvulkan`'s queue path, INHERIT.
+- *B:* the APK with `MINATO_VULKAN_BGRA8_FIRST=1`, as the copy series' B: no copy, `libvulkan`'s queue path, INHERIT.
 - *BO:* B with `MINATO_VULKAN_OPAQUE=1` as well. `libvulkan` then hands MoltenVK OPAQUE in place of the app's INHERIT
   (`graphics/vulkan/swapchain.c`), so MoltenVK makes the layer opaque. Nothing else changes. Each run's console names
   the layer's opacity at the first drawable, which `graphics/host`'s recorder logs once.
