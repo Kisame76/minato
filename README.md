@@ -30,10 +30,12 @@ bridged to their iOS counterparts. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 Native games and apps (C and C++ with OpenGL ES or Vulkan) run, and so do Java and Kotlin apps that stay within the
 parts of Android Minato already provides. A self-built Godot game runs as fast as its native iOS build. Apps can use the
 camera through Android's older Camera API, record with the microphone, read game controllers, show web pages inside the
-app and play sound, music and effects; the camera and the microphone are new and not yet checked on the iPhone. Many
-real apps still stop at something that is missing: Camera2 and CameraX, saving audio or video to a file, and parts of
-the framework. Java code runs on ART's fast interpreter and is compiled once after an app's first close, so Java-heavy
-apps can still be slower than on a phone.
+app and play sound, music and effects; the camera, the microphone and location are new and not yet checked on the
+iPhone. Many real apps still stop at something that is missing: Camera2 and CameraX, saving audio or video to a file,
+and parts of the framework. Java code runs on ART's fast interpreter and is compiled once after an app's first close,
+so Java-heavy apps can still be slower than on a phone. Unity games built with IL2CPP are only partly supported: their
+libraries convert, but the import can still refuse a library that keeps data inside its code. Unity games on the Mono
+backend need a JIT and do not run.
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists what works, what is missing and what each engine does.
 
 The performance goal is parity with the native iOS version of the same app on the same iPhone: at least 95 % of its
