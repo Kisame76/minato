@@ -133,22 +133,21 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 ## The gaps, counted
 
-The compatibility plan lists 22 gaps that stop real apps, numbered 1 to 22; each entry below names its number, and a
-comment in the source that says "gap 4" means the entry with that number. Recounted on 2026-11-12: **17 closed, 6 of
-them except for a limit that is named, and 5 partly closed.**
+The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry names its number. Recounted on 2026-11-12:
+**17 closed, 6 of them except for a limit that is named, and 5 partly closed.**
 
 **Closed:**
 
 - 4 KB libraries (gap 2): libraries aligned for 4 KB pages load.
 - Second windows (gap 4): dialogs, toasts, popups and translucent activities.
+- Widgets and menus (gap 5): every widget the plan listed is in, with the action bar, the text selection menus and the
+  magnifier.
 - Activity results, start flags and launch modes (gap 6).
 - SQLite (gap 7).
 - Speed of Java code (gap 10): the fast interpreter is the default and an app is compiled once after its first close.
 - Missing NDK libraries (gap 14): every name that the API 35 NDK exports in the libraries Minato builds exists, some as
   stubs that answer nothing; the check compares the names with the NDK's own.
 - Files, pickers and shared media (gap 16).
-- Widgets and menus (gap 5): every widget the plan listed is in, with the action bar, the text selection menus and the
-  magnifier.
 - Intents to iOS (gap 18): links, mail, messages, calls, maps and shares.
 - Play Asset Delivery at run time (gap 20).
 - Time zone data for ICU (gap 21).
