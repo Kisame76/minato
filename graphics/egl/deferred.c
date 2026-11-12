@@ -16,6 +16,7 @@
    - only C again on the same thread: another context made current there drops the names, and so do
      eglReleaseThread, eglDestroyContext(C) (ANGLE lets go of C's objects then anyway) and eglTerminate;
    - at most `most_names` names a thread; past that a delete does nothing, as on Android, with one warning line.
+   Names dropped by one of these rules are dropped as Android drops them; an I/libEGL line says how many and why.
    The one difference an app can see: glIsTexture on such a name answers GL_FALSE after the return, Android GL_TRUE
    until the context goes. */
 #include <android/log.h>
@@ -73,6 +74,13 @@ static void forget(void *value) {
 }
 
 static void make_key(void) { pthread_key_create(&key, forget); }
+
+static void say_dropped(size_t names, const char *why) {
+    if (names > 0) {
+        __android_log_print(ANDROID_LOG_INFO, "libEGL", "deletes made with no context current: %zu names dropped (%s), "
+                            "as Android drops them", names, why);
+    }
+}
 
 static struct queue *my_queue(void) {
     if (mine == NULL) {
@@ -135,12 +143,15 @@ void minato_deferred_current(EGLContext before, EGLContext context) {
         if (queue == NULL) {
             return;
         }
+        size_t dropped = 0;
         pthread_mutex_lock(&lock);
         if (queue->context != before) {
+            dropped = queue->total;
             drop(queue);
             queue->context = before;
         }
         pthread_mutex_unlock(&lock);
+        say_dropped(dropped, "another context released");
         released = 1;
         return;
     }
@@ -149,7 +160,7 @@ void minato_deferred_current(EGLContext before, EGLContext context) {
     }
     released = 0;
     unsigned *names[kinds] = {NULL};
-    size_t counts[kinds] = {0}, total = 0;
+    size_t counts[kinds] = {0}, total = 0, dropped = 0;
     pthread_mutex_lock(&lock);
     if (mine->context == context) {
         for (int kind = 0; kind < kinds; kind++) {
@@ -158,9 +169,12 @@ void minato_deferred_current(EGLContext before, EGLContext context) {
             mine->names[kind] = NULL;
         }
         total = mine->total;
+    } else {
+        dropped = mine->total;
     }
     drop(mine);
     pthread_mutex_unlock(&lock);
+    say_dropped(dropped, "another context made current");
     for (int kind = 0; kind < kinds; kind++) {
         void (*delete)(int, const unsigned *) = (void (*)(int, const unsigned *))minato_gles_function(
             delete_names[kind]);
@@ -179,17 +193,22 @@ void minato_deferred_release_thread(void) {
     released = 0;
     if (mine != NULL) {
         pthread_mutex_lock(&lock);
+        const size_t dropped = mine->total;
         drop(mine);
         pthread_mutex_unlock(&lock);
+        say_dropped(dropped, "eglReleaseThread");
     }
 }
 
 void minato_deferred_destroyed(EGLContext context) {
+    size_t dropped = 0;
     pthread_mutex_lock(&lock);
     for (struct queue *queue = queues; queue != NULL; queue = queue->next) {
         if (context == EGL_NO_CONTEXT || queue->context == context) {
+            dropped += queue->total;
             drop(queue);
         }
     }
     pthread_mutex_unlock(&lock);
+    say_dropped(dropped, context == EGL_NO_CONTEXT ? "eglTerminate" : "eglDestroyContext");
 }

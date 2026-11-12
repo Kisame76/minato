@@ -11,13 +11,19 @@
       texture of the same number, then made current on this thread, keeps that texture. ANGLE does not hand a
       destroyed context's handle out again (C 0x4, the later one 0x5 on the Mac), so this case shows only that
       nothing goes wrong; the drop frees the names at once and keeps them from a context that would get C's handle.
+   4. eglReleaseThread in between: the names are dropped, so C current again on the thread still has its textures.
+   5. More names waiting than libEGL keeps (262144): the deletes past the cap are dropped as Android drops them, with
+      one W/libEGL line for the process however often it happens; C current again keeps the textures they named.
+   6. eglTerminate with names waiting: they are dropped. Handles are not handed out again after eglTerminate either,
+      so libEGL's line for the drop (stderr, in the expected .err) is what shows it.
+   Every drop says how many names and why on an I/libEGL line, which the expected .err holds.
    Each case on pbuffer surfaces, so no window is needed. */
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <pthread.h>
 #include <stdio.h>
 
-enum { count = 3 };
+enum { count = 3, most_names = 1 << 18 };
 
 static EGLDisplay display;
 static EGLConfig config;
@@ -132,10 +138,52 @@ int main(void) {
     release();
     eglDestroyContext(display, later);
     eglDestroySurface(display, later_surface);
-    eglDestroySurface(display, surface);
-    eglTerminate(display);
 
-    const int ok = same == 0 && in_d == count && in_c == count && in_later == count;
+    /* 4. eglReleaseThread in between. */
+    c = make_context();
+    eglMakeCurrent(display, surface, surface, c);
+    make_textures(textures);
+    release();
+    glDeleteTextures(count, textures);
+    eglReleaseThread();
+    eglMakeCurrent(display, surface, surface, c);
+    const int after_release = alive(textures);
+    printf("4. eglReleaseThread in between: %d of %d textures left (the deletes dropped, as Android drops them)\n",
+           after_release, count);
+    release();
+    eglDestroyContext(display, c);
+
+    /* 5. More names than the cap: names nothing holds fill it, then the real textures' deletes go past it, twice. */
+    static GLuint unused[most_names];
+    for (int i = 0; i < most_names; i++) {
+        unused[i] = 1000000u + (GLuint)i;
+    }
+    c = make_context();
+    eglMakeCurrent(display, surface, surface, c);
+    make_textures(textures);
+    release();
+    glDeleteTextures(most_names, unused);
+    glDeleteTextures(count, textures);
+    glDeleteTextures(1, textures);
+    eglMakeCurrent(display, surface, surface, c);
+    const int past_cap = alive(textures);
+    printf("5. %d names waiting, then more: %d of %d textures left (the deletes past the cap dropped)\n", most_names,
+           past_cap, count);
+    release();
+    eglDestroyContext(display, c);
+
+    /* 6. eglTerminate with names waiting. */
+    c = make_context();
+    eglMakeCurrent(display, surface, surface, c);
+    make_textures(textures);
+    release();
+    glDeleteTextures(count, textures);
+    eglDestroySurface(display, surface);
+    printf("6. eglTerminate with %d names waiting: %s\n", count,
+           eglTerminate(display) == EGL_TRUE ? "terminated (libEGL's line counts the names dropped)" : "FAILED");
+
+    const int ok = same == 0 && in_d == count && in_c == count && in_later == count && after_release == count &&
+                   past_cap == count;
     printf("gles deferred delete: %s\n", ok ? "applied only for the same context on the same thread"
                                             : "BROKEN: a kept delete went to the wrong context, or none was kept");
     return ok ? 0 : 1;
