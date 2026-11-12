@@ -14,7 +14,7 @@ or by joined threads and are safe). It guards two things instead:
   1. the three statics a detached thread provably locks use the never-destroyed idiom (fails if one reverts to owned);
   2. the set of detached / never-joined thread sites matches the reviewed allowlist, so a NEW detached thread fails the
      check until someone has classified whether it locks a static-with-a-destructor (and, if so, leaked it).
-Python 3.9 (the lead runs tools tests with /usr/bin/python3 3.9.6)."""
+Python 3.9 (the tools tests run with the system's /usr/bin/python3 3.9)."""
 import os
 import re
 import sys
