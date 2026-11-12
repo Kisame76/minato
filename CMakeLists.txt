@@ -177,6 +177,10 @@ if(APK_HOST_BUILD)
   # against profiles made in a temp folder.
   add_test(NAME tools.provisioning_updates
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/provisioning_updates_test.sh")
+  # The signing flag's rule over tools/*.sh: the flag only from tools/provisioning-updates.sh (deploy.sh's device
+  # registration after it), every device xcodebuild asks the tool or builds unsigned; planted violations must fail it.
+  add_test(NAME tools.signing_flag_rule
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/signing_flag_rule_test.sh")
   # java-start-check.sh's mem_notes: picks the first, peak-foot=, warning and last "mem foot=" lines from a
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes

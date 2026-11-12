@@ -24,11 +24,12 @@ else
   destination="generic/platform=iOS Simulator"
 fi
 # Only a build for the iPhone is signed with a profile: Xcode talks to Apple (and needs the signed-in account) only when
-# the local profile of Minato or of the runner is about to run out (tools/provisioning-updates.sh).
+# the local profile of Minato or of the runner is about to run out. tools/provisioning-updates.sh's output is the words
+# (nothing, or the flag), as java-start-check's runner build takes them, so the tool alone decides.
 SIGNING=()
 if [[ "$ON_DEVICE" == yes ]]; then
-  [[ -z "$(tools/provisioning-updates.sh io.github.kisame76.minato io.github.kisame76.minato.uitests.xctrunner)" ]] ||
-    SIGNING=(-allowProvisioningUpdates)
+  read -r -a SIGNING <<< "$(tools/provisioning-updates.sh io.github.kisame76.minato \
+    io.github.kisame76.minato.uitests.xctrunner)"
 fi
 if ! { tools/gen.sh > "$WORK/build.log" 2>&1 &&
     xcodebuild build-for-testing -project Minato.xcodeproj -scheme MinatoUITests -destination "$destination" \
