@@ -326,10 +326,10 @@ if(TARGET minato_graphics_host)
   # ADR-0067 step 1: graphics/host's layer pair for the upscaler (upscale.m): a fake guest draws at the low size on
   # its own queue, the visible layer's drawable holds the upscaled picture (MetalFX and the bilinear pass), its
   # presents are counted, and the hook never waits. `graphics-upscale-test --measure` prints step 0's scaler rows.
-  add_executable(graphics-upscale-test upscale_test.m)
+  add_executable(graphics-upscale-test upscale_test.mm)
   target_link_libraries(graphics-upscale-test PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
-  set_source_files_properties(upscale_test.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  target_compile_options(graphics-upscale-test PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
   add_test(NAME graphics.upscale COMMAND graphics-upscale-test)
   set_tests_properties(graphics.upscale PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:"
     RESOURCE_LOCK gpu)

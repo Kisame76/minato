@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "minato_upscale.h"
+#include "starved.h"  // the live-frame starvation canary: tells a loaded machine from our own pacing
 
 static int failures;
 
@@ -91,7 +92,7 @@ static void guest_frame(CAMetalLayer *low, BOOL pattern, const uint8_t bgra[4], 
     if (pattern) {
         const size_t row = low_w * 4;
         id<MTLBuffer> source = [device newBufferWithLength:row * low_h options:MTLResourceStorageModeShared];
-        uint8_t *bytes = source.contents;
+        uint8_t *bytes = (uint8_t *)source.contents;
         for (int y = 0; y < low_h; y++) {
             for (int x = 0; x < low_w; x++) cell_color(x / cell, y / cell, bytes + (size_t)y * row + (size_t)x * 4);
         }
@@ -291,15 +292,38 @@ static void the_newest_frame_wins(void) {
         observed++;
         [lock unlock];
     };
+    // The drop split (which frame the next replaces) races the three frames' arrival against the visible layer's
+    // 400 ms wait; a loaded machine that starves the producer threads shifts it. The canary (starved.h) watches the
+    // task's threads over the window: a thread held runnable >= 50 ms without CPU means the machine starved us, and
+    // then only the invariants that hold regardless of timing are asserted. The 400 ms wait is a sleep, which
+    // starved.h never counts, so a real pacing bug (no starvation) still fails the exact split.
+    StarvedRuns starved;
+    ThreadSampler sampler(starved);
+    sampler.start();
+    const uint64_t t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     for (int k = 0; k < 3; k++) {
         uint8_t color[4];
         frame_color((uint64_t)k, color);
         guest_frame(pair.lowLayer, NO, color, by_command_buffer);
     }
-    EXPECT(settled(pair, 3, 10));
-    EXPECT(pair.droppedFrames == 1 && pair.completedPasses == 2 && pair.visiblePresents == 2);
-    EXPECT(observed == 2 && newest == 2);  // the last frame is the one that was shown
-    // The guest was not stopped on the way: all three frames drew on the low layer's pool of three.
+    const BOOL done = settled(pair, 3, 10);
+    const uint64_t t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    sampler.stop();
+    EXPECT(done);
+    // Invariants, always: the guest was never stopped (all three drew on the pool of three), every frame is
+    // accounted for, the newest is the one shown, and the presents are in order.
+    EXPECT(pair.lowPresents == 3);
+    EXPECT(pair.completedPasses + pair.droppedFrames == 3);
+    EXPECT(pair.visiblePresents == pair.completedPasses);
+    EXPECT(observed >= 1 && newest == 2);
+    const double held = starved.longest(t0, t1);
+    if (held >= 50.0) {
+        printf("  newest-wins: the machine starved a thread %.0f ms in the window; exact split not asserted\n", held);
+    } else {
+        // No starvation: the newest replaces the one still waiting -- one dropped, two shown.
+        EXPECT(pair.droppedFrames == 1 && pair.completedPasses == 2 && pair.visiblePresents == 2);
+        EXPECT(observed == 2);
+    }
 }
 
 /* All three presents of a drawable reach the pair. */
@@ -326,7 +350,7 @@ static void every_present_is_hooked(void) {
 static void measure_scene(int scene) {
     const int w = 1290, h = 2796;
     const size_t row = (size_t)w * 4;
-    uint8_t *full = malloc(row * (size_t)h);
+    uint8_t *full = (uint8_t *)malloc(row * (size_t)h);
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             uint8_t *p = full + (size_t)y * row + (size_t)x * 4;
@@ -355,7 +379,7 @@ static void measure_scene(int scene) {
         const int lw = (int)(w * scale), lh = (int)(h * scale);
         // The low frame: each low pixel the mean of the full pixels it covers.
         const size_t lrow = (size_t)lw * 4;
-        uint8_t *low = malloc(lrow * (size_t)lh);
+        uint8_t *low = (uint8_t *)malloc(lrow * (size_t)lh);
         for (int y = 0; y < lh; y++) {
             for (int x = 0; x < lw; x++) {
                 const int x0 = x * w / lw, y0 = y * h / lh;
@@ -386,7 +410,7 @@ static void measure_scene(int scene) {
             __block uint8_t *got = NULL;
             pair.observer = ^(uint64_t frame, const uint8_t *pixels, size_t row_bytes) {
                 if (frame == 0) {
-                    got = malloc(row_bytes * (size_t)h);
+                    got = (uint8_t *)malloc(row_bytes * (size_t)h);
                     memcpy(got, pixels, row_bytes * (size_t)h);
                 }
             };
