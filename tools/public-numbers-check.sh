@@ -190,6 +190,13 @@ def code_facts():
     check("platform: iOS floor in README", claims(R, r"iOS (\d+) or later"),
           int(deployment.group(1)) if deployment else -1,
           "project.yml deploymentTarget")
+    # The API level of the NDK stubs that the libraries are compared with: the generator's and the bionic build's.
+    stubs = re.search(r"^API = (\d+)", read("runtime/android/stubgen.py"), re.M)
+    platform = re.search(r"-DANDROID_PLATFORM=android-(\d+)", read("tools/build-bionic.sh"))
+    for name, found, source in (("COMPATIBILITY and stubgen.py", stubs, "runtime/android/stubgen.py"),
+                                ("COMPATIBILITY and the bionic build", platform, "tools/build-bionic.sh")):
+        check("platform: API level of the NDK stubs (%s)" % name, claims(C, r"the API (\d+) NDK"),
+              int(found.group(1)) if found else -1, source)
     ndk = re.search(r"ndk/(\d+)\.", read("tools/build-framework-native.sh"))
     check("platform: NDK in README", claims(R, r"Android NDK r(\d+)"), int(ndk.group(1)) if ndk else -1,
           "tools/build-framework-native.sh")

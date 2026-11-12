@@ -10,7 +10,8 @@ trap 'rm -rf "$scratch"' EXIT
 failures=0
 FILES=(README.md CHANGELOG.md THIRD_PARTY.md project.yml docs/COMPATIBILITY.md docs/BENCHMARKS.md
   fixtures/expected/service-inventory-test.logcat fixtures/apps/sdl-audio-test/main.c third_party/sources.json
-  tools/renpy-check.sh tools/build-framework-native.sh importer/APKKit/Sources/APKSession
+  tools/renpy-check.sh tools/build-framework-native.sh tools/build-bionic.sh runtime/android/stubgen.py
+  importer/APKKit/Sources/APKSession
   importer/APKKit/Sources/APKLibrary/HomeScreenGrid.swift framework/java/android/app/LocalAlarmManager.java
   framework/java/android/app/NotificationService.java
   framework/tests/java/com/android/minato/notifications/NotificationTextTest.java)
@@ -51,6 +52,12 @@ fresh; edit docs/COMPATIBILITY.md "MoltenVK 1.4.2 reports" "MoltenVK 1.4.3 repor
 expect "a doctored version is WRONG" 1 "WRONG versions: MoltenVK"
 fresh; edit docs/COMPATIBILITY.md "(56 % of the native FPS in that test)" "(57 % of the native FPS in that test)"
 expect "a doctored benchmark percent is WRONG" 1 "WRONG benchmark: ES 3.1"
+fresh; edit docs/COMPATIBILITY.md "the API 35 NDK" "the API 36 NDK"
+expect "a doctored API level of the NDK stubs in COMPATIBILITY is WRONG" 1 "WRONG platform: API level of the NDK stubs"
+fresh; edit runtime/android/stubgen.py "API = 35" "API = 36"
+expect "a doctored API level in the stub generator is WRONG" 1 "WRONG platform: API level of the NDK stubs"
+fresh; edit tools/build-bionic.sh "android-35" "android-36"
+expect "a doctored platform of the bionic build is WRONG" 1 "WRONG platform: API level of the NDK stubs"
 fresh; rm "$scratch/t/docs/BENCHMARKS.md"
 expect "a missing source file is SKIP, not OK and not WRONG" 0 "SKIP +benchmark"
 echo "$failures failed"; exit $((failures != 0))
