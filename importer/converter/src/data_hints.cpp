@@ -263,6 +263,85 @@ void scan_loads(Bytes code, std::uint64_t address, Sites &sites) {
     }
 }
 
+/// The addresses that code forms (adr; adrp followed by add of an immediate, within 16 words of straight-line code) and
+/// the targets of its direct branches and calls, appended to `taken` and `targets`. For the hints only: a register is
+/// forgotten by any other word that names it as its destination, a branch ends the straight line.
+void scan_addresses(Bytes code, std::uint64_t address, std::vector<std::uint64_t> &taken,
+                    std::vector<std::uint64_t> &targets) {
+    std::array<std::optional<std::uint64_t>, 32> page;
+    std::array<int, 32> age{};
+    for (std::size_t offset = 0; offset + 4 <= code.size(); offset += 4) {
+        std::uint32_t word;
+        std::memcpy(&word, code.data() + offset, 4);
+        const std::uint64_t pc = address + offset;
+        for (std::size_t reg = 0; reg < 32; ++reg) {
+            if (page[reg] && ++age[reg] > 16) page[reg].reset();
+        }
+        const unsigned rd = word & 31;
+        const unsigned rn = (word >> 5) & 31;
+        if ((word & 0x7c00'0000) == 0x1400'0000) {  // b, bl
+            targets.push_back(pc + static_cast<std::uint64_t>(sign_extend(word & 0x03ff'ffff, 26) * 4));
+            page.fill(std::nullopt);
+            continue;
+        }
+        if ((word & 0xff00'0010) == 0x5400'0000 || (word & 0x7e00'0000) == 0x3400'0000) {  // b.cond, cbz, cbnz
+            targets.push_back(pc + static_cast<std::uint64_t>(sign_extend((word >> 5) & 0x7ffff, 19) * 4));
+            page.fill(std::nullopt);
+            continue;
+        }
+        if ((word & 0x7e00'0000) == 0x3600'0000) {  // tbz, tbnz
+            targets.push_back(pc + static_cast<std::uint64_t>(sign_extend((word >> 5) & 0x3fff, 14) * 4));
+            page.fill(std::nullopt);
+            continue;
+        }
+        if ((word & 0xfe00'0000) == 0xd600'0000) {  // br, blr, ret
+            page.fill(std::nullopt);
+            continue;
+        }
+        if ((word & 0x9f00'0000) == 0x1000'0000) {  // adr
+            const auto imm = (((word >> 5) & 0x7ffff) << 2) | ((word >> 29) & 3);
+            if (rd != 31) taken.push_back(pc + static_cast<std::uint64_t>(sign_extend(imm, 21)));
+            page[rd].reset();
+            continue;
+        }
+        if ((word & 0x9f00'0000) == 0x9000'0000) {  // adrp
+            const auto imm = (((word >> 5) & 0x7ffff) << 2) | ((word >> 29) & 3);
+            page[rd].reset();
+            if (rd != 31) {
+                page[rd] = (pc & ~std::uint64_t{0xfff}) + static_cast<std::uint64_t>(sign_extend(imm, 21)) * 4096;
+                age[rd] = 0;
+            }
+            continue;
+        }
+        if ((word & 0xff80'0000) == 0x9100'0000 && page[rn]) {  // add xd, xn, #imm{, lsl #12}
+            const auto imm = static_cast<std::uint64_t>((word >> 10) & 0xfff) << (((word >> 22) & 1) ? 12 : 0);
+            const auto value = *page[rn] + imm;
+            if (rd != 31) taken.push_back(value);
+            page[rd].reset();
+            if (rd != 31) {
+                page[rd] = value;
+                age[rd] = 0;
+            }
+            continue;
+        }
+        page[rd].reset();
+    }
+}
+
+/// The class of a word near a refused site, for DataHints::Word::around: r return, b branch, c call, u reserved or
+/// unallocated (the top group of the encoding, where udf and zero words live), x any other.
+char class_of_word(std::uint32_t word) {
+    if ((word & 0xffff'fc1f) == 0xd65f'0000) return 'r';
+    if ((word & 0xfc00'0000) == 0x9400'0000 || (word & 0xffff'fc1f) == 0xd63f'0000) return 'c';
+    if ((word & 0xfc00'0000) == 0x1400'0000 || (word & 0xff00'0010) == 0x5400'0000 ||
+        (word & 0x7e00'0000) == 0x3400'0000 || (word & 0x7e00'0000) == 0x3600'0000 ||
+        (word & 0xffff'fc1f) == 0xd61f'0000) {
+        return 'b';
+    }
+    if (((word >> 25) & 0xf) == 0) return 'u';
+    return 'x';
+}
+
 /// The class of the word in front of a refused site, for DataHints::Word::before.
 char kind_of_instruction(std::uint32_t word) {
     if ((word & 0xffff'fc1f) == 0xd65f'0000) return 'r';                                       // ret
@@ -305,11 +384,16 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
     for (const auto &use : uses) sites.address.push_back(use.address);
     std::ranges::sort(sites.address);
     sites.loaded.assign(sites.address.size(), 0);
+    std::vector<std::uint64_t> taken, branch_targets;
     for (const auto &section : sections) {
         if ((section.flags & elf::section_executable) == 0 || (section.flags & elf::section_allocated) == 0) continue;
         ++hints.executable_sections;
         scan_loads(bytes_of(section), section.address, sites);
+        scan_addresses(bytes_of(section), section.address, taken, branch_targets);
     }
+    std::ranges::sort(taken);
+    taken.erase(std::unique(taken.begin(), taken.end()), taken.end());
+    std::ranges::sort(branch_targets);
     for (const auto &segment : file.segments) {
         if (segment.type != elf::SegmentType::load || (segment.flags & elf::segment_executable) == 0) continue;
         for (const auto &section : sections) {
@@ -338,6 +422,30 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
                 std::uint32_t before;
                 std::memcpy(&before, code.data() + (address - holder->address - 4), 4);
                 word.before = kind_of_instruction(before);
+            }
+            // The two words on each side, as classes; a dash where the section has none.
+            for (const int step : {-2, -1, 0, 1, 2}) {
+                if (step == 0) {
+                    word.around.push_back('|');
+                    continue;
+                }
+                const auto at = static_cast<std::int64_t>(address - holder->address) + 4 * step;
+                if (at < 0 || static_cast<std::uint64_t>(at) + 4 > code.size()) {
+                    word.around.push_back('-');
+                    continue;
+                }
+                std::uint32_t near;
+                std::memcpy(&near, code.data() + at, 4);
+                word.around.push_back(class_of_word(near));
+            }
+            // The greatest address that code forms at or below the word, in the word's own section.
+            auto above = std::ranges::upper_bound(taken, address);
+            if (above != taken.begin() && *(above - 1) >= holder->address) {
+                word.has_taken = true;
+                word.taken = *(above - 1);
+                word.taken_fde_start =
+                    std::ranges::any_of(fdes, [&](const auto &fde) { return fde.first == word.taken; });
+                word.taken_branch_target = std::ranges::binary_search(branch_targets, word.taken);
             }
         }
         word.in_fde = std::ranges::any_of(
@@ -377,6 +485,13 @@ std::string describe(const DataHints &hints) {
                              word.section.empty() || word.executable ? "" : " (not executable)",
                              word.in_fde ? "inside an FDE" : "outside every FDE",
                              word.loaded ? "loaded from code" : "not loaded", before);
+        if (word.around.empty()) continue;
+        words += word.has_taken
+                     ? std::format(" [nearest taken address {:#x}, {:#x} below, {} an FDE start, {} a branch target; "
+                                   "around {}]",
+                                   word.taken, word.address - word.taken, word.taken_fde_start ? "is" : "not",
+                                   word.taken_branch_target ? "is" : "not", word.around)
+                     : std::format(" [no taken address below it in its section; around {}]", word.around);
     }
     if (hints.sites > hints.words.size()) words += std::format(" and {} more", hints.sites - hints.words.size());
     return std::format(

@@ -82,11 +82,16 @@ TEST(counts_the_sites_outside_every_fde_and_the_ones_a_load_reads) {
           "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 4 of the 5 sites outside every FDE; PC-relative loads: "
           "1 of the 5 sites loaded from code; sections: 1 executable, 92 bytes of other sections in executable "
           "segments, 5 of the 5 sites in executable sections; refused words: "
-          "0x208 (.text, inside an FDE, not loaded, after a return), "
-          "0x20c (.text, outside every FDE, not loaded, after a return), "
-          "0x210 (.text, outside every FDE, not loaded, after another instruction), "
-          "0x230 (.text, outside every FDE, loaded from code, after another instruction), "
-          "0x238 (.text, outside every FDE, not loaded, after another instruction)");
+          "0x208 (.text, inside an FDE, not loaded, after a return) [no taken address below it in its section; "
+          "around xr|ur], "
+          "0x20c (.text, outside every FDE, not loaded, after a return) [no taken address below it in its section; "
+          "around rr|ru], "
+          "0x210 (.text, outside every FDE, not loaded, after another instruction) [no taken address below it in its "
+          "section; around ru|uu], "
+          "0x230 (.text, outside every FDE, loaded from code, after another instruction) [no taken address below it "
+          "in its section; around uu|uu], "
+          "0x238 (.text, outside every FDE, not loaded, after another instruction) [no taken address below it in its "
+          "section; around ru|uu]");
 }
 
 TEST(a_register_that_adr_set_reaches_a_load_only_within_a_short_straight_line) {
@@ -104,6 +109,101 @@ TEST(a_register_that_adr_set_reaches_a_load_only_within_a_short_straight_line) {
     builder.put<std::uint32_t>(0x208, 0x1400'0001);  // b .+4
     builder.put<std::uint32_t>(0x20c, 0xf940'0020);  // ldr x0, [x1]
     CHECK(hints_of(builder, uses).sites_loaded_as_data == 0);
+}
+
+/// `adr x<rd>, to` placed at `from`.
+std::uint32_t adr_word(std::uint32_t from, std::uint32_t to, std::uint32_t rd) {
+    const std::uint32_t offset = to - from;  // two's complement, 21 bits used
+    return 0x1000'0000 | ((offset & 3) << 29) | (((offset >> 2) & 0x7ffff) << 5) | rd;
+}
+
+/// The word at `address` of `builder`'s .text, as data_hints reports it.
+apk::hints::DataHints::Word word_of(const ElfBuilder &builder, std::uint64_t address) {
+    const auto hints = hints_of(builder, {{address, "x", ret_x18}});
+    return hints.words.at(0);
+}
+
+TEST(names_the_nearest_address_that_code_forms_below_a_refused_word) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x220, 0x1000'0182);  // adr x2, 0x250
+    const auto word = word_of(builder, 0x258);
+    CHECK(word.has_taken);
+    CHECK(word.taken == 0x250);
+    CHECK(!word.taken_fde_start);
+    CHECK(!word.taken_branch_target);
+    // A word below every taken address has none.
+    CHECK(!word_of(builder, 0x23c).has_taken);
+    // The greatest of several is named, and the other side of the word is no help.
+    builder.put<std::uint32_t>(0x224, 0x1000'0143);  // adr x3, 0x24c
+    builder.put<std::uint32_t>(0x228, 0x1000'0204);  // adr x4, 0x268
+    CHECK(word_of(builder, 0x258).taken == 0x250);
+    CHECK(word_of(builder, 0x26c).taken == 0x268);
+}
+
+TEST(an_address_below_the_section_of_the_word_is_no_help) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x220, adr_word(0x220, 0x1f0, 2));  // adr x2, 0x1f0: in .eh_frame, below .text
+    CHECK(!word_of(builder, 0x258).has_taken);
+}
+
+TEST(an_adrp_followed_by_add_forms_an_address_too) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x230, 0x9000'0001);  // adrp x1, 0 (the page of 0x230 is 0)
+    builder.put<std::uint32_t>(0x234, 0x9109'8021);  // add x1, x1, #0x260
+    CHECK(word_of(builder, 0x264).taken == 0x260);
+    // An adrp alone forms no address a blob could begin at.
+    builder.put<std::uint32_t>(0x234, 0xd503'201f);
+    CHECK(!word_of(builder, 0x264).has_taken);
+}
+
+TEST(says_whether_the_taken_address_starts_an_fde_or_is_a_branch_target) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x224, adr_word(0x224, 0x200, 3));
+    const auto at_fde = word_of(builder, 0x210);
+    CHECK(at_fde.taken == 0x200);  // the start of the library's one FDE
+    CHECK(at_fde.taken_fde_start);
+    CHECK(!at_fde.taken_branch_target);
+    builder.put<std::uint32_t>(0x228, 0x1400'0000 | ((0x270u - 0x228u) >> 2));  // b 0x270
+    builder.put<std::uint32_t>(0x22c, adr_word(0x22c, 0x270, 4));
+    const auto at_branch = word_of(builder, 0x274);
+    CHECK(at_branch.taken == 0x270);
+    CHECK(!at_branch.taken_fde_start);
+    CHECK(at_branch.taken_branch_target);
+}
+
+TEST(a_call_makes_its_target_a_branch_target_too) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x228, 0x9400'0000 | ((0x270u - 0x228u) >> 2));  // bl 0x270
+    builder.put<std::uint32_t>(0x22c, adr_word(0x22c, 0x270, 4));
+    CHECK(word_of(builder, 0x274).taken_branch_target);
+    // A conditional branch, a compare-and-branch and a test-and-branch count as well.
+    builder.put<std::uint32_t>(0x228, 0x5400'0000 | (((0x270u - 0x228u) >> 2) << 5));  // b.eq 0x270
+    CHECK(word_of(builder, 0x274).taken_branch_target);
+    builder.put<std::uint32_t>(0x228, 0xb400'0000 | (((0x270u - 0x228u) >> 2) << 5));  // cbz x0, 0x270
+    CHECK(word_of(builder, 0x274).taken_branch_target);
+    builder.put<std::uint32_t>(0x228, 0xb600'0000 | (((0x270u - 0x228u) >> 2) << 5));  // tbz x0, #0x20, 0x270
+    CHECK(word_of(builder, 0x274).taken_branch_target);
+}
+
+TEST(describes_a_word_with_a_taken_address) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x220, adr_word(0x220, 0x250, 2));
+    const auto text = apk::hints::describe(hints_of(builder, {{0x258, "x", ret_x18}}));
+    CHECK(text.ends_with("refused words: 0x258 (.text, outside every FDE, not loaded, after another instruction) "
+                         "[nearest taken address 0x250, 0x8 below, not an FDE start, not a branch target; "
+                         "around uu|uu]"));
+}
+
+TEST(classes_the_two_words_before_and_after_a_refused_word) {
+    auto builder = library(true);
+    builder.put<std::uint32_t>(0x250, 0xd65f'03c0);  // ret
+    builder.put<std::uint32_t>(0x254, 0x1400'0001);  // b
+    builder.put<std::uint32_t>(0x25c, 0x9400'0001);  // bl
+    builder.put<std::uint32_t>(0x260, 0x0000'0000);  // udf #0
+    CHECK(word_of(builder, 0x258).around == "rb|cu");
+    // Outside its section a neighbour is a dash: the first word of .text and the last.
+    CHECK(word_of(builder, 0x200).around == "--|rr");
+    CHECK(word_of(builder, 0x27c).around == "uu|--");
 }
 
 TEST(a_library_without_unwind_tables_says_so_and_counts_no_site_outside_an_fde) {

@@ -34,6 +34,12 @@ struct DataHints {
         bool loaded = false;       // a PC-relative load of code in the library reads it
         char before = 's';         // the word in front: r return, b branch, c call, s first word of its section,
                                    // x any other
+        bool has_taken = false;    // some code of the library forms an address at or below the word, in its section
+        std::uint64_t taken = 0;   // the greatest such address (adr, or adrp followed by add): where a blob would begin
+        bool taken_fde_start = false;      // that address is the start of an FDE
+        bool taken_branch_target = false;  // a direct branch or call of the library lands on it
+        std::string around;        // the classes of the two words before and the two after, "xr|bc": r return,
+                                   // b branch, c call, u reserved or unallocated (data-like), x any other, - none
     };
     std::vector<Word> words;       // the first kWords refused sites, by address
     static constexpr std::size_t kWords = 8;
@@ -50,7 +56,9 @@ DataHints data_hints(const elf::File &file, std::span<const std::byte> elf_bytes
 /// The text appended to an x18 refusal: "; unwind: .eh_frame_hdr yes, .eh_frame yes, 1 FDEs, 2 of the 3 sites outside
 /// every FDE; PC-relative loads: 1 of the 3 sites loaded from code; sections: 1 executable, 92 bytes of other sections
 /// in executable segments, 3 of the 3 sites in executable sections; refused words: 0x230 (.text, outside every FDE,
-/// loaded from code, after ret), 0x238 (.text, ...)" (the first eight, and "and N more").
+/// loaded from code, after ret) [nearest taken address 0x1f0, 64 below, not an FDE start, a branch target; around
+/// xr|bc], 0x238 (...)" (the first eight, and "and N more"); a word with no taken address at or below it in its
+/// section says "no taken address below it in its section".
 std::string describe(const DataHints &hints);
 
 }  // namespace apk::hints
