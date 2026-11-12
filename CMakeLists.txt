@@ -193,6 +193,12 @@ if(APK_HOST_BUILD)
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/mem_notes_test.sh")
+  # The per-return footprint ratchet (tools/footprint_ratchet.py): reads a background round's "trip N back after"
+  # lines and the 1 Hz "mem" lines and fails when a return does not reclaim (foot grows > tolerance), when the
+  # per-return baseline climbs trip over trip, when textures/depth are left orphaned, or when the un-ledgered GPU
+  # remainder climbs; a flat run passes. Holds the footprint flat once the texture fix removes the per-return growth.
+  add_test(NAME tools.footprint_ratchet
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/footprint_ratchet_test.py")
   # tools/check-bundle.sh: a Minato.app that a failed build left half made (no ART in Guest/apex-lib64, no Guest/lib64
   # or no main binary) is named and refused before java-start-check.sh or deploy.sh installs it.
   add_test(NAME tools.check_bundle
