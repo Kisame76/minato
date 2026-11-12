@@ -18,6 +18,7 @@
 
 #include <pthread.h>
 #include <signal.h>
+#include <time.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -563,7 +564,13 @@ TEST(answers_come_in_order_so_a_later_answer_counts_for_the_events_before_it) {
     const auto stop = apkrt_session_post(APKRT_EVENT_STOP, 0, 0, 0);
     const auto save = apkrt_session_post(APKRT_EVENT_SAVE_INSTANCE_STATE, 0, 0, 0);
     CHECK(stop == 8 && save == 9);
+    const std::uint64_t before = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     CHECK(call(APKRT_NR_SESSION_ANSWER, save) == 0);
+    const std::uint64_t after = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    // When each was answered, for the app's own lines: the time of the answer that covered it.
+    std::uint64_t stop_at = 0, save_at = 0;
+    CHECK(apkrt_session_answer_time(stop, &stop_at) == 0 && apkrt_session_answer_time(save, &save_at) == 0);
+    CHECK(stop_at >= before && stop_at <= after && save_at == stop_at);
     // At once, not only once the time is up.
     const auto start = std::chrono::steady_clock::now();
     CHECK(apkrt_session_wait(stop, 5.0) == 1);
@@ -573,6 +580,8 @@ TEST(answers_come_in_order_so_a_later_answer_counts_for_the_events_before_it) {
     // A later answer to an earlier event takes nothing back.
     CHECK(call(APKRT_NR_SESSION_ANSWER, stop) == 0);
     CHECK(apkrt_session_wait(save, 0) == 1);
+    std::uint64_t again = 0;
+    CHECK(apkrt_session_answer_time(stop, &again) == 0 && again == stop_at);
 }
 
 TEST(a_wait_ends_at_its_time_limit) {
@@ -580,6 +589,9 @@ TEST(a_wait_ends_at_its_time_limit) {
     CHECK(serial == 10);
     const auto start = std::chrono::steady_clock::now();
     CHECK(apkrt_session_wait(serial, 0.2) == 0);
+    std::uint64_t none = 5;
+    CHECK(apkrt_session_answer_time(serial, &none) == -1 && none == 5);  // not answered: no time
+    CHECK(apkrt_session_answer_time(0, &none) == -1 && apkrt_session_answer_time(1000, &none) == -1);
     const auto waited = std::chrono::steady_clock::now() - start;
     CHECK(waited >= 200ms && waited < 2s);
     CHECK(apkrt_session_wait(serial, 0) == 0);

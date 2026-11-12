@@ -36,6 +36,26 @@ struct SessionLogTests {
         #expect(files() == ["org.example.app.txt"])
     }
 
+    /// Minato's own lines about the trips to the background (BackgroundTrace) stay in the kept file, the latest
+    /// 40 of them, also once the guest's lines pushed them out of the last 200: before those, in their order.
+    @Test func minatosOwnTripLinesOutlastTheLast200() throws {
+        let writer = try log.writer(for: "org.example.app")
+        let own = (1...45).map { "\(SessionLog.ownTag)trip \($0) pause answered 1 ms after the background\n" }
+        writer.append(Data((lines(1...10) + own.joined() + lines(11...400)).utf8))
+        writer.close()
+        try log.keep(package: "org.example.app")
+        #expect(try kept("org.example.app") == own.suffix(40).joined() + lines(201...400))
+    }
+
+    @Test func ownLinesInTheTailAreNotKeptTwice() throws {
+        let writer = try log.writer(for: "org.example.app")
+        let own = "\(SessionLog.ownTag)trip 1 back after 15.0 s\n"
+        writer.append(Data((lines(1...300) + own + lines(301...310)).utf8))
+        writer.close()
+        try log.keep(package: "org.example.app")
+        #expect(try kept("org.example.app") == lines(112...300) + own + lines(301...310))
+    }
+
     @Test func anUnfinishedLastLineIsKeptToo() throws {
         let writer = try log.writer(for: "org.example.app")
         writer.append(Data((lines(1...3) + "F/libc: Fatal signal 11").utf8))

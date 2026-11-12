@@ -252,16 +252,20 @@ public struct SessionBridge: Sendable {
     /// lifecycle now awaits, which the caller runs off the main thread and ends with `finished`.
     public struct Handled: Sendable, Equatable {
         public var callbacks: [Lifecycle.Callback] = []
+        /// The serial of each callback's first event, in the callbacks' order, for timing the guest's answer.
+        public var serials: [UInt32] = []
         public var wait: Wait?
         /// The waits the bridge ran itself, at the background, for the log.
         public var answers: [Answer] = []
     }
 
-    /// A wait the bridge ran itself: the callback, `apkrt_session_wait`'s result and the seconds it took.
+    /// A wait the bridge ran itself: the callback, `apkrt_session_wait`'s result, the seconds it took and when it
+    /// ended, in uptime nanoseconds.
     public struct Answer: Sendable, Equatable {
         public let callback: Lifecycle.Callback
         public let result: Int32
         public let seconds: Double
+        public let endedAt: UInt64
     }
 
     /// How long the host waits for the GPU work to be scheduled before the background (ADR-0032,
@@ -467,10 +471,12 @@ public struct SessionBridge: Sendable {
             let begun = clock.now
             let result = host.waitAnswer(serial: wait.serial, seconds: left)
             handled.answers.append(Answer(callback: wait.callback, result: result,
-                                          seconds: Self.seconds(clock.now - begun)))
+                                          seconds: Self.seconds(clock.now - begun),
+                                          endedAt: DispatchTime.now().uptimeNanoseconds))
             guard result != 0 else { break }
             let next = finished(wait, result: result, host: host)
             handled.callbacks += next.callbacks
+            handled.serials += next.serials
             handled.wait = next.wait
         }
         host.setBackground(true)
@@ -687,6 +693,7 @@ public struct SessionBridge: Sendable {
                 if let last = lastLowMemory, now - last < Self.lowMemoryInterval { continue }
                 lastLowMemory = now
             }
+            var first: UInt32 = 0
             for event in sessionEvents(for: callback, gone: gone, host: host) {
                 serial = host.post(event)
                 guard serial != 0 else {
@@ -694,8 +701,10 @@ public struct SessionBridge: Sendable {
                     closeGateIfDue(host)
                     return handled
                 }
+                if first == 0 { first = serial }
             }
             handled.callbacks.append(callback)
+            handled.serials.append(first)
             if Self.isFocus(callback) { closeGateIfDue(host) }
         }
         closeGateIfDue(host)

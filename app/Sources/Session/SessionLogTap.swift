@@ -67,6 +67,13 @@ enum SessionLogTap {
         self.writer = nil
     }
 
+    /// One of Minato's own lines (SessionLog.ownTag) into the session log, in one write from any thread, as the
+    /// runtime's memory lines go, so that a line written stays when iOS ends the process.
+    static func own(_ line: String) {
+        var text = line + "\n"
+        text.withUTF8 { _ = write(2, $0.baseAddress, $0.count) }
+    }
+
     /// Descriptor 2 goes back, and the thread copies what is in the pipe, 1 s at most: until the pipe's end, or until
     /// for 10 ms the pipe has been empty and the thread has written out what it read. The runtime keeps a write end of
     /// its own, so the end may not come. The runtime calls this at the program's end, a crash's in its signal

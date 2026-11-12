@@ -79,6 +79,14 @@ int read_end = -1;         // until activity-host connects: then its guest descr
 bool connected = false;
 std::uint32_t posted = 0;    // the last serial number posted
 std::uint32_t answered = 0;  // the last serial number answered
+// The last answers with their times (CLOCK_UPTIME_RAW ns), oldest first once full, for apkrt_session_answer_time.
+struct Answered {
+    std::uint32_t serial;
+    std::uint64_t time;
+};
+constexpr std::size_t answers_kept = 64;
+std::array<Answered, answers_kept> answer_times{};
+std::size_t answer_count = 0;  // answers so far; the ring holds the last answers_kept
 bool broken = false;         // a post found the pipe full, or no reader: final
 bool ended = false;          // the program has ended
 
@@ -1263,6 +1271,7 @@ long answer(std::uint64_t serial) {
     if (serial == 0 || serial > posted) return -linux_errno::einval;
     if (serial > answered) {
         answered = static_cast<std::uint32_t>(serial);
+        answer_times[answer_count++ % answers_kept] = {answered, clock_gettime_nsec_np(CLOCK_UPTIME_RAW)};
         changed.notify_all();
     }
     return 0;
@@ -1484,6 +1493,23 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
         return 0;
     }
     return ++posted;
+}
+
+extern "C" int apkrt_session_answer_time(uint32_t serial, uint64_t *uptime_ns) {
+    using namespace apkrt::session;
+    const std::lock_guard<std::mutex> hold(lock);
+    if (serial == 0 || serial > answered || uptime_ns == nullptr) return -1;
+    // The earliest kept answer at or past `serial`: the answers rise, so the first one found from the oldest.
+    const std::size_t kept = std::min(answer_count, answers_kept);
+    for (std::size_t k = answer_count - kept; k < answer_count; ++k) {
+        const Answered &one = answer_times[k % answers_kept];
+        if (one.serial < serial) continue;
+        // An answer before it that was pushed out may have covered it already.
+        if (k == answer_count - kept && answer_count > answers_kept) return -1;
+        *uptime_ns = one.time;
+        return 0;
+    }
+    return -1;
 }
 
 extern "C" int apkrt_session_wait(uint32_t serial, double seconds) {

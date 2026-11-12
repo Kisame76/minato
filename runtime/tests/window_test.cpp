@@ -772,6 +772,31 @@ TEST(the_foreground_wait_of_host_code_returns_in_the_foreground) {
     host.join();
 }
 
+TEST(the_background_counts_the_waits_at_the_gate_and_the_longest) {
+    std::uint32_t parked = 9;
+    std::uint64_t longest = 9;
+    apkrt_set_background(1);  // a new trip counts from nothing
+    apkrt_background_gate(&parked, &longest);
+    CHECK(parked == 0 && longest == 0);
+    std::thread first([] { apkrt_wait_foreground(); });
+    std::thread second([] {
+        std::this_thread::sleep_for(30ms);
+        apkrt_wait_foreground();
+    });
+    std::this_thread::sleep_for(80ms);
+    apkrt_set_background(0);
+    first.join();
+    second.join();
+    apkrt_wait_foreground();  // in the foreground: no wait, not counted
+    apkrt_background_gate(&parked, &longest);
+    CHECK(parked == 2);
+    CHECK(longest >= 80'000'000 && longest < 2'000'000'000);
+    apkrt_set_background(1);
+    apkrt_background_gate(&parked, &longest);
+    CHECK(parked == 0 && longest == 0);
+    apkrt_set_background(0);
+}
+
 // --- Guest threads: signals at the gate ---------------------------------------------------------
 
 std::atomic<int> handled[64];

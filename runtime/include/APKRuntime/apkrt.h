@@ -160,6 +160,11 @@ void apkrt_report_exit_measures(int descriptor);
 /// even a program that ends within a second leaves one.
 void apkrt_report_memory_to(int descriptor);
 
+/// For the app's own session-log lines (a background trip's return): "foot=<MiB>" with the physical footprint now,
+/// and " gl <stats>" after it with libGLESv2's ANGLEMetalMemoryLine where that is loaded; NUL-terminated in
+/// out[0..size). Only counts, never guest text. Returns the length without the NUL, 0 when it does not fit.
+size_t apkrt_memory_summary(char *out, size_t size);
+
 /// Called once when a guest program ends the process, also by a signal, after the end's log line, the exit status
 /// and the measures went out, before the process ends or the session's end handler runs: a host whose stderr goes
 /// through a pipe drains it here, so that the last lines, a crash's among them, reach where they go (ADR-0070). It
@@ -289,6 +294,11 @@ void apkrt_permission_answer(uint32_t request_id, int32_t group, int32_t outcome
 /// for the app's background wait of 1.5 s at most, inside didEnterBackground.
 int apkrt_session_wait(uint32_t serial, double seconds);
 
+/// When activity-host answered the event `serial`: the uptime in ns (CLOCK_UPTIME_RAW) of the answer that covered it,
+/// itself or a later one, into `*uptime_ns`. Returns 0, or -1 for an event not answered yet, serial 0 or one not
+/// posted, or one answered before the last 64 answers, filling nothing. For the app's own lines on a background trip.
+int apkrt_session_answer_time(uint32_t serial, uint64_t *uptime_ns);
+
 // MARK: - The window, host side (ADR-0028, decision 6)
 //
 // A registry of the host's windows, whose IDs the guest's ANativeWindow carries. Every function may be
@@ -401,6 +411,11 @@ int apkrt_is_background(void);
 /// For graphics/host: waits until the process is in the foreground, without signals: a wait of host code,
 /// for ANGLE's commit gate (ADR-0029, decision 15). Returns at once in the foreground.
 void apkrt_wait_foreground(void);
+
+/// For the app's own session-log lines: the waits apkrt_wait_foreground made since the background last began, how
+/// many there were (`*parked`) and the longest in ns (`*longest_ns`, a wait still running counts up to now). Either
+/// pointer may be NULL.
+void apkrt_background_gate(uint32_t *parked, uint64_t *longest_ns);
 
 /// A provider of "scheduled": returns 1 once every GPU command its libraries committed so far is scheduled,
 /// 0 when `deadline` passes first. `deadline` is in nanoseconds of CLOCK_UPTIME_RAW

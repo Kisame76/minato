@@ -68,6 +68,12 @@ int provider_count = 0;
 
 std::atomic<bool> in_background{false};  // sequentially consistent, for the count-then-flag protocol
 
+// The waits at the commit gate since the background last began (apkrt_background_gate), under `lock`.
+std::uint32_t gate_parked = 0;
+std::uint64_t gate_longest = 0;  // of the waits that ended, ns
+std::uint32_t gate_running = 0;  // waits now
+std::uint64_t gate_since = 0;    // the start of the oldest wait now
+
 apkrt_window_buffers buffers{};  // the windows' buffers (ADR-0043, decision 3); lock is NULL without them
 
 Window *find(std::uint64_t id) {
@@ -309,6 +315,10 @@ uint64_t apkrt_window_presents(uint64_t id) {
 void apkrt_set_background(int on) {
     in_background.store(on != 0);
     const std::lock_guard<std::mutex> hold(lock);
+    if (on != 0) {
+        gate_parked = 0;
+        gate_longest = 0;
+    }
     notify_waiters();
     if (on == 0) foreground.notify_all();
 }
@@ -410,9 +420,22 @@ int apkrt_is_background(void) {
     return in_background.load() ? 1 : 0;
 }
 
+void apkrt_background_gate(uint32_t *parked, uint64_t *longest_ns) {
+    const std::lock_guard<std::mutex> hold(lock);
+    const std::uint64_t running = gate_running > 0 ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - gate_since : 0;
+    if (parked != nullptr) *parked = gate_parked;
+    if (longest_ns != nullptr) *longest_ns = std::max(gate_longest, running);
+}
+
 void apkrt_wait_foreground(void) {
     std::unique_lock<std::mutex> hold(lock);
+    if (!in_background.load()) return;
+    const std::uint64_t start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    ++gate_parked;
+    if (gate_running++ == 0) gate_since = start;
     foreground.wait(hold, [] { return !in_background.load(); });
+    gate_longest = std::max(gate_longest, clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start);
+    --gate_running;
 }
 
 int apkrt_set_window_buffers(const apkrt_window_buffers *set) {

@@ -1,3 +1,4 @@
+import Foundation
 import APKLibrary
 import Testing
 
@@ -262,6 +263,24 @@ struct SessionBridgeTests {
         #expect(handled.answers.map(\.result) == [1])
         let seconds = try #require(host.answerSeconds.first)
         #expect(seconds > SessionBridge.backgroundAnswerBudget - 0.1 && seconds <= SessionBridge.backgroundAnswerBudget)
+    }
+
+    /// Each callback comes with the serial of its first event, so that the host can time the guest's answer to the
+    /// pause and the stop of a trip to the background (BackgroundTrace); a wait's answer carries when it came.
+    @Test func theCallbacksComeWithTheSerialsOfTheirFirstEvents() throws {
+        let host = FakeHost()
+        var bridge = Self.running(host)
+        bridge.handle(.inactive, host: host)
+        _ = host.take()
+        host.answers = [1]
+        let before = DispatchTime.now().uptimeNanoseconds
+
+        let handled = bridge.handle(.background, host: host)
+        let after = DispatchTime.now().uptimeNanoseconds
+        #expect(handled.callbacks == [.onPause, .onNativeWindowDestroyed, .onStop, .onSaveInstanceState])
+        #expect(handled.serials == [11, 12, 13, 15])
+        let answer = try #require(handled.answers.first)
+        #expect(answer.endedAt >= before && answer.endedAt <= after)
     }
 
     /// A guest that does not answer within the budget does not hold the background: the runtime learns of it, and the

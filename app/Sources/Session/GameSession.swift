@@ -1,5 +1,6 @@
 import APKKit
 import APKLibrary
+import APKRuntime
 import APKSession
 import Foundation
 import GameController
@@ -140,6 +141,8 @@ final class GameSession {
     nonisolated static let frameRateLimitKey = "frameRateLimit"
     /// The global limit this session started with, 0 for none (read once, at the start).
     private var frameRateLimit = 0
+    /// Minato's own session-log lines about the trips to the background.
+    @ObservationIgnored private var trace = BackgroundTrace()
 
     init(entry: LibraryEntry) {
         self.entry = entry
@@ -762,6 +765,13 @@ final class GameSession {
         case .active:
             if old == .background { deliver(.foreground) }
             deliver(.active)
+            var parked: UInt32 = 0
+            var longest: UInt64 = 0
+            apkrt_background_gate(&parked, &longest)
+            if let trip = trace.returned(at: clock_gettime_nsec_np(CLOCK_UPTIME_RAW), gateParked: parked,
+                                         gateLongest: longest) {
+                traceReturn(of: trip)
+            }
             if started { permissions.foreground() }
             #if DEBUG
             if menuWaitsOnReturn { SessionCheck.returned(to: self) }
@@ -781,6 +791,7 @@ final class GameSession {
     /// iOS moved the scene to the background; SwiftUI's scene phase follows later, which then changes
     /// nothing.
     private func enteredBackground() {
+        SessionLogTap.own(trace.entered(at: clock_gettime_nsec_np(CLOCK_UPTIME_RAW), memory: Self.memorySummary()))
         controllers.enteredBackground()
         deliver(.inactive)
         deliver(.background)
@@ -1258,6 +1269,9 @@ final class GameSession {
             SessionCheck.answer(answer.callback, result: answer.result, seconds: answer.seconds)
         }
         #endif
+        for (callback, serial) in zip(handled.callbacks, handled.serials) where trace.times(callback) {
+            traceAnswer(to: callback, serial: serial)
+        }
         if handled.callbacks.contains(.onCreate) { guestStarted() }
         // The input channel comes with the first onResume: the pads connected before it join the guest's devices.
         if handled.callbacks.contains(.onResume), let channel = bridge.inputChannel {
@@ -1278,6 +1292,38 @@ final class GameSession {
             if let benchmark { return benchmark.ended(nil, bridge.isBroken ? "the session's channel broke" : nil) }
             #endif
             restart(after: bridge.isBroken ? .channelBroke : .lifecycleEnded)
+        }
+    }
+
+    /// apkrt_memory_summary's line now: the footprint and ANGLE's counts.
+    private static func memorySummary() -> String {
+        var line = [CChar](repeating: 0, count: 512)
+        guard apkrt_memory_summary(&line, line.count) > 0 else { return "" }
+        return String(cString: line)
+    }
+
+    /// The guest's answer to the trip's pause or stop, `serial`, waited for off the main thread for as long as the
+    /// trip lasts and the process runs (iOS's suspension freezes the wait with it), then its line.
+    private func traceAnswer(to callback: Lifecycle.Callback, serial: UInt32) {
+        guard serial != 0, let enteredAt = trace.enteredAt else { return }
+        let trip = trace.trip
+        let thread = Thread {
+            let result = apkrt_session_wait(serial, 600)
+            var at = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            if result == 1 { _ = apkrt_session_answer_time(serial, &at) }
+            SessionLogTap.own(BackgroundTrace.answerLine(trip: trip, callback: callback, result: result, at: at,
+                                                        enteredAt: enteredAt))
+        }
+        thread.name = "MinatoTripAnswer"
+        thread.start()
+    }
+
+    /// The trip's return: the memory 10 s later beside the memory before it, unless another trip began meanwhile.
+    private func traceReturn(of trip: Int) {
+        Task { [weak self] in
+            try? await Task.sleep(for: BackgroundTrace.afterReturn)
+            guard let self, isOpen, let line = trace.returnLine(trip: trip, after: Self.memorySummary()) else { return }
+            SessionLogTap.own(line)
         }
     }
 

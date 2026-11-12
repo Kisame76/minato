@@ -312,3 +312,20 @@ void set_parking_lookup_for_test(GraphicsLookupFn lookup) {
 }  // namespace apkrt::memory
 
 extern "C" void apkrt_report_memory_to(int descriptor) { apkrt::memory::report_to(descriptor); }
+
+extern "C" size_t apkrt_memory_summary(char *out, size_t size) {
+    using namespace apkrt::memory;
+    if (out == nullptr || size == 0) return 0;
+    char gl[256];
+    const std::size_t line = graphics_line(false, gl, sizeof gl);  // "I/apkrt   : <stats>\n", or nothing
+    constexpr std::size_t prefix = sizeof "I/apkrt   : " - 1;
+    const int stats = line > prefix + 1 ? static_cast<int>(line - prefix - 1) : 0;
+    const unsigned long long mib = sample().footprint >> 20;
+    const int length = stats > 0 ? std::snprintf(out, size, "foot=%llu gl %.*s", mib, stats, gl + prefix)
+                                 : std::snprintf(out, size, "foot=%llu", mib);
+    if (length < 0 || static_cast<std::size_t>(length) >= size) {
+        out[0] = '\0';
+        return 0;
+    }
+    return static_cast<std::size_t>(length);
+}

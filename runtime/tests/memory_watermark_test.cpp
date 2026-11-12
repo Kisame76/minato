@@ -4,6 +4,8 @@
 // here -- they are dispatch, device-checked; this is the writer under them.
 #include "memory_watermark.h"
 
+#include "APKRuntime/apkrt.h"
+
 #include "check.h"
 
 #include <fcntl.h>
@@ -244,6 +246,32 @@ TEST(graphics_line_wraps_the_angle_stats_when_the_symbol_is_present) {
           "I/apkrt   : gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 buf=2/2 "
           "bufpriv=0 pool=0/0 mtl=4 warn\n");
     memory::set_graphics_lookup_for_test(nullptr);  // restore the real lookup, clear the cache
+}
+
+TEST(the_summary_gives_the_footprint_in_mib_and_the_angle_stats) {
+    memory::set_graphics_lookup_for_test(present_lookup);
+    char out[256];
+    const std::size_t length = apkrt_memory_summary(out, sizeof out);
+    const std::string line(out, length);
+    const std::string stats = " gl tex=5/2 priv=1 shared=1 comp=1/0 color=2/1 depth=1/0 msaa=1/1 mless=0 buf=2/2 "
+                              "bufpriv=0 pool=0/0 mtl=4";
+    CHECK(line.rfind("foot=", 0) == 0 && line.size() > stats.size() &&
+          line.compare(line.size() - stats.size(), stats.size(), stats) == 0);
+    const long mib = std::strtol(line.c_str() + 5, nullptr, 10);
+    const long now = static_cast<long>(memory::sample().footprint >> 20);
+    CHECK(mib > 0 && std::labs(mib - now) <= 8);  // the footprint moves a little between the two readings
+    CHECK(out[length] == '\0');
+    memory::set_graphics_lookup_for_test(nullptr);
+}
+
+TEST(the_summary_is_the_footprint_alone_without_angle_and_nothing_in_too_small_a_buffer) {
+    memory::set_graphics_lookup_for_test(absent_lookup);
+    char out[64];
+    const std::size_t length = apkrt_memory_summary(out, sizeof out);
+    CHECK(length > 5 && std::string(out, 5) == "foot=" && std::string(out).find(' ') == std::string::npos);
+    char tiny[4];
+    CHECK(apkrt_memory_summary(tiny, sizeof tiny) == 0);
+    memory::set_graphics_lookup_for_test(nullptr);
 }
 
 TEST(graphics_line_is_empty_without_the_symbol) {
