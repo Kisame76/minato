@@ -875,6 +875,26 @@ TEST(the_commit_park_wakes_and_drops_when_a_window_is_removed_in_the_background)
     apkrt_set_background(0);
 }
 
+TEST(the_commit_park_does_not_stay_parked_through_a_background_foreground_background_flip) {
+    // A committer parks after onStop.
+    apkrt_set_background(1);
+    std::atomic<int> result{-1};
+    std::thread committer([&] { result.store(apkrt_background_commit_park()); });
+    CHECK(a_committer_parks());
+    CHECK(result.load() == -1);
+    // A quick background -> foreground -> background flip. The committer must NOT sleep on through the foreground: the
+    // gate counts a foreground as a release, so it wakes even when the background returns at once, and drops. A gate
+    // that waited only on !in_background could re-acquire the lock after the second background and stay parked through
+    // the whole foreground -- the F3 hang, while onResume may need the thread.
+    apkrt_set_background(0);
+    apkrt_set_background(1);
+    const bool woke = within(2s, [&] { return result.load() != -1; });
+    if (!woke) apkrt_set_background(0);            // rescue a stuck committer so the test fails cleanly, not hangs
+    committer.join();
+    CHECK(woke);                                   // RED on a gate whose foreground does not release the park
+    apkrt_set_background(0);                        // leave the registry in the foreground
+}
+
 TEST(the_background_counts_the_waits_at_the_gate_and_the_longest) {
     std::uint32_t parked = 9;
     std::uint64_t longest = 9;
