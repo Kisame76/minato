@@ -413,8 +413,6 @@ TEST(threads_get_ids_of_their_own) {
     CHECK(fake.frees == 200);
 }
 
-// The reviewer's findings of 2026-10-08.
-
 /// Whether `call` returns within two seconds; one that does not is left to run.
 template <typename Call>
 bool returns_soon(Call call) {

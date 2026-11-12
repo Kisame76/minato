@@ -347,7 +347,7 @@ bool read_only(const Description &description) {
 }
 
 /// The directories above the app's external storage that Minato synthesises (no mount covers them) answer faccessat
-/// and stat as an app uid sees them on Android 15 (vfs review finding 1), which is scoped storage / FUSE, not the mode
+/// and stat as an app uid sees them on Android 15, which is scoped storage / FUSE, not the mode
 /// bits: write is refused everywhere, read on some, the app owns none, and each has its own mode. Keyed by the
 /// canonical guest path; /sdcard and /storage/self/primary are links that resolve to /storage/emulated/0 [verified:
 /// storage-access-test on the emulator, 2026-11-05]. The other synthesised parents (/data, /data/user and the like)
@@ -602,7 +602,7 @@ int granted(mode_t mode, Owner owner) {
 // the answers Android 15 gives an app: its code under /data/app is system's and refuses every change, its own
 // folders take them (owner-rules-test against the emulator, 2026-10-05). The checks look at what the host call will
 // touch, found below the mount as the call finds it, not at the guest path as written (ADR-0052: a link inside one
-// mount, the review).
+// mount).
 
 /// The file or folder a path argument names, following a final symlink or not; nullopt when it is not there, or not
 /// below its mount, which the host's call then answers.
@@ -933,7 +933,7 @@ long sys_faccessat(int directory, std::uint64_t path, int mode, int flags) {
     if (host.error != 0) {
         // A virtual parent directory of the app's storage (e.g. /storage/emulated/0): without this exists() is false
         // and a path walk or canonicalization (realpath) stops before reaching the storage below. The storage parents
-        // answer each mode as an app uid sees them on Android (finding 1): F_OK and X_OK pass, W_OK is refused
+        // answer each mode as an app uid sees them on Android: F_OK and X_OK pass, W_OK is refused
         // everywhere, R_OK only on some; other synthesised parents keep the earlier "everything passes".
         if (host.error == -linux_errno::enoent && vfs::is_implied_directory(host.guest)) {
             if (const ImpliedStorage *storage = implied_storage_of(host.guest)) {

@@ -1,7 +1,7 @@
 // The LinkProperties snapshot's wire form (network_link.cpp serialize): what LocalNetwork.link parses. These build the
 // fake path monitor's fixed values (wlan0 192.168.7.9/24, gateway 192.168.7.1, DNS 192.168.7.1, with a v6 pair) and a
 // case for each refusal (no DNS servers, no routes), serialize, and parse back -- the same round trip the Java side
-// does -- asserting the fields survive and the version/flags/mtu header is exactly as agreed with Formate.
+// does -- asserting the fields survive and the version/flags/mtu header is exactly as agreed.
 #include "network_link.h"
 
 #include "fake_path_monitor.h"

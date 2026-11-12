@@ -1296,7 +1296,7 @@ TEST(a_fault_inside_an_island_shows_the_handler_its_site) {
 }
 
 // The handler sees the guest's registers too, where the island had already loaded x18 into its
-// value register when the instruction faulted (found missing in the review of X4).
+// value register when the instruction faulted (found missing for X4).
 TEST(a_fault_after_the_island_loaded_x18_shows_the_handler_the_guest_registers) {
     const auto seen = fault_in({fault_read_at, marker, unmapped});
     CHECK(seen.pc == program().image + fault_read_at + 4);  // the ldr
@@ -1381,7 +1381,7 @@ TEST(describe_names_the_br_and_where_it_jumps) {
 }
 
 // The longest message, with names of 63 characters and addresses of 16 hexadecimal digits, fits the
-// buffer the fault handler gives describe() (found in the review of X4).
+// buffer the fault handler gives describe() (found for X4).
 TEST(the_longest_message_fits_the_handlers_buffer) {
     apk_container_info info{};
     info.image_offset = 0x8000;
@@ -1460,7 +1460,7 @@ TEST(a_jump_to_a_word_without_a_landing_pad_ends_the_process_with_a_message) {
 
 // ADR-0020 X4: the stepper cannot run the jump table's trap (words 13 to 15) without ending the
 // call, so leave() gets a thread there by hand: it goes back to the br with both registers restored,
-// whatever they hold now, and keeps its x18 (found missing in the review of X4).
+// whatever they hold now, and keeps its x18 (found missing for X4).
 TEST(a_thread_in_the_jump_table_trap_leaves_to_the_br) {
     const auto &loaded = program();
     const auto &island = loaded.island_at(br_at);

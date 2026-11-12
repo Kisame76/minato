@@ -75,8 +75,9 @@ TEST(a_mount_folder_below_hands_back_an_fd_that_outlives_the_mount) {
     struct statfs expected;
     CHECK(::fstatfs(*below, &expected) == 0);
     // A reset() closes the mount's own folder fd (close_folder), as an unmount's replace does. The descriptor the
-    // caller holds must still name the same file system -- a dup, not a closed or reused fd (the race Formate found:
-    // a concurrent unmount closes the fd, its number is reused, and fstatfs then answers for another file system).
+    // caller holds must still name the same file system -- a dup, not a closed or reused fd (the race it guards
+    // against: a concurrent unmount closes the fd, its number is reused, and fstatfs then answers for another file
+    // system).
     apkrt::vfs::reset();
     const int filler = ::open("/dev/null", O_RDONLY);  // likely reuses the just-closed fd number
     struct statfs got;

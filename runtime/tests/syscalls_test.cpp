@@ -3256,7 +3256,7 @@ TEST(the_guests_dnsproxyd_is_the_runtimes_resolver) {
 }
 
 
-// --- A link swapped in after place_of's check (ADR-0054 a3, the review of b) ---------------------------------
+// --- A link swapped in after place_of's check (ADR-0054 a3, step b) ---------------------------------
 // The host's connect and sendto follow a final link, which a guest thread could put in a socket's place after
 // place_of looked at it, and whose text, a guest path, the host would take as a host path. The host's call goes through
 // a pin of the socket's node instead; a link found in its place is followed by its guest text, as Linux does.
@@ -4469,7 +4469,7 @@ TEST(an_app_may_open_netlink_route_alone) {
 }
 
 // socketpair of AF_INET or AF_INET6: Linux's sock_create runs inet_create's checks of the type and the protocol first,
-// then the protocol's socketpair refuses (ADR-0054 step c2a, found in its review).
+// then the protocol's socketpair refuses (ADR-0054 step c2a).
 TEST(an_inet_socketpair_is_checked_as_a_socket_before_it_is_refused) {
     constexpr std::int64_t eprotonosupport = 93, esocktnosupport_ = 94, eopnotsupp_ = 95;
     CHECK(call(nr_socketpair, {af_inet, 1, 0, address(nullptr)}) == -eopnotsupp_);   // SOCK_STREAM
@@ -4874,7 +4874,7 @@ TEST(ifreq_ioctls_on_an_af_unix_socket_are_refused) {
     call(nr_close, {unsigned_of(fd)});
 }
 
-// The review of c1 (a reviewer subagent's findings, 2026-10-08).
+// The c1 cases.
 
 constexpr std::int64_t emsgsize = 90;
 

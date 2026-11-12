@@ -230,8 +230,8 @@ TEST(the_hosts_file_reads_as_androids_resolver_reads_it) {
     CHECK(host && (host->addresses == std::vector<std::string>{"10.0.0.1", "10.0.0.2"}));
 }
 
-// The hosts file is opened beneath /system's mount, as a regular file, and read up to 64 KiB (ADR-0054 step c2a, the
-// review of step b): a link out of the mount, a FIFO that would block the proxy's thread, and the end of a huge file
+// The hosts file is opened beneath /system's mount, as a regular file, and read up to 64 KiB (ADR-0054 step c2a,
+// step b): a link out of the mount, a FIFO that would block the proxy's thread, and the end of a huge file
 // count as no hosts file, as bionic finds none in its place.
 TEST(the_hosts_file_is_read_only_as_a_regular_file_beneath_its_mount) {
     char pattern[] = "/tmp/apkrt-dns-outside-XXXXXX";
@@ -272,7 +272,7 @@ TEST(the_hosts_file_is_read_only_as_a_regular_file_beneath_its_mount) {
 }
 
 // The netid is netd's ParseUint into an unsigned (android-base/parseint.h): up to 2^32 - 1, hexadecimal after 0x, no
-// sign (ADR-0054 step c2a, the review of step b).
+// sign (ADR-0054 step c2a, step b).
 TEST(the_netid_is_parsed_as_netds_parseuint) {
     const GuestSystem system(android_hosts);
     for (const char *netid : {"2147483648", "4294967295", "0x10", "0X1F", "+5"}) {
@@ -468,7 +468,7 @@ bool closed_by_peer(int client, double seconds = 3) {
 }
 
 TEST(the_proxy_accepts_again_after_running_out_of_descriptors) {
-    // EMFILE at accept is the process's limit for a while, not the listener's end (the review of b).
+    // EMFILE at accept is the process's limit for a while, not the listener's end (step b).
     const GuestSystem system(android_hosts);
     const Listener listener;
     std::atomic<bool> closed{false};

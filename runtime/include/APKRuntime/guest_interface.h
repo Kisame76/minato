@@ -656,7 +656,7 @@ struct apkrt_webview_record_header {
 };
 
 /// The host -> guest record types; extended as steps b) to c3) need each. A new type takes a new number, never a
-/// reused one, so 1 to 9 keep their meaning; 10 to 13 were added for WebChromeClient after App's step-b review; 14
+/// reused one, so 1 to 9 keep their meaning; 10 to 13 were added for WebChromeClient at step b; 14
 /// for c3's cookie mirror.
 enum apkrt_webview_record_type {
     APKRT_WEBVIEW_REC_CREATED = 1,  // the view is up (the answer to MAKE)

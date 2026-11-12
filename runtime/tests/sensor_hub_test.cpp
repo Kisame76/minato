@@ -381,7 +381,7 @@ TEST(a_push_racing_a_stop_does_not_deadlock_and_is_dropped) {
 }
 
 // Two threads configuring the same type at once must leave the host in the state the hub commands — no Start landing
-// after the final Stop (the security review's out-of-order-notification finding, fixed by notify_mutex).
+// after the final Stop (an out-of-order notification, fixed by notify_mutex).
 TEST(concurrent_config_keeps_the_host_in_the_commanded_state) {
     install({ACCEL});
     const auto a = apkrt::sensors::open_queue();

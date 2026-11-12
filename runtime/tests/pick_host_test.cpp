@@ -1,6 +1,6 @@
 // Checks the host side of the system pickers (tools/pick_host.h, ADR-0057): the app can leave links, planted files and
 // loops in the folders the host writes to (its data folder, Download), so the host must write nothing through them.
-// Each attack here is one the review named, played in a scratch folder: a link planted as the manifest's
+// Each attack here is played in a scratch folder: a link planted as the manifest's
 // temporary file, a dangling link where a clone should go, a link as .minato or picks, and a name that links to itself.
 #include "pick_host.h"
 
@@ -382,7 +382,7 @@ TEST(an_original_that_is_gone_or_became_a_link_is_a_conflict_and_nothing_is_writ
     CHECK(!exists_nofollow(gone.layout.source + "/known.txt") && !gone.write_back.removable("known.txt"));
 }
 
-// A record must not outlive its clone: a later file under that name is the app's own (B2 of the review of 9415884).
+// A record must not outlive its clone: a later file under that name is the app's own (B2).
 TEST(a_conflict_the_user_discards_is_forgotten_and_a_later_file_of_that_name_is_the_apps_own) {
     Tracked t;
     std::vector<std::string> forgotten;

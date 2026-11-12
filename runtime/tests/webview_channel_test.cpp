@@ -187,7 +187,7 @@ TEST(the_reader_sees_eof_when_the_channel_closes) {
 }
 
 TEST(the_webchrome_record_types_round_trip) {
-    // The types added for WebChromeClient after App's step-b review (JS_DIALOG, CONSOLE, PROGRESS, TITLE) are known to
+    // The types added for WebChromeClient at step b (JS_DIALOG, CONSOLE, PROGRESS, TITLE) are known to
     // the reader now, so they carry a payload whole like the others.
     const std::uint64_t token = 10;
     const long fd = apkrt::channels::webview_make(token);
