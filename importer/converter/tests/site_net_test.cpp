@@ -14,10 +14,14 @@
 #include "apkconv/elf.h"
 #include "apkconv/rewrite.h"
 
+#include "APKConvert/apkconv.h"
 #include "check.h"
 #include "elf_builder.h"
 
+#include <unistd.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -38,6 +42,16 @@ constexpr std::uint32_t nop = 0xd503'201f;
 constexpr std::uint32_t ret = 0xd65f'03c0;
 
 std::filesystem::path fixtures_dir;
+
+/// Writes `bytes` to a unique temporary file so the C API (apkconv_counts_of, which takes a path) can read it.
+std::filesystem::path write_temp(const std::vector<std::byte> &bytes) {
+    static std::atomic<unsigned> counter{0};
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("site_net_" + std::to_string(::getpid()) + "_" + std::to_string(counter++) + ".so");
+    std::ofstream out(path, std::ios::binary);
+    out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return path;
+}
 
 std::uint32_t word_at(const std::vector<std::byte> &bytes, std::uint64_t offset) {
     std::uint32_t value;
@@ -152,6 +166,18 @@ bool check_no_site_lost(const std::string &name, const std::vector<std::byte> &e
         }
     }
     CHECK(left == account.kept.size());
+
+    // The public C API (apkconv_counts_of) must report the same svc account as the oracle and the findings, so the
+    // "no site lost" guarantee holds through the interface the app's Debug builds read, not only the internal scan.
+    const auto temp = write_temp(elf);
+    apkconv_counts counts{};
+    char error[256] = {};
+    const int got = apkconv_counts_of(temp.string().c_str(), &counts, error, sizeof error);
+    std::filesystem::remove(temp);
+    CHECK(got == 0);
+    CHECK(counts.svc_rewritten + counts.svc_data == raw.size());   // before (the oracle) == rewritten + data
+    CHECK(counts.svc_rewritten == account.rewritten.size());
+    CHECK(counts.svc_data == account.kept.size());                 // svc_data tied to the net, an svc_data > 0 included
     return true;
 }
 
