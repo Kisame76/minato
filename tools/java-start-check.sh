@@ -1847,21 +1847,74 @@ PY
 # And the EGL contexts alive (ctx=, patch 0031) after every return no more than after the start.
 # The start's values are shown beside them: Ren'Py's first display has its own textures. RETURNS_SHOTS (a folder) keeps
 # a screenshot after the start and after each return, in the Simulator.
+# A game with the preload gate ("minato-renpy-memory: gate armed") leaves only once its last gate line is "preload
+# done": after a display reset Ren'Py loads every image of the scene again in its next interaction's final predict,
+# synchronously and without a look at the events, and a HOME in that window can make it reset its display while SDL's
+# backup has left no context current (an orphaned context here, a crash on Android). So the round waits for that line
+# after the start's scene and after each return's reset, up to RETURNS_PRELOAD s (240), instead of a fixed time; a game
+# without the gate gets the fixed times only.
+# The gate cannot take out the other race, one frame wide: after SDL's backup at the pause Ren'Py may draw once more
+# before it takes WILLENTERBACKGROUND; the swap fails, it resets its display in the background with no context current
+# and makes a new one, which is orphaned here. Android dies of the same race (the emulator: SIGSEGV 12 ms after such a
+# reset, the process gone). So a game with the gate counts its "display reset" lines between each HOME and the return
+# (the races): the EGL contexts may be the start's plus the races so far, and after the first return depth= may hold
+# RETURNS_RACE_DEPTH textures (4, the most one orphan held) and color=, mtl= and the footprint RETURNS_RACE_GROWTH MiB
+# (96; one orphan held 69 MiB of footprint in the Simulator) more per race; every context, texture or MiB beyond is red.
+# Waits until the anim game's last gate line is "preload done" after its "start" line and at least $2 "display reset"
+# lines; label $1. Sets RESETS to the resets seen. False, after its FAIL line, when the line did not come in time.
+RESETS=0
+renpy_preloaded() {
+  local label=$1 resets=$2 from=$SECONDS gate
+  while (( SECONDS - from <= ${RETURNS_PRELOAD:-240} )); do
+    fetch "$CHECK_REL/guest-log" || true
+    gate=$(grep -oE 'minato-renpy-memory: (start|display reset [0-9]+|preload done [0-9]+)' "$CHECK/guest-log" \
+      2>/dev/null) || gate=""
+    RESETS=$(grep -c 'display reset' <<<"$gate") || true
+    if [[ "$(tail -n 1 <<<"$gate")" == *"preload done"* ]] && grep -q ': start$' <<<"$gate" &&
+        (( RESETS >= resets )); then
+      ok "  $label: the game's preload done $((SECONDS - from)) s later, $RESETS display resets so far"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "  $label: no \"preload done\" of the game in ${RETURNS_PRELOAD:-240} s ($RESETS display resets so far)"
+  return 1
+}
 run_sdl_returns() {
   local app=renpy-returns-test package=io.github.kisame76.minato.test.renpymemory round line gl park returned
-  local lines=() gls=() trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10}
+  local lines=() gls=() races=(0) trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10} gated=no resets away
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   if ! await_first_frame "$app" 8; then end_start "$app" 1; return; fi
+  fetch "$CHECK_REL/guest-log" || true
+  if grep -q 'minato-renpy-memory: gate armed' "$CHECK/guest-log" 2>/dev/null; then
+    gated=yes
+    if ! renpy_preloaded "the start" 0; then end_start "$app" 1; return; fi
+  else
+    echo "note    the game has no preload gate (no \"gate armed\" line): the trips go by the fixed times only"
+  fi
   for round in $(seq 0 "$trips"); do
     if (( round > 0 )); then
+      if [[ "$gated" == yes ]]; then
+        renpy_preloaded "before trip $round" 0 || break
+        resets=$RESETS
+      fi
       launch "$AWAY"
       sleep "${RETURNS_AWAY:-10}"
+      away=0
+      if [[ "$gated" == yes ]]; then
+        fetch "$CHECK_REL/guest-log" || true
+        away=$(( $(count_lines 'minato-renpy-memory: display reset [0-9]+' "$CHECK/guest-log") - resets ))
+        (( away <= 0 )) ||
+          echo "note    trip $round: $away display reset(s) in the background, the race Android dies of"
+      fi
+      races+=("$away")
       launch
       returned=$SECONDS
       if ! await_return_frame "$app" "return $round" "$returned"; then
         failures=$((failures + 1))
         break
       fi
+      if [[ "$gated" == yes ]] && ! renpy_preloaded "after return $round" $((resets + 1)); then break; fi
     fi
     sleep "$settle"
     fetch_events
@@ -1885,11 +1938,15 @@ run_sdl_returns() {
   fetch_events
   cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
   end_start "$app" 1
-  if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${lines[@]}" -- "${gls[@]}" <<'PY'; then
+  if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${RETURNS_RACE_DEPTH:-4}" "${RETURNS_RACE_GROWTH:-96}" "${races[@]}" \
+      -- "${lines[@]}" -- "${gls[@]}" <<'PY'; then
 import re
 import sys
-growth, trips, rest = float(sys.argv[1]), int(sys.argv[2]), sys.argv[3:]
+growth, trips, race_depth, race_growth = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
+rest = sys.argv[5:]
+races, rest = [int(n) for n in rest[:rest.index("--")]], rest[rest.index("--") + 1:]
 lines, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+races += [0] * (trips + 1 - len(races))
 if len(lines) != trips + 1:
     print(f"FAIL    {len(lines) - 1} of {trips} returns read")
     sys.exit(1)
@@ -1909,12 +1966,14 @@ if missing:
     print("FAIL    no live line or no gl line after " + ", ".join(missing))
     sys.exit(1)
 first, first_gl, bad = read[1], held[1], []
-# EGL contexts (ctx=, patch 0031): after a return no more than after the start; a gl line without ctx= (an ANGLE
-# without the patch) leaves them n/a.
+# EGL contexts (ctx=, patch 0031): after a return no more than after the start, plus one per race so far (a display
+# reset in the background, which Android dies of); a gl line without ctx= (an ANGLE without the patch) leaves them n/a.
 if held[0]["ctx"] is not None:
     for n in range(1, trips + 1):
-        if held[n]["ctx"] is not None and held[n]["ctx"] > held[0]["ctx"]:
-            bad.append(f"return {n}: {held[n]['ctx']} EGL contexts alive, the start's {held[0]['ctx']}")
+        allowed = held[0]["ctx"] + sum(races[1:n + 1])
+        if held[n]["ctx"] is not None and held[n]["ctx"] > allowed:
+            bad.append(f"return {n}: {held[n]['ctx']} EGL contexts alive, the start's {held[0]['ctx']} and "
+                       f"{allowed - held[0]['ctx']} race(s)")
 else:
     print("note    no ctx= in the gl line (an ANGLE without patch 0031): the EGL contexts are n/a")
 for n in range(2, trips + 1):
@@ -1923,25 +1982,29 @@ for n in range(2, trips + 1):
         bad.append(f"return {n}: windows {m[1]} surfaces {m[2]} layers {m[3]} alive, the first return's "
                    f"{first[1]} {first[2]} {first[3]}")
     for name in ("depth", "msaa"):
-        if g[name][0] > first_gl[name][0]:
-            bad.append(f"return {n}: {name}= {g[name][0]} textures, the first return's {first_gl[name][0]}")
+        # A race's orphaned context keeps its depth textures: RETURNS_RACE_DEPTH more per race after return 1.
+        allowed = first_gl[name][0] + (race_depth * sum(races[2:n + 1]) if name == "depth" else 0)
+        if g[name][0] > allowed:
+            bad.append(f"return {n}: {name}= {g[name][0]} textures, the first return's {first_gl[name][0]}"
+                       + (f" and {sum(races[2:n + 1])} race(s)" if allowed > first_gl[name][0] else ""))
     for name, now, then in (("color=", g["color"][1], first_gl["color"][1]), ("mtl=", g["mtl"], first_gl["mtl"]),
                             ("the footprint", float(m[6]), float(first[6]))):
-        if now - then > growth:
-            bad.append(f"return {n}: {name} {now - then:.0f} MiB above the first return's")
+        if now - then > growth + race_growth * sum(races[2:n + 1]):
+            bad.append(f"return {n}: {name} {now - then:.0f} MiB above the first return's"
+                       + (f" with {sum(races[2:n + 1])} race(s)" if sum(races[2:n + 1]) else ""))
 print("note    texture sets (live: windows surfaces layers; gl: color depth msaa as count/MiB, mtl MiB, EGL "
       "contexts; footprint):")
 for n, (m, g) in enumerate(zip(read, held)):
     label = "start" if n == 0 else f"return {n}"
     print(f"note      {label:9} live {m[1]} {m[2]} {m[3]}  color {g['color'][0]}/{g['color'][1]}  "
           f"depth {g['depth'][0]}/{g['depth'][1]}  msaa {g['msaa'][0]}/{g['msaa'][1]}  mtl {g['mtl']}  "
-          f"ctx {g['ctx'] if g['ctx'] is not None else 'n/a'}  foot {m[6]}")
+          f"ctx {g['ctx'] if g['ctx'] is not None else 'n/a'}  foot {m[6]}  races {races[n]}")
 if bad:
     print("FAIL    a return's texture sets grew: " + "; ".join(bad))
     sys.exit(1)
 print(f"ok      after {trips} returns the texture sets alive are the first return's: no window, surface, layer, depth "
       "or multisample texture more, no EGL context more than at the start, and color, Metal bytes and footprint "
-      "within a drawable set")
+      "within a drawable set" + (f"; {sum(races)} race(s) allowed for" if sum(races) else ""))
 PY
     :
   else
