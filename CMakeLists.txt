@@ -195,6 +195,10 @@ if(APK_HOST_BUILD)
   # doctors one number or sentence at a time in a copy and expects the matching WRONG line.
   add_test(NAME tools.public_numbers_check
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/public_numbers_check_test.sh")
+  # tools/ndk-names-check.sh compares each library Minato builds with the names of its API 35 stub; its test uses a fake
+  # NDK: a missing name is WRONG (exit 1), a library that is not built is SKIP (exit 77), libc++.so is left out.
+  add_test(NAME tools.ndk_names_check
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/ndk_names_check_test.sh")
   # java-start-check.sh's mem_notes: picks the first, peak-foot=, warning and last "mem foot=" lines from a
   # round's guest log and prints them as "note  mem ..." lines, against a synthetic log.
   add_test(NAME tools.mem_notes
