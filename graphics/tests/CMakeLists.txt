@@ -170,6 +170,14 @@ add_test(NAME graphics.footprint_compare
 add_test(NAME graphics.renpy_footprint
   COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/renpy_footprint_test.py")
 
+# starved.h, the live frame intervals' account of threads the machine starved (runnable without CPU time): made-up
+# samples, and a real thread that sleeps is never found starved while it sleeps.
+if(APK_HOST_BUILD)
+  add_executable(graphics-starved-test starved_test.cpp)
+  target_link_libraries(graphics-starved-test PRIVATE apk_defaults)
+  add_test(NAME graphics.starved COMMAND graphics-starved-test)
+endif()
+
 # ADR-0037 / M6's MetalFX plan, step 0: the scene's bench.conf render scale and the target size it gives.
 if(APK_HOST_BUILD)
   add_executable(graphics-bench-scene-test bench_scene_test.c ../bench/scene.c)
