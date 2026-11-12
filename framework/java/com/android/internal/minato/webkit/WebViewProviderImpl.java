@@ -119,6 +119,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     private int mStarted;
     private int mFinished;
     private int mVisible;
+    private int mContentWidth;
+    private int mContentHeight;
+    private WebView.PictureListener mPictureListener;
     private int mErrors;
     private final StringBuilder mErrorCodes = new StringBuilder();
     private int mIntercepts;
@@ -457,6 +460,10 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                     break;
                 case WebViewChannel.REC_PROGRESS:
                     mProgress = record.optInt("progress", 100);
+                    if (record.has("contentHeight")) {
+                        mContentWidth = record.optInt("contentWidth", 0);
+                        mContentHeight = record.optInt("contentHeight", 0);
+                    }
                     if (mChromeClient != null) {
                         mChromeClient.onProgressChanged(mWebView, mProgress);
                     }
@@ -679,6 +686,8 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         }
         switch (phase) {
             case "started":
+                mContentWidth = 0;
+                mContentHeight = 0;
                 mClient.onPageStarted(mWebView, url, null);
                 break;
             case "committed":
@@ -700,9 +709,11 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
                 // Chromium's onPageCommitVisible: the committed page is ready to draw, before or after
                 // onPageFinished; apps take a splash or placeholder away there.
                 mClient.onPageCommitVisible(mWebView, url);
+                newPicture();
                 break;
             case "finished":
                 mClient.onPageFinished(mWebView, url);
+                newPicture();
                 break;
             default:
                 break;
@@ -1041,7 +1052,11 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void savePassword(String host, String username, String password) {}
     @Override public void setHttpAuthUsernamePassword(String host, String realm, String username, String password) {}
     @Override public String[] getHttpAuthUsernamePassword(String host, String realm) { return null; }
-    @Override public void destroy() { mChannel.remove(); }
+    @Override
+    public void destroy() {
+        WebViewHoles.remove(mWebView);
+        mChannel.remove();
+    }
     @Override public void setNetworkAvailable(boolean networkUp) {}
     @Override public WebBackForwardList saveState(Bundle outState) { return null; }
     @Override public boolean savePicture(Bundle b, File dest) { return false; }
@@ -1179,8 +1194,9 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public Bitmap getFavicon() { return null; }
     @Override public String getTouchIconUrl() { return null; }
     @Override public int getProgress() { return mProgress; }
-    @Override public int getContentHeight() { return 0; }
-    @Override public int getContentWidth() { return 0; }
+    /** The page's size in CSS pixels at its load's end, as the host measured it; 0 before. */
+    @Override public int getContentHeight() { return mContentHeight; }
+    @Override public int getContentWidth() { return mContentWidth; }
     @Override public void pauseTimers() {}
     @Override public void resumeTimers() {}
     @Override public void onPause() { mPaused = true; }
@@ -1222,7 +1238,21 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
     @Override public void setDownloadListener(DownloadListener listener) {}
     @Override public void setWebChromeClient(WebChromeClient client) { mChromeClient = client; }
     @Override public WebChromeClient getWebChromeClient() { return mChromeClient; }
-    @Override public void setPictureListener(WebView.PictureListener listener) {}
+    /**
+     * Chromium's onNewPicture comes after new frames of the page, its picture null for apps of target SDK 18 and later
+     * (a Picture of the page before); here it comes when the committed page is drawn (onPageCommitVisible) and at the
+     * load's end, with null for every app: the host draws no Picture.
+     */
+    @Override
+    public void setPictureListener(WebView.PictureListener listener) {
+        mPictureListener = listener;
+    }
+
+    private void newPicture() {
+        if (mPictureListener != null) {
+            mPictureListener.onNewPicture(mWebView, null);
+        }
+    }
     @Override
     public void addJavascriptInterface(Object obj, String interfaceName) {
         if (obj == null || interfaceName == null) {
@@ -1451,11 +1481,13 @@ final class WebViewProviderImpl implements WebViewProvider, WebViewProvider.View
         if (mWebView.getParent() != null) {
             mWebView.getParent().requestTransparentRegion(mWebView);
         }
+        WebViewHoles.add(mWebView);
     }
 
     @Override
     public void onDetachedFromWindow() {
         mWebView.getViewTreeObserver().removeOnPreDrawListener(mPlacer);
+        WebViewHoles.remove(mWebView);
     }
     @Override public void onVisibilityChanged(View changedView, int visibility) {}
     @Override public void onWindowFocusChanged(boolean hasWindowFocus) {}

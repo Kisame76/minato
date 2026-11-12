@@ -8,7 +8,7 @@
 # then a WebView) and webview-redirect-test (redirects a page meets on the network, from the app's own loopback
 # server) and webview-cookie-sites-test (third-party cookies between two sites of that server) and
 # webview-commit-test (a splash taken away at each of WebViewClient's points apps use) and webview-reveal-test (a
-# WebView faded in or shown late). The WebView trace
+# WebView faded in, shown late or in a parent with a hardware layer). The WebView trace
 # is on (MINATO_WEBVIEW_TRACE=1), as a check's guest log has it; its lines are not compared. The run's home folder is the check's own (CFFIXED_USER_HOME), removed before and after.
 # webview-prompt-bridge-test's page sees location.protocol "minato-asset:" where Android's sees "file:" (WebKit takes
 # no handler for file URLs: a named limit), so its expected line is Android's with that protocol.

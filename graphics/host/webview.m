@@ -404,6 +404,7 @@ static NSMutableDictionary<NSNumber *, MinatoWebView *> *views(void) {
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *tally;  // the navigation trace's counts
 @property(nonatomic) NSInteger navigations;                      // the main-frame navigations so far
 @property(nonatomic) NSInteger commits;                          // the main frame's commits so far
+@property(nonatomic) NSInteger toldCommit;                       // the last commit commitVisible answered
 @property(nonatomic) uint64_t navigationStart;                   // the current one's start, uptime nanoseconds
 @property(nonatomic) uint64_t shownIn;                           // the window whose count has the view, or 0
 @property(nonatomic) CGFloat cssWidth;                           // the viewport's device-width, 0 before a place
@@ -1509,45 +1510,51 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
 }
 
 /// onPageCommitVisible: Chromium tells it once the main frame's committed page is ready to draw (a visual state
-/// callback it inserts at the commit), apart from onPageFinished, which waits for the subresources. Here: when a
-/// snapshot of one point after the next screen update comes back, as WebKit answers it only once the committed page's
-/// next presentation update is done (an animation frame would not do: WebKit holds them back while the view's window
-/// is not on screen). A later commit before then tells nothing for this one, as Chromium's callback never comes.
+/// callback it inserts at the commit of a new document; WebKit's didCommitNavigation is that: main frame only, never a
+/// same-document navigation), apart from onPageFinished, which waits for the subresources. Here: when a snapshot of one
+/// point after the next screen update comes back, as WebKit answers it only once the committed page's next
+/// presentation update is done (an animation frame would not do: WebKit holds them back while the view's window is not
+/// on screen). A snapshot that has not come back after 1 s (a view out of a window, of no size, hidden, a session in
+/// the background) tells it anyway, so that no app waits for ever on it; a later commit before either tells nothing for
+/// this one, as Chromium's callback never comes for a document that went. The trace names the path.
 - (void)commitVisible:(WKWebView *)webView {
     const NSInteger commit = ++self.commits;
     NSString *url = either(self.currentURL, webView.URL.absoluteString);
+    __weak MinatoWebView *weakSelf = self;
+    void (^tell)(NSString *) = ^(NSString *path) {
+        MinatoWebView *strong = weakSelf;
+        if (strong == nil || strong.toldCommit >= commit) return;
+        if (strong.commits != commit) {
+            strong.toldCommit = commit;
+            [strong navigationTrace:[NSString stringWithFormat:@"commitVisible dropped (a later commit, %@)", path]];
+            return;
+        }
+        strong.toldCommit = commit;
+        const uint64_t posts = strong.window != 0 ? apkrt_window_presents(strong.window) : 0;
+        [strong navigationTrace:[NSString stringWithFormat:@"commitVisible delivered %@ window posts=%llu", path,
+                                                           (unsigned long long)posts]];
+        [strong navigation:@"commitVisible" url:url];
+        if (!navigation_trace_on() || strong.window == 0) return;
+        // The window's posts a second later: whether the app drew again once it was told.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            MinatoWebView *later = weakSelf;
+            if (later == nil || later.window == 0) return;
+            [later navigationTrace:[NSString stringWithFormat:@"commitVisible +1 s window posts=%llu",
+                                                              (unsigned long long)apkrt_window_presents(later.window)]];
+        });
+    };
     WKSnapshotConfiguration *point = [WKSnapshotConfiguration new];
     point.rect = CGRectMake(0, 0, 1, 1);
     point.snapshotWidth = @1;
     point.afterScreenUpdates = YES;
-    __weak MinatoWebView *weakSelf = self;
     [webView takeSnapshotWithConfiguration:point
                          completionHandler:^(id image, NSError *failure) {
                              (void)image;
-                             MinatoWebView *strong = weakSelf;
-                             if (strong == nil) return;
-                             if (strong.commits != commit) {
-                                 [strong navigationTrace:@"commitVisible none (a later commit)"];
-                                 return;
-                             }
-                             const uint64_t posts = strong.window != 0 ? apkrt_window_presents(strong.window) : 0;
-                             [strong navigationTrace:[NSString stringWithFormat:
-                                                                  @"commitVisible delivered%@ window posts=%llu",
-                                                                  failure != nil ? @" (no snapshot)" : @"",
-                                                                  (unsigned long long)posts]];
-                             [strong navigation:@"commitVisible" url:url];
-                             if (!navigation_trace_on() || strong.window == 0) return;
-                             // The window's posts a second later: whether the app drew again once it was told.
-                             const dispatch_time_t second = dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC);
-                             dispatch_after(second, dispatch_get_main_queue(), ^{
-                                 MinatoWebView *later = weakSelf;
-                                 if (later == nil || later.window == 0) return;
-                                 [later navigationTrace:[NSString stringWithFormat:
-                                                                      @"commitVisible +1 s window posts=%llu",
-                                                                      (unsigned long long)apkrt_window_presents(
-                                                                          later.window)]];
-                             });
+                             tell(failure != nil ? @"by snapshot (failed)" : @"by snapshot");
                          }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        tell(@"by fallback");
+    });
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
@@ -1575,14 +1582,23 @@ static void chromium_error(NSError *error, int *code, NSString **description) {
     const BOOL error = self.errorPage;
     self.errorPage = NO;
     __weak MinatoWebView *weakSelf = self;
-    [webView evaluateJavaScript:@"document.title" inFrame:nil inContentWorld:host_world()
+    // The content's size in CSS pixels comes along, for getContentHeight and getContentWidth.
+    [webView evaluateJavaScript:@"[document.title, document.documentElement ? document.documentElement.scrollWidth : 0,"
+                                @" document.documentElement ? document.documentElement.scrollHeight : 0]"
+                        inFrame:nil
+                 inContentWorld:host_world()
               completionHandler:^(id value, NSError *failure) {
                   MinatoWebView *strong = weakSelf;
                   if (strong == nil) return;
-                  if (failure == nil && [value isKindOfClass:NSString.class]) [strong title:value];
+                  NSArray *answer = failure == nil && [value isKindOfClass:NSArray.class] && [value count] == 3
+                                        ? value : nil;
+                  if ([answer[0] isKindOfClass:NSString.class]) [strong title:answer[0]];
+                  NSNumber *width = [answer[1] isKindOfClass:NSNumber.class] ? answer[1] : @0;
+                  NSNumber *height = [answer[2] isKindOfClass:NSNumber.class] ? answer[2] : @0;
                   // The store's cookies before onPageFinished, as Chromium's are there at once.
                   [strong postCookies:^{
-                      [strong progress:100];
+                      post(strong.token, APKRT_WEBVIEW_REC_PROGRESS, 0,
+                           @{@"progress" : @100, @"contentWidth" : width, @"contentHeight" : height});
                       if (!error) {
                           [strong navigation:@"finished" url:either(strong.currentURL, webView.URL.absoluteString)];
                       }

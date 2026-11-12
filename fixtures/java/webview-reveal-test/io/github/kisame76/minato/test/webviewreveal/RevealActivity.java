@@ -23,7 +23,7 @@ import java.io.IOException;
  * the window's pixels tell what shows at the view's center. The page (green, #22aa66) comes from the app's assets at
  * https://appassets.androidplatform.net/assets/www/, answered in shouldInterceptRequest. Rounds, each with a new
  * WebView: plain) shown from the start; fade) alpha 0, faded in to 1 over 300 ms at onPageFinished; late) INVISIBLE,
- * made VISIBLE at onPageFinished. One second
+ * made VISIBLE at onPageFinished; layer) inside a parent drawn through a hardware layer (setLayerType). One second
  * after the reveal, PixelCopy copies the window's 4 x 4 pixels at the WebView's center: "page" (the page's green),
  * "transparent" (alpha 0), or the color. Each round logs that, or a timeout without onPageFinished after 10 s. It ends
  * with "done".
@@ -31,7 +31,7 @@ import java.io.IOException;
 public class RevealActivity extends Activity {
     private static final String TAG = "webview-reveal-test";
     private static final String PAGE = "https://appassets.androidplatform.net/assets/www/index.html";
-    private static final String[] ROUNDS = {"plain", "fade", "late"};
+    private static final String[] ROUNDS = {"plain", "fade", "late", "layer"};
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private int mRound = -1;
@@ -62,6 +62,9 @@ public class RevealActivity extends Activity {
         final String round = ROUNDS[mRound];
         FrameLayout root = new FrameLayout(this);
         FrameLayout parent = new FrameLayout(this);
+        if (round.equals("layer")) {
+            parent.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        }
         mView = new WebView(this);
         if (round.equals("fade")) {
             mView.setAlpha(0f);

@@ -147,7 +147,9 @@ for path in "${taken[@]}"; do
   ln -s "$PWD/$source" "$OUT/src/${package//.//}/$name"
 done
 # Minato's patches to taken files of frameworks/base (framework/patches), each applied to a copy in place of the
-# file's link, so build/sources keeps the fetched files and their digests.
+# file's link, so build/sources keeps the fetched files and their digests; a second patch of the same file (in the
+# patches' name order) applies to that copy.
+patched=" "
 for patch in framework/patches/*.patch; do
   target=$(sed -n 's|^+++ b/||p' "$patch")
   copy="$OUT/src/${target#*/java/}"
@@ -156,9 +158,14 @@ for patch in framework/patches/*.patch; do
   [[ "$target" == media/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ "$target" == rs/* ]] && original="$SOURCES/frameworks_base_types/$target"
   [[ "$target" == telephony/* ]] && original="$SOURCES/frameworks_base_types/$target"
+  if [[ "$patched" == *" $copy "* ]]; then
+    patch --quiet "$copy" "$patch"
+    continue
+  fi
   [[ -L "$copy" ]] || { echo "$patch: $target is not a taken file" >&2; exit 1; }
   rm "$copy"
   patch --quiet -o "$copy" "$original" "$patch"
+  patched+="$copy "
 done
 python3 tools/aconfig-flags.py java --declarations "$SOURCES/frameworks_base" \
   --declarations "$SOURCES/frameworks_base_graphics" --declarations "$SOURCES/frameworks_base_hwui" \

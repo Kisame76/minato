@@ -1215,8 +1215,8 @@ run_app() {
     webview-commit-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.CommitActivity
       ;;
-    # webview-reveal-test: a WebView shown as it is, faded in by alpha or made visible late; PixelCopy tells what the
-    # window shows at its center. It ends with "done".
+    # webview-reveal-test: a WebView shown as it is, faded in by alpha, made visible late or inside a parent drawn
+    # through a hardware layer; PixelCopy tells what the window shows at its center. It ends with "done".
     webview-reveal-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.RevealActivity
       ;;

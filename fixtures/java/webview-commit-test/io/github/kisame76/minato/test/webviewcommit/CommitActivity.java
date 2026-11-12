@@ -31,14 +31,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * a) the splash goes in onPageFinished; b) in onPageCommitVisible; c) in the VisualStateCallback that
  * onPageCommitVisible posts; d-a, d-b, d-c) as a SplashScreen keep-on-screen condition: a pre-draw listener of the
  * content view cancels each draw while the condition holds, and that point clears it; the splash goes at the next
- * pre-draw. Each round logs WebViewClient's callbacks of the main frame (see order()), how often the others came
+ * pre-draw; f) a poll every 50 ms until getProgress() is 100 and getContentHeight() above 0; g) WebView's
+ * PictureListener's first onNewPicture; h) the first draw of the view tree (an OnDrawListener) after
+ * doUpdateVisitedHistory; i) the page's request of "ready" (its load event fetches it), seen in shouldInterceptRequest.
+ * Each round logs WebViewClient's callbacks of the main frame (see order()), how often the others came
  * (shouldInterceptRequest, onLoadResource, onScaleChanged, errors), and where the splash went, or that it was still up
  * after 10 s. The page names an empty icon, so that Chromium asks for no /favicon.ico. It ends with "done".
  */
 public class CommitActivity extends Activity {
     private static final String TAG = "webview-commit-test";
     private static final String PAGE = "https://appassets.androidplatform.net/assets/www/index.html";
-    private static final String[] ROUNDS = {"a", "b", "c", "d-a", "d-b", "d-c"};
+    private static final String[] ROUNDS = {"a", "b", "c", "d-a", "d-b", "d-c", "f", "g", "h", "i"};
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final AtomicInteger mIntercepted = new AtomicInteger();
@@ -52,6 +55,7 @@ public class CommitActivity extends Activity {
     private boolean mFinished;
     private boolean mKeep;
     private boolean mEnded;
+    private boolean mCommitted;
     private WebView mView;
     private View mSplash;
 
@@ -93,6 +97,7 @@ public class CommitActivity extends Activity {
         mRemovedAt = null;
         mFinished = false;
         mEnded = false;
+        mCommitted = false;
         final FrameLayout root = new FrameLayout(this);
         mView = new WebView(this);
         mSplash = new View(this);
@@ -102,6 +107,23 @@ public class CommitActivity extends Activity {
         setContentView(root);
         mView.getSettings().setJavaScriptEnabled(true);
         mView.setWebViewClient(new Client());
+        final String name = ROUNDS[mRound];
+        final WebView view = mView;
+        if (name.equals("f")) {
+            poll(view);
+        } else if (name.equals("g")) {
+            view.setPictureListener((pictured, picture) -> {
+                if (pictured == mView) {
+                    reached("g");
+                }
+            });
+        } else if (name.equals("h")) {
+            view.getViewTreeObserver().addOnDrawListener(() -> {
+                if (view == mView && mCommitted) {
+                    mHandler.post(() -> reached("h"));
+                }
+            });
+        }
         mKeep = keeps();
         if (mKeep) {
             // androidx's SplashScreen on Android 12 and later: the content view's pre-draw listener cancels each draw
@@ -127,9 +149,21 @@ public class CommitActivity extends Activity {
         mView.loadUrl(PAGE);
     }
 
+    /** Round f's poll: getProgress() 100 and a content height, every 50 ms. */
+    private void poll(final WebView view) {
+        if (view != mView || mEnded) {
+            return;
+        }
+        if (view.getProgress() == 100 && view.getContentHeight() > 0) {
+            reached("f");
+        } else {
+            mHandler.postDelayed(() -> poll(view), 50);
+        }
+    }
+
     /** The round's point came: take the splash away, or clear the condition. */
     private void reached(String point) {
-        if (!point.equals(point())) {
+        if (mRound >= ROUNDS.length || !point.equals(point()) || mRemovedAt != null && !keeps()) {
             return;
         }
         if (keeps()) {
@@ -137,7 +171,9 @@ public class CommitActivity extends Activity {
             mView.invalidate();
         } else {
             remove(point.equals("a") ? "onPageFinished" : point.equals("b") ? "onPageCommitVisible"
-                    : "the VisualStateCallback");
+                    : point.equals("c") ? "the VisualStateCallback" : point.equals("f") ? "progress 100 with a height"
+                    : point.equals("g") ? "onNewPicture" : point.equals("h") ? "the first draw after the commit"
+                    : "the page's ready request");
         }
     }
 
@@ -211,6 +247,7 @@ public class CommitActivity extends Activity {
         @Override
         public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
             mOrder.add("doUpdateVisitedHistory");
+            mCommitted = true;
         }
 
         @Override
@@ -267,6 +304,11 @@ public class CommitActivity extends Activity {
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             mIntercepted.incrementAndGet();
             String path = request.getUrl().getPath();
+            if (path != null && path.endsWith("/ready")) {
+                mHandler.post(() -> reached("i"));
+                return new WebResourceResponse("text/plain", "UTF-8", 204, "No Content", Collections.emptyMap(),
+                        new ByteArrayInputStream(new byte[0]));
+            }
             if (!"appassets.androidplatform.net".equals(request.getUrl().getHost()) || path == null
                     || !path.startsWith("/assets/")) {
                 return null;

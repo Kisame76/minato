@@ -60,7 +60,7 @@
 # sees "file:"), webview-splash-test and webview-redirect-test (redirects from the app's own loopback server over
 # http: on iOS that cleartext goes through App Transport Security) and webview-cookie-sites-test (third-party cookies
 # between two sites of that server) and webview-commit-test (a splash taken away at each of WebViewClient's points)
-# and webview-reveal-test (a WebView faded in or shown late; its window shows transparent
+# and webview-reveal-test (a WebView faded in, shown late or in a parent with a layer; its window shows transparent
 # pixels where Android's shows the page).
 # views-test (ADR-0043's test 1: views, a TextView and a Button drawn in software) runs on the iPhone only, whose screen
 # its views' bounds are (the Simulator's is another): this check plays no touches, so the app clicks its Button with

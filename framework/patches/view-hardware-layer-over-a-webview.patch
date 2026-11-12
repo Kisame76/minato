@@ -1,0 +1,29 @@
+Minato's patch to frameworks/base's core/java/android/view/View.java at android-15.0.0_r1 (Apache-2.0): a hardware
+layer above a WebView is drawn without its drawing cache.
+
+Why: Minato's windows draw in software (ADR-0043 decision 2), where AOSP's View.draw puts a view with a hardware layer
+(setLayerType(LAYER_TYPE_HARDWARE), or an animation's withLayer) through its drawing cache, a Bitmap canvas. A WebView's
+page lies in the host's view below the window and shows through the area the WebView's onDraw clears; under such a
+layer that area is cleared in the cache's bitmap only, which is then drawn over the window's background, so the page
+stays covered. On Android the WebView draws the page itself, into the hardware layer, and it shows.
+
+What: a view with a hardware layer that has a WebView with an open host below it (WebViewHoles.above) is drawn as one
+without a layer. The layer's paint (setLayerPaint: a color filter, a blend mode) does not apply there, a named
+difference; its alpha still does, through saveLayerAlpha. Every other view is drawn as AOSP draws it.
+
+--- a/core/java/android/view/View.java
++++ b/core/java/android/view/View.java
+@@ -24558,7 +24558,12 @@
+         RenderNode renderNode = null;
+         Bitmap cache = null;
+         int layerType = getLayerType(); // TODO: signify cache state with just 'cache' local
+-        if (layerType == LAYER_TYPE_SOFTWARE || !drawingWithRenderNode) {
++        if (layerType == LAYER_TYPE_HARDWARE && !drawingWithRenderNode
++                && com.android.internal.minato.webkit.WebViewHoles.above(this)) {
++            // Minato: a hardware layer over a WebView whose page shows through a hole in the window is drawn
++            // directly: in a drawing cache the hole would be cleared in the cache's bitmap only.
++            layerType = LAYER_TYPE_NONE;
++        } else if (layerType == LAYER_TYPE_SOFTWARE || !drawingWithRenderNode) {
+              if (layerType != LAYER_TYPE_NONE) {
+                  // If not drawing with RenderNode, treat HW layers as SW
+                  layerType = LAYER_TYPE_SOFTWARE;

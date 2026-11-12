@@ -1,19 +1,31 @@
 I/webview-commit-test: round a: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round a: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round a: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round a: the splash went at onPageFinished
 I/webview-commit-test: round b: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round b: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round b: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round b: the splash went at onPageCommitVisible
 I/webview-commit-test: round c: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round c: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round c: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round c: the splash went at the VisualStateCallback
 I/webview-commit-test: round d-a: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round d-a: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round d-a: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round d-a: the splash went at a pre-draw after the condition cleared
 I/webview-commit-test: round d-b: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round d-b: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round d-b: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round d-b: the splash went at a pre-draw after the condition cleared
 I/webview-commit-test: round d-c: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
-I/webview-commit-test: round d-c: intercepted 51, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round d-c: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
 I/webview-commit-test: round d-c: the splash went at a pre-draw after the condition cleared
+I/webview-commit-test: round f: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
+I/webview-commit-test: round f: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round f: the splash went at progress 100 with a height
+I/webview-commit-test: round g: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
+I/webview-commit-test: round g: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round g: the splash went at onNewPicture
+I/webview-commit-test: round h: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
+I/webview-commit-test: round h: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round h: the splash went at the first draw after the commit
+I/webview-commit-test: round i: onPageStarted, doUpdateVisitedHistory; then VisualStateCallback, onPageCommitVisible, onPageFinished; the VisualStateCallback after onPageCommitVisible yes
+I/webview-commit-test: round i: intercepted 52, served 51, onLoadResource 0, onScaleChanged no, errors 0
+I/webview-commit-test: round i: the splash went at the page's ready request
 I/webview-commit-test: done
