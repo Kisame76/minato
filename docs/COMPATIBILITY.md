@@ -108,18 +108,18 @@ Only what the project has evidence for is stated as working; "untested" means th
   Python 2.7 get past ctypes' callbacks, which need executable memory, through trampolines in Minato's own signed
   code (ADR-0072); no game of that kind is confirmed yet.
 - **Unreal Engine:** untested. Unreal 5 needs ES 3.2, which is not offered, or Vulkan through MoltenVK.
-- **libGDX:** an open-source libGDX game draws with OpenGL ES 2 on the Mac, plays its Ogg Vorbis music through
-  MediaPlayer and keeps running, also after a trip to the background; the iPhone is not confirmed yet. Its Java code
-  runs compiled after the first close, and `SoundPool` plays WAV, Ogg Vorbis, MP3, AAC and FLAC.
+- **libGDX:** the parts a libGDX game needs are checked: Ogg Vorbis music through `MediaPlayer`, a GL surface that
+  pauses and resumes over a trip to the background, and `SoundPool` with WAV, Ogg Vorbis, MP3, AAC and FLAC. Java code
+  runs compiled after the first close. No whole libGDX game is part of the checks yet, and the iPhone is not confirmed.
 - **Cocos2d-x, axmol, Defold, GameMaker:** untested.
-- **Flutter:** an open-source Flutter app starts and keeps running on the Mac; the iPhone is not confirmed yet. Release
-  builds compile Dart ahead of time and need no JIT.
-- **React Native with Hermes:** untested. **With JavaScriptCore:** JavaScriptCore runs on its interpreter (ADR-0071).
-  An open-source app runs its JavaScript and builds its screen on the Mac; it then waits for the network, which the
-  Mac's test sandbox withholds. The iPhone is not confirmed yet.
+- **Flutter:** the event loop primitives of its engine, timers and poll, are checked. No Flutter app is part of the
+  checks yet, and the iPhone is not confirmed. Release builds compile Dart ahead of time and need no JIT.
+- **React Native with Hermes:** untested. **With JavaScriptCore:** the loader starts JavaScriptCore on its interpreter
+  (ADR-0071), checked with a stand-in library. No React Native app is part of the checks yet, and the iPhone is not
+  confirmed.
 - **LuaJIT (LÖVE and others):** an app whose LuaJIT exports its API runs on LuaJIT's interpreter, as Minato switches
-  the compiler off (ADR-0071). An open-source LÖVE game runs on the Mac with its compiler off; the iPhone is not
-  confirmed yet. A LuaJIT linked into the app without its exports keeps its compiler, which iOS refuses.
+  the compiler off (ADR-0071), checked with a stand-in library. No LÖVE game is part of the checks yet, and the
+  iPhone is not confirmed. A LuaJIT linked into the app without its exports keeps its compiler, which iOS refuses.
 - **Kivy (python-for-android):** imports; Get Info names it. Starting one is not checked yet.
 - **.NET, Xamarin, MAUI, MonoGame:** Get Info names the runtime. Minato switches Mono to its interpreter when an app
   built with ahead-of-time code starts it (ADR-0071); this is built and tested with a stand-in for Mono, and no real
