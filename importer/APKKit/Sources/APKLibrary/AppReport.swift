@@ -219,7 +219,9 @@ public struct AppReport: Sendable, Equatable, Identifiable {
         if let format { lines.append("Format: \(format.rawValue)") }
         lines.append("Status: \(cut(status))")
         if !issues.isEmpty {
-            lines.append("Issues:")
+            // Get Info's word for the list (its Compatibility section): its points may block, degrade or only inform,
+            // and the status line above says which it is.
+            lines.append("Compatibility:")
             lines += issues.map { "- " + cut($0).replacingOccurrences(of: "\n", with: "\n  ") }
         }
         if let endingLine {

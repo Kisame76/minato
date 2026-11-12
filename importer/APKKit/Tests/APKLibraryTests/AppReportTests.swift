@@ -221,7 +221,8 @@ struct AppReportTests {
         for part in ["Minato: 1.0.0 (Beta 1)", "iPhone: iPhone16,2, iOS 27.2", "App: Sample Game",
                      "Package: org.example.game", "Version: 7.0 (7)", "SDK: min ", "target ", "ABIs: arm64-v8a",
                      "Runtime: ", "Format: .apk", "Status: Ready, without libfoo.so",
-                     "- libfoo.so will not load, so the app runs without it:\n  no symbol bar",
+                     // Under Get Info's word for the list: blocking, degrading and informational points alike.
+                     "\nCompatibility:\n- libfoo.so will not load, so the app runs without it:\n  no symbol bar",
                      "Last session: it ended with signal 11 (SIGSEGV)",
                      "Log of the last session\nI/tag: one\nF/libc: Fatal signal 11\n"] {
             #expect(text.contains(part), "\(part)")
@@ -263,7 +264,7 @@ struct AppReportTests {
         let report = AppReport(entry: try await entry(sandbox), device: device, status: "Ready", issues: [],
                                ending: nil, log: nil)
         #expect(!report.text.contains("Last session") && !report.text.contains("Log of the last session"))
-        #expect(!report.text.contains("Issues"))
+        #expect(!report.text.contains("Compatibility") && !report.text.contains("Issues"))
     }
 
     @Test func theURLOpensTheFormWithItsFieldsByTheirIds() async throws {
