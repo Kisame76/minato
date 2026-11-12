@@ -80,6 +80,20 @@ if(TARGET angle-texture-parking)
     RUN_SERIAL TRUE TIMEOUT 300 SKIP_REGULAR_EXPRESSION "^skipped:"
     ENVIRONMENT "ASAN_OPTIONS=quarantine_size_mb=0:thread_local_quarantine_size_kb=0")
 endif()
+# deferral_full: a full FIFO in the background either drops its oldest command buffer, which loses the work kept for the
+# foreground (MINATO_ANGLE_DROP_DISCARDS does what iOS does to it), or, with the embedder's answer, parks the committing
+# thread until the foreground and keeps it (patch 0030).
+if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
+  add_executable(angle-deferral-full angle_deferral_full.mm)
+  target_include_directories(angle-deferral-full SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
+  target_compile_options(angle-deferral-full PRIVATE -fobjc-arc)
+  target_link_libraries(angle-deferral-full PRIVATE apk_defaults "-framework Foundation" "-framework Metal")
+  foreach(mode IN ITEMS drop park)
+    add_test(NAME graphics.angle_deferral_full_${mode}
+      COMMAND angle-deferral-full "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" ${mode})
+    set_tests_properties(graphics.angle_deferral_full_${mode} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+  endforeach()
+endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
 if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")

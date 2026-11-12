@@ -427,6 +427,16 @@ int apkrt_is_background(void);
 /// for ANGLE's commit gate (ADR-0029, decision 15). Returns at once in the foreground.
 void apkrt_wait_foreground(void);
 
+/// For graphics/host's background deferral (ADR-0029 addendum): when ANGLE's FIFO of deferred command buffers is
+/// full, the committing GL thread may park here instead of the deferral dropping the oldest (which loses the
+/// guest's work). It parks the caller at the background gate until foreground and returns 1 ONLY once the process
+/// is backgrounded (apkrt_set_background(1), which is after onStop) AND every surfaceDestroyed has returned; in any
+/// other state it returns 0 at once and never parks, so neither onStop nor a surfaceDestroyed that waits on this
+/// thread can stall. The caller drops on 0 and commits on 1, with its own submit lock released across the call.
+/// The cost is a parked committing thread that holds a guest lock a background thread still needs (the Ren'Py
+/// audio-lock shape); see the ADR-0029 addendum.
+int apkrt_background_commit_park(void);
+
 /// For the app's own session-log lines: the waits apkrt_wait_foreground made since the background last began, how
 /// many there were (`*parked`) and the longest in ns (`*longest_ns`, a wait still running counts up to now). Either
 /// pointer may be NULL.

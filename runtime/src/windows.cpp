@@ -470,6 +470,27 @@ void apkrt_wait_foreground(void) {
     --gate_running;
 }
 
+// graphics/host's background deferral (ADR-0029 addendum): the alternative to dropping the oldest deferred command
+// buffer when ANGLE's FIFO is full. It parks the calling (committing) GL thread at the background gate until
+// foreground and returns 1, so the buffer commits on resume and its work is not lost -- but ONLY once the process
+// is backgrounded AND every surfaceDestroyed has returned (untold empty). apkrt_set_background(1) is called only
+// after onStop (ADR-0029 decision 15); an untold window means a destroy callback is still running and may wait on
+// this very thread (SDL), so parking before it is told would hang surfaceDestroyed. In every other state it
+// returns 0 at once and never parks, so neither onStop nor surfaceDestroyed can stall. The caller (ANGLE, with its
+// own submit lock released first) drops on 0 and retries the commit on 1. Shares apkrt_wait_foreground's gate and
+// counters and releases `lock` while it waits, so it never blocks another gate call.
+int apkrt_background_commit_park(void) {
+    std::unique_lock<std::mutex> hold(lock);
+    if (!in_background.load() || !untold.empty()) return 0;
+    const std::uint64_t start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    ++gate_parked;
+    if (gate_running++ == 0) gate_since = start;
+    foreground.wait(hold, [] { return !in_background.load(); });
+    gate_longest = std::max(gate_longest, clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start);
+    --gate_running;
+    return 1;
+}
+
 int apkrt_set_window_buffers(const apkrt_window_buffers *set) {
     if (set != nullptr && (set->lock == nullptr || set->post == nullptr || set->removed == nullptr)) return -1;
     const std::lock_guard<std::mutex> hold(lock);

@@ -792,6 +792,38 @@ TEST(the_foreground_wait_of_host_code_returns_in_the_foreground) {
     host.join();
 }
 
+TEST(the_commit_park_drops_until_onStop_and_the_surface_is_told_then_parks_until_foreground) {
+    CHECK(apkrt_background_commit_park() == 0);   // not in the background: never parks, the caller drops
+    const auto id = apkrt_window_add(nullptr, 1920, 1080);
+    CHECK(apkrt_window_remove_untold(id) == 0);   // surfaceDestroyed is in progress (drop until told)
+    apkrt_set_background(1);                       // onStop answered (ADR-0029 decision 15)
+    // With a surfaceDestroyed still in progress the gate must NOT park: a gate that parks here would hang a
+    // surfaceDestroyed that waits on this thread. Run on a thread and wake any wrong park, so a
+    // parks-while-untold gate fails cleanly instead of hanging the test.
+    std::atomic<int> while_untold{-1};
+    std::thread untold_thread([&] { while_untold.store(apkrt_background_commit_park()); });
+    const bool answered = within(2s, [&] { return while_untold.load() != -1; });
+    if (!answered) apkrt_set_background(0);        // a wrong (parking) gate left it parked: wake it to finish
+    untold_thread.join();
+    CHECK(answered);                               // RED on a parks-while-untold gate: it never returned here
+    CHECK(while_untold.load() == 0);               // it drops while untold
+    if (!answered) apkrt_set_background(1);         // restore the post-onStop state a correct gate never left
+    apkrt_window_told(id);                          // surfaceDestroyed has returned
+    std::atomic<int> result{-1};
+    std::thread committer([&] { result.store(apkrt_background_commit_park()); });
+    std::this_thread::sleep_for(50ms);
+    CHECK(result.load() == -1);                    // now it parks: the committing thread has not returned
+    CHECK(apkrt_is_background() == 1);             // the gate frees its lock while parked: other gate calls answer
+    std::uint32_t parked = 0;
+    apkrt_background_gate(&parked, nullptr);
+    CHECK(parked >= 1);                            // the park is counted at the gate
+    apkrt_set_background(0);
+    CHECK(within(2s, [&] { return result.load() != -1; }));
+    CHECK(result.load() == 1);                     // it parked, so the caller commits instead of dropping
+    committer.join();
+    apkrt_window_remove(id);
+}
+
 TEST(the_background_counts_the_waits_at_the_gate_and_the_longest) {
     std::uint32_t parked = 9;
     std::uint64_t longest = 9;

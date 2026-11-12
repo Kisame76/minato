@@ -33,6 +33,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -407,6 +408,14 @@ static void wait_foreground(void) {
     apkrt_wait_foreground();
 }
 
+/* A full FIFO in the background (patch 0030): with MINATO_BACKGROUND_PARK=1 the committing thread parks until the
+   foreground once the app's onStop and every surfaceDestroyed are answered (the runtime's gate), and ANGLE then commits
+   the FIFO in order, losing nothing, as Android's GPU, which runs in the background; before that, and without the
+   flag, the oldest command buffer goes (patch 0027), which iOS refuses in the background. */
+static int park_when_full(void) {
+    return apkrt_background_commit_park();
+}
+
 static void gates(void *library) {
     void (*set)(void (*)(void), void (*)(void)) =
         (void (*)(void (*)(void), void (*)(void)))dlsym(library, "ANGLEMetalSetCommitGates");
@@ -417,6 +426,11 @@ static void gates(void *library) {
         (void (*)(int (*)(void), void (*)(void)))dlsym(library, "ANGLEMetalSetCommitDeferral");
     if (defer != NULL) {
         defer(commit_enter, wait_foreground);
+    }
+    void (*full)(int (*)(void)) = (void (*)(int (*)(void)))dlsym(library, "ANGLEMetalSetDeferralFull");
+    const char *park = getenv("MINATO_BACKGROUND_PARK");
+    if (full != NULL && park != NULL && strcmp(park, "1") == 0) {
+        full(park_when_full);
     }
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
     atomic_store(&memory_warning, (void (*)(void))dlsym(library, "ANGLEMetalMemoryWarning"));
