@@ -692,6 +692,10 @@ if(TARGET minato_graphics_host)
     # valid, a fresh glGenTextures binds and the swap presents. A return whose eglCreateWindowSurface fails is the
     # break the assertion catches.
     add_guest_test(gles_resume gles-resume-test gles_resume_test "${gles_system_libraries}" ${with_angle})
+    # The same returns with Ren'Py's full reset in each (MINATO_RESUME_SET): its 600 textures deleted and made
+    # again, and ANGLE's color textures must drop by the deleted set and come back to the start's.
+    add_guest_test(gles_resume_set gles-resume-test gles_resume_set_test "${gles_system_libraries}" ${with_angle}
+      "MINATO_RESUME_SET=set:600")
     # ADR-0078 decision 4: an app's unpaced EGL presents held to the frame rate limit. It counts swaps a second, so it
     # runs alone.
     add_guest_test(present_limit present-limit-test present_limit_test "${gles_system_libraries}" ${with_angle})

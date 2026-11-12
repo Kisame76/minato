@@ -50,6 +50,10 @@ enum minato_test_command {
                                    "graphics: <line>"; 1 once printed, 0 without the symbol */
     MINATO_TEST_TOLD,           /* a: a window removed until told: the app's destroy callback has returned
                                    (apkrt_window_told); 1 */
+    MINATO_TEST_COLOR_TEXTURES, /* the color textures ANGLE holds now (its memory line's color= count, patch 0015);
+                                   UINT64_MAX without the line */
+    MINATO_TEST_RESUME_SET,     /* the host's MINATO_RESUME_SET as a number, 0 without (gles_resume_test's set: the
+                                   guest has not the Mac's environment) */
 };
 
 #ifndef __APPLE__

@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "APKRuntime/apkrt.h"
 #include "minato_graphics.h"
@@ -88,6 +89,16 @@ static uint64_t graphics_line(void) {
     return 1;
 }
 
+/* The memory line's color= count, or UINT64_MAX without the line. */
+static uint64_t color_textures(void) {
+    const char *path = getenv("MINATO_ANGLE");
+    void *angle = path != NULL ? dlopen(path, RTLD_NOW | RTLD_LOCAL | RTLD_FIRST) : NULL;
+    int (*line)(char *, size_t) = angle != NULL ? (int (*)(char *, size_t))dlsym(angle, "ANGLEMetalMemoryLine") : NULL;
+    char text[512];
+    const char *color = line != NULL && line(text, sizeof text) > 0 ? strstr(text, " color=") : NULL;
+    return color != NULL ? strtoull(color + 7, NULL, 10) : UINT64_MAX;
+}
+
 static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
     switch (command) {
         case MINATO_TEST_WINDOW:
@@ -144,6 +155,12 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
             return add_window(a != 0 ? (int32_t)(a >> 32) : 64, a != 0 ? (int32_t)(a & 0xffffffffu) : 48);
         case MINATO_TEST_GRAPHICS_LINE:
             return graphics_line();
+        case MINATO_TEST_COLOR_TEXTURES:
+            return color_textures();
+        case MINATO_TEST_RESUME_SET: {
+            const char *set = getenv("MINATO_RESUME_SET");
+            return set != NULL ? strtoull(set, NULL, 10) : 0;
+        }
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);
             return 0;

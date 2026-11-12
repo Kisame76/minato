@@ -29,6 +29,14 @@
    known clear reads back, and the swap is EGL_TRUE. The create's result and error are logged every return, so a red
    run on the iPhone shows the cause on its own line.
 
+   With MINATO_RESUME_SET=<n> (graphics.gles_resume_set; graphics-run's, which test control hands on) R also plays
+   Ren'Py's full reset (gl2draw.on_resize -> TextureLoader.init -> quit) at each return: n RGBA textures with data,
+   mipmapped, each sampled by a copy, made at the start; after each restore every one deleted with its own
+   glDeleteTextures and n new ones made. Once the GPU is done ANGLE's color textures (test control's
+   MINATO_TEST_COLOR_TEXTURES) must have dropped by the n deleted and come back to the start's after the reload: a
+   texture the app deleted that stays alive grows every return by a set (the Simulator's Ren'Py anim game: about 600
+   more per return). Its lines follow each return's restore line.
+
    With MINATO_RESUME_DIAG set (the iPhone run; not the Mac check, whose output is byte-compared) the host's memory
    line (MINATO_TEST_GRAPHICS_LINE) prints depth=<n> on stderr before the background, after the backup released,
    after the first return and after the third, and the backup and restore durations are printed too, for the
@@ -47,7 +55,7 @@
 
 #include "test_control.h"
 
-enum { width = 64, height = 48, kept_textures = 3, returns = 3 };
+enum { width = 64, height = 48, kept_textures = 3, returns = 3, set_most = 1000 };
 
 /* The sentinel a name holds before glGenTextures: if the call writes nothing (no context current) it stays, which
    is how the device showed "one unchanged name for every texture". */
@@ -70,6 +78,10 @@ static int to_render, from_render;
 static atomic_int entering_backup;
 
 static GLuint kept[kept_textures];
+static int set_size;  /* MINATO_RESUME_SET: Ren'Py's set, 0 without */
+static GLuint set[set_most];
+static uint64_t set_start;  /* ANGLE's color textures with the set made, at the start */
+static int set_ok[returns];
 static int create_ok[returns], gl_ok[returns];
 static EGLBoolean swapped[returns];
 static double backup_ms, restore_ms;
@@ -106,6 +118,30 @@ static double now_ms(void) {
     return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1000000.0;
 }
 static const char *ok(EGLBoolean value) { return value == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE"; }
+
+/* Ren'Py's loader: the set's RGBA textures of 64 x 64 with data, mipmapped, each sampled once by a copy. */
+static void load_set(void) {
+    static unsigned char pixels[64 * 64 * 4];
+    glGenTextures(set_size, set);
+    for (int i = 0; i < set_size; i++) {
+        glBindTexture(GL_TEXTURE_2D, set[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, 4, 4);
+    }
+}
+
+/* ANGLE's color textures once the GPU is done with what went: the lowest of up to 2 s of looks, early at `most`. */
+static uint64_t color_textures(uint64_t most) {
+    glFinish();
+    uint64_t lowest = minato_test(MINATO_TEST_COLOR_TEXTURES, 0, 0, 0);
+    for (int look = 0; look < 40 && lowest > most; look++) {
+        usleep(50000);
+        const uint64_t now = minato_test(MINATO_TEST_COLOR_TEXTURES, 0, 0, 0);
+        lowest = now < lowest ? now : lowest;
+    }
+    return lowest;
+}
 static const char *yn(int value) { return value ? "yes" : "no"; }
 
 /* R: owns the context across all returns, draws, backs up on each pause and restores on each return. */
@@ -116,6 +152,11 @@ static void *render_thread(void *argument) {
     for (int i = 0; i < kept_textures; i++) {
         glBindTexture(GL_TEXTURE_2D, kept[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
+    if (set_size > 0) {
+        load_set();
+        eglSwapBuffers(display, surface);
+        set_start = color_textures(0);
     }
 
     for (int r = 0; r < returns; r++) {
@@ -166,6 +207,29 @@ static void *render_thread(void *argument) {
         printf("return %d R: restore eglMakeCurrent(%s): %s, error 0x%x; fresh name written: %s; clear read back "
                "%u %u %u %u; swap %s\n", r + 1, surface != EGL_NO_SURFACE ? "S2" : "none", ok(restored),
                eglGetError(), yn(fresh != UNWRITTEN), pixel[0], pixel[1], pixel[2], pixel[3], ok(swapped[r]));
+        if (set_size > 0 && surface != EGL_NO_SURFACE) {
+            /* Ren'Py's full reset: the set deleted, one call each; then its scene loaded again. */
+            for (int i = 0; i < set_size; i++) {
+                glDeleteTextures(1, &set[i]);
+            }
+            const uint64_t want = set_start - (uint64_t)set_size;
+            const uint64_t deleted = color_textures(want);
+            load_set();
+            eglSwapBuffers(display, surface);
+            const uint64_t reloaded = color_textures(set_start);
+            set_ok[r] = deleted <= want && reloaded <= set_start;
+            char gone[64] = "yes", again[64] = "yes";
+            if (deleted > want) {
+                snprintf(gone, sizeof gone, "NO (%llu, the start's %llu)", (unsigned long long)deleted,
+                         (unsigned long long)set_start);
+            }
+            if (reloaded > set_start) {
+                snprintf(again, sizeof again, "NO (%llu, the start's %llu)", (unsigned long long)reloaded,
+                         (unsigned long long)set_start);
+            }
+            printf("return %d R: Ren'Py's reset: the set deleted, gone from ANGLE's color textures: %s; loaded again, "
+                   "as many as at the start: %s\n", r + 1, gone, again);
+        }
         report(FR_RESTORED);
     }
     await_to(TR_DONE);
@@ -184,6 +248,11 @@ static void graphics_line(void) {
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     diag = getenv("MINATO_RESUME_DIAG") != NULL;
+    /* The guest has not the Mac's environment: the host's MINATO_RESUME_SET through test control, a guest's own
+       (the iPhone's run) first. */
+    const char *set_text = getenv("MINATO_RESUME_SET");
+    set_size = set_text != NULL ? atoi(set_text) : (int)minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
+    set_size = set_size < 0 ? 0 : set_size > set_most ? set_most : set_size;
     create_window create = (create_window)dlsym(dlopen("libnativewindow.so", RTLD_NOW), "minato_ANativeWindow_create");
 
     display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -270,6 +339,14 @@ int main(void) {
            "%s; kept textures still valid: %s\n", yn(created), yn(drew), yn(presented), yn(kept_ok));
     printf("gles resume: %s\n", (created && drew && presented && kept_ok) ? "the context survived every return" :
            "BROKEN: eglCreateWindowSurface failed on a return, so the restore made nothing current");
+    int sets = 1;
+    for (int r = 0; r < returns; r++) {
+        sets &= set_ok[r];
+    }
+    if (set_size > 0) {
+        printf("gles resume set: %s\n", sets ? "every return's deleted set left ANGLE" :
+               "BROKEN: textures the app deleted stayed alive in ANGLE");
+    }
 
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (surface != EGL_NO_SURFACE) {
@@ -280,5 +357,5 @@ int main(void) {
         ANativeWindow_release(window);
     }
     eglTerminate(display);
-    return (created && drew && presented && kept_ok) ? 0 : 1;
+    return (created && drew && presented && kept_ok && (set_size == 0 || sets)) ? 0 : 1;
 }
