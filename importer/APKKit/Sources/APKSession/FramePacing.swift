@@ -67,6 +67,13 @@ public enum FramePacing {
         limit > 0 && unlock < limit ? Int(limit) : 0
     }
 
+    /// The vsync's period in ns while the scene is in the background (apkrt_vsync_background): Android's 60 Hz
+    /// without a display, or the guest's display rate where the frame rate limit makes it lower.
+    public static func backgroundVsyncPeriod(displayRate: Float) -> Int64 {
+        let rate = displayRate.isFinite && displayRate > 0 ? min(displayRate, minimumRate) : minimumRate
+        return Int64((1e9 / Double(rate)).rounded(.up))
+    }
+
     /// The steps Settings offers: those the screen shows (UIScreen.maximumFramesPerSecond), at least 30.
     public static func limitSteps(screenMaximum: Int) -> [Int] {
         let shown = limits.filter { $0 <= screenMaximum }

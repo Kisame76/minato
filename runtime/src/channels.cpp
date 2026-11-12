@@ -13,10 +13,12 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstddef>
@@ -37,7 +39,13 @@ namespace {
 namespace linux_errno = sys::linux_errno;
 using descriptors::Description;
 
-std::mutex lock;
+// Constant-initialized and never destroyed. apkrt_vsync_post / apkrt_vsync_background can run before this TU's
+// dynamic initialization (a window paces a frame at startup), so `lock` must exist from program start --
+// constinit; and the background vsync thread (background_loop, detached) may wait on it when the process
+// exits, so it must not be destroyed -- [[clang::no_destroy]]. (The earlier `*new` form was never-destroyed
+// but dynamically initialized, so it bound a null reference before this TU's init: UBSan 134 in
+// apkrt_vsync_post, channels.cpp:1015.)
+[[clang::no_destroy]] constinit std::mutex lock;
 
 /// A channel's description, whose pipe shows what it holds unread.
 class Channel : public Description {
@@ -97,11 +105,29 @@ private:
 // --- The vsync channel ---------------------------------------------------------------------------------
 
 class VsyncChannel;
-std::vector<VsyncChannel *> vsyncs;  // the open ones, under `lock`
+// The open ones, under `lock`. Constant-initialized and never destroyed, for the same reason as `lock`: the
+// detached background vsync thread reads it, and it may be touched before this TU's dynamic initialization.
+[[clang::no_destroy]] constinit std::vector<VsyncChannel *> vsyncs;
 std::int64_t ticks = 0;              // posted so far, under `lock`
 std::int64_t last_time = 0;          // the last tick's time, under `lock`
 std::int64_t period = 0;             // the display's, once a tick came, under `lock`
 bool period_known = false;           // whether one came
+
+// The vsync in the background (apkrt_vsync_background): Android's display service answers a requested vsync for a
+// stopped app too, so while the display link does not fire, a thread of the runtime answers each request with one
+// tick on the last tick's grid. Under `lock`.
+constexpr std::int64_t background_shortest = (1'000'000'000 + 59) / 60;  // 60 Hz, Android's rate without a display
+std::int64_t background_period = 0;  // 0: off
+std::int64_t background_since = 0;   // when it went on; a display tick after it ends it
+bool background_thread = false;      // whether the thread runs
+std::condition_variable &background_wake() {
+    static auto *wake = new std::condition_variable;  // never destroyed: the thread may wait on it at exit
+    return *wake;
+}
+
+std::int64_t uptime() {
+    return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
 
 class VsyncChannel final : public Channel {
 public:
@@ -629,6 +655,7 @@ long vsync_request(int fd) {
     if (!channel) return -linux_errno::ebadf;
     const std::lock_guard hold(lock);
     channel->asked = true;
+    if (background_period > 0) background_wake().notify_one();
     return 0;
 }
 
@@ -944,8 +971,11 @@ extern "C" int32_t apkrt_webview_post(uint64_t token, uint32_t type, uint64_t re
 
 extern "C" int32_t apkrt_webview_close(uint64_t token) { return static_cast<int32_t>(webview_close(token)); }
 
-extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
-    const std::lock_guard hold(lock);
+namespace apkrt::channels {
+namespace {
+
+/// A tick to the channels that asked, under `lock`.
+void post_tick(std::int64_t time, std::int64_t target_time) {
     const std::int64_t number = ++ticks;
     const std::int64_t base = current_period(), length = target_time - time;
     const bool changed = length > 0 && (base <= 0 || differs(length, base));
@@ -962,6 +992,54 @@ extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
         }
         if (arrived) channel->arrived();
     }
+}
+
+bool any_asked() {
+    return std::any_of(vsyncs.begin(), vsyncs.end(), [](const VsyncChannel *channel) { return channel->asked; });
+}
+
+/// The background thread: for each request, while it is on, one tick at the next point of the last tick's grid (of
+/// now without one, or with one ahead of the clock); a change of the period or off starts over.
+void background_loop() {
+    std::unique_lock hold(lock);
+    for (;;) {
+        background_wake().wait(hold, [] { return background_period > 0 && any_asked(); });
+        const std::int64_t length = background_period, now = uptime();
+        const std::int64_t base = ticks > 0 && last_time <= now ? last_time : now;
+        const std::int64_t next = base + std::max<std::int64_t>(1, (now - base + length - 1) / length) * length;
+        const bool changed = background_wake().wait_for(hold, std::chrono::nanoseconds(next - now),
+                                                        [length] { return background_period != length; });
+        if (changed || uptime() < next) continue;
+        post_tick(next, next + length);
+    }
+}
+
+}  // namespace
+}  // namespace apkrt::channels
+
+extern "C" void apkrt_vsync_post(int64_t time, int64_t target_time) {
+    const std::lock_guard hold(lock);
+    // The display link runs again: the background's ticks end.
+    if (background_period > 0 && time > background_since) {
+        background_period = 0;
+        background_wake().notify_one();
+    }
+    post_tick(time, target_time);
+}
+
+extern "C" void apkrt_vsync_background(int64_t period_ns) {
+    const std::lock_guard hold(lock);
+    background_period = period_ns > 0 ? std::max(period_ns, background_shortest) : 0;
+    background_since = uptime();
+    if (background_period > 0 && !background_thread) {
+        try {
+            std::thread(background_loop).detach();
+            background_thread = true;
+        } catch (const std::system_error &) {
+            background_period = 0;  // no thread: the vsync waits for the return, as before
+        }
+    }
+    background_wake().notify_one();
 }
 
 extern "C" int apkrt_vsync_grid(int64_t *time_ns, int64_t *period_ns) {

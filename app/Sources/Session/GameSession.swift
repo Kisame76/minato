@@ -141,6 +141,8 @@ final class GameSession {
     nonisolated static let frameRateLimitKey = "frameRateLimit"
     /// The global limit this session started with, 0 for none (read once, at the start).
     private var frameRateLimit = 0
+    /// The vsync's period in the background, from the start's display rate.
+    private var backgroundVsyncPeriod = FramePacing.backgroundVsyncPeriod(displayRate: 0)
     /// Minato's own session-log lines about the trips to the background.
     @ObservationIgnored private var trace = BackgroundTrace()
 
@@ -259,6 +261,7 @@ final class GameSession {
         frameRateTask?.cancel()
         frameRateTask = nil
         frameClock?.run(false)
+        apkrt_vsync_background(0)
         if Self.current === self { Self.current = nil }
     }
 
@@ -622,6 +625,7 @@ final class GameSession {
         #endif
         let displayRate = FramePacing.displayRate(screenMaximum: Float(screenMaximum), limit: Float(frameRateLimit),
                                                   unlock: Float(start.frameRateUnlock))
+        backgroundVsyncPeriod = FramePacing.backgroundVsyncPeriod(displayRate: displayRate)
         #if DEBUG
         SessionCheck.event("profile device \(start.deviceProfile ?? "default") unlock \(start.frameRateUnlock)")
         SessionCheck.event("frame rate limit \(frameRateLimit) unlock \(start.frameRateUnlock) display "
@@ -795,6 +799,14 @@ final class GameSession {
         controllers.enteredBackground()
         deliver(.inactive)
         deliver(.background)
+        // The frame clock stopped, but Android answers a requested vsync for a stopped app too: SurfaceFlinger's
+        // EventThread (requestNextVsync, its dispatch loop, shouldConsumeEvent) has no gate for a stopped activity
+        // or an invisible window and falls back to a synthetic vsync at about 60 Hz with the display off, and
+        // ViewRootImpl's scheduleTraversals posts a sync barrier that only a delivered vsync removes (doTraversal).
+        // Without it, every event after STOP (trim, save state) waits behind that barrier until the return. The
+        // runtime answers each request until the display link's first tick at the return; iOS's suspension stops it
+        // with the process. A Java app only for now: a native app's render loop would then keep drawing here.
+        if entry.report?.startsOnJavaPath == true { apkrt_vsync_background(backgroundVsyncPeriod) }
         showMenuForTheReturn()
     }
 

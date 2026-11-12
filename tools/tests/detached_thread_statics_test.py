@@ -4,8 +4,10 @@ has a destructor (std::mutex, std::condition_variable, a container, a string). A
 runtime destroys such a static while the detached thread keeps running; the thread's next lock of a destroyed std::mutex
 throws system_error (EINVAL) -> terminate -> abort (the runtime.program flake, .ips backtrace in the stall watchdog
 daemon). The device never hits this -- a game process ends through process_exit.cpp's ::_exit / park, which runs no
-static destructors -- so it is tests-only, but a flake is a flake. The cure is to make each such static NEVER DESTROYED
-(a leaked heap object: `std::mutex &lock = *new std::mutex;`), so the detached thread always locks a live object.
+static destructors -- so it is tests-only, but a flake is a flake. The cure is to make each such static NEVER
+DESTROYED -- either a leaked heap object (`std::mutex &lock = *new std::mutex;`) or a `[[clang::no_destroy]]`
+static (preferably `[[clang::no_destroy]] constinit`, which is also constant-initialized so it exists before any
+dynamic initializer that might touch it), so the detached thread always locks a live object.
 
 This check has no false alarms because it does NOT flag every static mutex (most are touched only by the main thread
 or by joined threads and are safe). It guards two things instead:
@@ -45,6 +47,14 @@ LEAKED = [
      r"static\s+TimerThread\s*&\s*\w+\s*=\s*\*\s*new\s+TimerThread", r"^\s*static\s+TimerThread\s+\w+\s*;"),
     ("runtime/src/dns_proxy.cpp", "dns_proxy services mutex",
      r"static\s+std::mutex\s*&\s*services\s*=\s*\*\s*new\s+std::mutex", r"^\s*static\s+std::mutex\s+services\s*;"),
+    ("runtime/src/channels.cpp", "channels lock",
+     r"(?:std::mutex\s*&\s*lock\s*=\s*\*\s*new\s+std::mutex"
+     r"|\[\[clang::no_destroy\]\]\s*(?:constinit\s+)?std::mutex\s+lock\s*;)",
+     r"^\s*std::mutex\s+lock\s*;"),
+    ("runtime/src/channels.cpp", "open vsync channels",
+     r"(?:std::vector<VsyncChannel\s*\*>\s*&\s*vsyncs\s*=\s*\*\s*new"
+     r"|\[\[clang::no_destroy\]\]\s*(?:constinit\s+)?std::vector<VsyncChannel\s*\*>\s+vsyncs\s*;)",
+     r"^\s*std::vector<VsyncChannel\s*\*>\s+vsyncs\s*;"),
 ]
 for relpath, name, leaked_re, owned_re in LEAKED:
     src = read(relpath)
@@ -62,6 +72,8 @@ for relpath, name, leaked_re, owned_re in LEAKED:
 #      stall_watchdog.cpp     the daemon locks `lock` and reads `surfaces` -> both leaked (list 1).
 #      sys_events.cpp         TimerThread::loop() locks `mutex_` and reads `owners_` -> the singleton is leaked.
 #      dns_proxy.cpp          a converse thread locks `services` in getaddrinfo -> leaked (list 1).
+#      channels.cpp           the background vsync thread locks `lock` and reads `vsyncs` -> both leaked (list 1);
+#                             its condition variable is leaked too (background_wake).
 #      memory_watermark.cpp   the 1 Hz sampler touches only atomics and stack char[] buffers -> no static-with-dtor.
 #      sys_threads.cpp        guest threads are parked by process_exit stop() before any exit -> not running at exit.
 #      program.cpp            the guest's main thread, parked by stop() the same way.
@@ -70,6 +82,7 @@ EXPECTED = {
     "runtime/src/stall_watchdog.cpp": 1,
     "runtime/src/sys_events.cpp": 1,
     "runtime/src/dns_proxy.cpp": 1,
+    "runtime/src/channels.cpp": 1,
     "runtime/src/memory_watermark.cpp": 1,
     "runtime/src/sys_threads.cpp": 1,
     "runtime/src/program.cpp": 1,

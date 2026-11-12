@@ -879,6 +879,11 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.GlReturnsActivity
       limit=150
       ;;
+    # background-frame-test: HOME and the return drive it (below), and it ends with "done".
+    background-frame-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FrameActivity
+      limit=120
+      ;;
     # windows-return-test (ADR-0041 gap 4 (b5a)): HOME and the return drive it (below), and it ends with "done".
     windows-return-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ReturnActivity
@@ -2142,6 +2147,16 @@ PY
       sleep 1
       run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
     done
+  fi
+  if [[ "$app" == background-frame-test ]]; then
+    # HOME a second after "ready", and the return two seconds after onStop, so the frame loop's first second after
+    # onStop passes in the background, as tools/background-frame-check.sh's background, pause and foreground do.
+    wait_for "$app" "I/$app: ready" || return 1
+    sleep 1
+    run input keyevent KEYCODE_HOME
+    wait_for "$app" "I/$app: onStop" || return 1
+    sleep 2
+    run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   fi
   if [[ "$app" == windows-return-test ]]; then
     # ADR-0041 gap 4 (b5a): HOME a second after the translucent activity's "ready", and the return a second after the

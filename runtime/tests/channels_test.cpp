@@ -5,7 +5,9 @@
 // the period is the session's refresh rate until a tick's differs by more than 1 %, which wakes every channel;
 // apkrt_vsync_grid gives the last tick's time with the period it left, none before the first tick and never
 // two ticks' values together; the syscalls refuse descriptors of another kind; a guest waiting in epoll wakes
-// at a tick; closing the descriptor ends the channel, also while another thread posts ticks. The runtime counts
+// at a tick; closing the descriptor ends the channel, also while another thread posts ticks; in the background
+// (apkrt_vsync_background) a request gets one tick on the last tick's grid at 60 Hz at most, nothing ticks without
+// one, and a display tick from after the start ends it. The runtime counts
 // ticks and keeps the period for the process, so the tests build on each other in their order: first without
 // a session, then with one. The test's thread plays the guest and calls the dispatcher directly, as
 // session_test.cpp does.
@@ -26,6 +28,7 @@
 #include "check.h"
 
 #include <sys/ioctl.h>
+#include <time.h>
 
 #include <atomic>
 #include <cmath>
@@ -42,6 +45,19 @@
 namespace {
 
 using namespace std::chrono_literals;
+
+// Regression for the line-651 static-init-order bug (channels.cpp:1015). A high-priority global constructor
+// runs before this binary's default-priority dynamic initializers -- including channels.cpp's `lock`. With the
+// dynamically-initialized `std::mutex &lock = *new std::mutex;` form, `lock` is not yet constructed here, so
+// taking it binds a null reference (UBSan: reference binding to null pointer -> abort 134 before main). With
+// `[[clang::no_destroy]] constinit std::mutex lock;` it exists from program start. apkrt_vsync_background(0)
+// takes the same `lock` as apkrt_vsync_post but only sets the background state (no tick, no channel), so it
+// does not pollute the tick tests below.
+bool vsync_gate_ran_before_dynamic_init = false;
+__attribute__((constructor(101))) void take_vsync_lock_before_dynamic_init() {
+    apkrt_vsync_background(0);
+    vsync_gate_ran_before_dynamic_init = true;
+}
 
 // Linux: include/uapi/asm-generic/unistd.h, fcntl.h, poll.h, eventpoll.h, errno.h.
 constexpr std::uint64_t nr_epoll_create1 = 20, nr_epoll_ctl = 21, nr_epoll_pwait = 22, nr_fcntl = 25, nr_close = 57,
@@ -497,6 +513,144 @@ TEST(a_grid_never_mixes_two_ticks_while_the_host_posts) {
     stop.store(true);
     host.join();
     CHECK(missing == 0 && mixed == 0);
+}
+
+// --- The vsync in the background ----------------------------------------------------------------
+//
+// apkrt_vsync_background: while the display link does not fire, each request gets one tick from the runtime's
+// thread, on the last tick's grid at a 60th of a second at most; these tests run on the real clock.
+
+std::int64_t uptime() {
+    return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+}
+
+/// Waits up to `limit` for `channel` to become readable.
+bool readable_within(std::int64_t channel, std::chrono::milliseconds limit) {
+    const auto end = std::chrono::steady_clock::now() + limit;
+    while (!readable(channel)) {
+        if (std::chrono::steady_clock::now() > end) return false;
+        std::this_thread::sleep_for(1ms);
+    }
+    return true;
+}
+
+/// A display tick now at 60 Hz, as the display link's last before the background, read away on `channel`.
+std::int64_t display_tick(std::int64_t channel) {
+    const std::int64_t time = uptime();
+    apkrt_vsync_post(time, time + sixty);
+    read(channel);
+    return time;
+}
+
+TEST(in_the_background_a_request_gets_one_tick_on_the_display_grid) {
+    const auto channel = connect();
+    const std::int64_t last = display_tick(channel);
+    apkrt_vsync_background(sixty);
+    const std::int64_t asked = uptime();
+    CHECK(request(channel) == 0);
+    CHECK(readable_within(channel, 200ms));
+    const Read got = read(channel);
+    const std::int64_t steps = (got.vsync.time - last) / sixty;
+    CHECK(got.result == 1 && got.vsync.period == sixty && got.vsync.target_time == got.vsync.time + sixty);
+    CHECK(steps >= 1 && got.vsync.time == last + steps * sixty);
+    CHECK(got.vsync.time >= asked && got.vsync.time < asked + 100'000'000);  // a loaded Mac wakes the thread late
+    // One tick for one request: nothing more comes without another.
+    CHECK(!readable_within(channel, 100ms));
+    CHECK(request(channel) == 0);
+    CHECK(readable_within(channel, 200ms));
+    const Read next = read(channel);
+    CHECK(next.result == 1 && next.vsync.time >= got.vsync.time + sixty);
+    CHECK(next.vsync.timelines[0].vsync_id > got.vsync.timelines[0].vsync_id);
+    apkrt_vsync_background(0);
+    call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(in_the_background_nothing_ticks_without_a_request) {
+    const auto channel = connect();
+    display_tick(channel);
+    std::int64_t before = 0, after = 0;
+    CHECK(apkrt_vsync_grid(&before, nullptr) == 0);
+    apkrt_vsync_background(sixty);
+    std::this_thread::sleep_for(100ms);
+    CHECK(apkrt_vsync_grid(&after, nullptr) == 0 && after == before);
+    CHECK(!readable(channel));
+    apkrt_vsync_background(0);
+    call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(a_channel_that_did_not_ask_gets_no_background_tick) {
+    const auto asking = connect(), quiet = connect();
+    display_tick(asking);
+    read(quiet);
+    apkrt_vsync_background(sixty);
+    CHECK(request(asking) == 0);
+    CHECK(readable_within(asking, 200ms));
+    CHECK(!readable(quiet) && read(quiet).result == 0);
+    apkrt_vsync_background(0);
+    call(nr_close, {unsigned_of(asking)});
+    call(nr_close, {unsigned_of(quiet)});
+}
+
+/// The time between two ticks that two requests in a row got in the background at `period`: a whole number of the
+/// background's periods (more than one when the test's thread came late).
+std::int64_t background_spacing(std::int64_t channel, std::int64_t period) {
+    display_tick(channel);
+    apkrt_vsync_background(period);
+    std::int64_t times[2] = {0, 0};
+    for (auto &time : times) {
+        CHECK(request(channel) == 0);
+        CHECK(readable_within(channel, 300ms));
+        time = read(channel).vsync.time;
+    }
+    apkrt_vsync_background(0);
+    return times[1] - times[0];
+}
+
+TEST(the_background_rate_is_sixty_hertz_at_most_and_a_lower_limit_holds) {
+    const auto channel = connect();
+    const std::int64_t fast = background_spacing(channel, hundred_twenty), even = background_spacing(channel, sixty);
+    const std::int64_t slow = background_spacing(channel, thirty);
+    CHECK(fast >= sixty && fast % sixty == 0);
+    CHECK(even >= sixty && even % sixty == 0);
+    CHECK(slow >= thirty && slow % thirty == 0 && slow % sixty != 0);
+    call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(a_display_tick_after_the_start_ends_the_background_ticks) {
+    const auto channel = connect();
+    display_tick(channel);
+    apkrt_vsync_background(sixty);
+    std::this_thread::sleep_for(5ms);
+    display_tick(channel);  // the display link runs again: the return
+    CHECK(request(channel) == 0);
+    CHECK(!readable_within(channel, 100ms));
+    apkrt_vsync_background(0);
+    call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(a_display_tick_from_before_the_start_does_not_end_them) {
+    const auto channel = connect();
+    const std::int64_t stale = uptime();
+    std::this_thread::sleep_for(2ms);
+    apkrt_vsync_background(sixty);
+    apkrt_vsync_post(stale, stale + sixty);  // the link's last tick, handed over late
+    read(channel);
+    CHECK(request(channel) == 0);
+    CHECK(readable_within(channel, 200ms));
+    apkrt_vsync_background(0);
+    call(nr_close, {unsigned_of(channel)});
+}
+
+TEST(turning_the_background_ticks_off_stops_them) {
+    const auto channel = connect();
+    display_tick(channel);
+    apkrt_vsync_background(sixty);
+    apkrt_vsync_background(0);
+    CHECK(request(channel) == 0);
+    CHECK(!readable_within(channel, 100ms));
+    // and the display link's tick still answers the request
+    display_tick(channel);
+    call(nr_close, {unsigned_of(channel)});
 }
 
 // --- The input channel ----------------------------------------------------------------------------
@@ -1713,6 +1867,14 @@ TEST(a_closed_queue_refuses_every_kind) {
     CHECK(apkrt_input_post_text(input.id, &text) == 0);
     CHECK(apkrt_input_post_device(input.id, &device) == 0);
     CHECK(apkrt_input_post_key(input.id + 100, &key) == 0);
+}
+
+TEST(the_vsync_gate_is_safe_before_this_tus_dynamic_init) {
+    // The constructor above took `lock` (via apkrt_vsync_background) before channels.cpp's dynamic
+    // initializers. On the `*new` form that bound a null std::mutex reference and aborted (134) before main
+    // under UBSan; reaching here with the flag set proves `lock` exists from program start (and, with the
+    // constinit fix, so does `vsyncs`, exercised by the vsync tests above).
+    CHECK(vsync_gate_ran_before_dynamic_init);
 }
 
 }  // namespace

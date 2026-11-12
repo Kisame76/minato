@@ -785,6 +785,14 @@ void apkrt_vsync_post(int64_t time, int64_t target_time);
 /// or -1 before the first tick, filling nothing.
 int apkrt_vsync_grid(int64_t *time_ns, int64_t *period_ns);
 
+/// For the app: the vsync while its display link does not fire, the scene in the background. Android's display
+/// service answers a requested vsync for a stopped app too, at a synthetic 60 Hz with the display off, and only a
+/// delivered vsync removes the sync barrier a traversal posts; so here, while it is on, each request of a vsync
+/// channel gets one tick, on the grid of the last tick at `period_ns` (at least a 60th of a second; the app passes
+/// the session's frame-rate limit when it is lower), from a thread of the runtime. Without a request nothing ticks.
+/// A tick of the display link from after the call turns it off by itself; a `period_ns` of 0 or less turns it off too.
+void apkrt_vsync_background(int64_t period_ns);
+
 /// A new input channel, whose ID the host sends with APKRT_EVENT_INPUT_QUEUE_CREATED. Returns the ID, from 1,
 /// never reused; 0 without memory. The events posted before the guest's queue connects wait in it.
 uint64_t apkrt_input_add(void);

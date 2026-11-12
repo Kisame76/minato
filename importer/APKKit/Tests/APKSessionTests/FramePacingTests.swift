@@ -121,4 +121,14 @@ struct FramePacingTests {
         #expect(FramePacing.presentLimit(limit: 30, unlock: 30) == 0)
         #expect(FramePacing.presentLimit(limit: 60, unlock: 120) == 0)
     }
+
+    /// The vsync's period in the background (apkrt_vsync_background): Android's 60 Hz without a display, or the
+    /// guest's display rate where it is lower, as the frame rate limit makes it; never 0.
+    @Test func theBackgroundPeriodIsSixtyHertzOrTheLowerDisplayRate() {
+        #expect(FramePacing.backgroundVsyncPeriod(displayRate: 120) == 16_666_667)
+        #expect(FramePacing.backgroundVsyncPeriod(displayRate: 60) == 16_666_667)
+        #expect(FramePacing.backgroundVsyncPeriod(displayRate: 30) == 33_333_334)
+        #expect(FramePacing.backgroundVsyncPeriod(displayRate: 0) == 16_666_667)
+        #expect(FramePacing.backgroundVsyncPeriod(displayRate: .nan) == 16_666_667)
+    }
 }

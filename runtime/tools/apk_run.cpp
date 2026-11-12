@@ -9,6 +9,7 @@
 //           [--grant-location fine|coarse|denied] [--location-script <host file>]
 //           [--device-profile pixel|galaxy] [--frame-rate 60|120] [--render-scale <0.25..1>]
 //           [--pick-create Download] [--pick-tree <path below /storage/emulated/0>] [--webview-fake]
+//           [--background-vsync]
 //           [--report <file>] [--memory <file>] [--measures <file>] <container.dylib> [argument...]
 // --mount puts a host directory under an Android path (ARCHITECTURE.md 4.5), --libraries makes the
 // library containers of a host directory the libraries in a guest directory, e.g. /system/lib64. Both split at
@@ -49,13 +50,17 @@
 //               redraw needed and the focus; the window's gate opens once these are posted, before their answers, as
 //               the App's SessionBridge opens it with the focus: a Java app draws on the thread that answers them;
 //               once they are answered, "apk-run: the start was answered" on stderr;
-//   background  the window, the surfaces and the requested windows removed, PAUSE, the focus lost, each surface
-//               destroyed, each requested window destroyed, the window destroyed and STOP, whose answers it waits for
-//               1.5 s while the guest's GPU work still goes through (SessionBridge's backgroundAnswerBudget, as the
-//               App's background order since 2026-10-27), then the background, "scheduled" and SAVE_INSTANCE_STATE;
-//   foreground  the background off, a new window, START, RESUME and the window's events as at the start but the
-//               rectangle, the gate opening as at the start; once they are answered, "apk-run: the return was
-//               answered" on stderr.
+//   background  the frame clock holds its ticks, as the App's display link does not fire in the background (with
+//               --background-vsync the runtime answers the guest's vsync requests instead, as the App does for a
+//               session on the Java path); the window, the surfaces and the requested windows removed, PAUSE, the
+//               focus lost, each surface destroyed, each requested window destroyed, the window destroyed and STOP,
+//               whose answers it waits for 1.5 s while the guest's GPU work still goes through (SessionBridge's
+//               backgroundAnswerBudget, as the App's background order since 2026-10-27), then the background,
+//               "scheduled" and SAVE_INSTANCE_STATE, whose answer it waits for and reports as "apk-run:
+//               SAVE_INSTANCE_STATE was answered after <ms> ms" on stderr;
+//   foreground  the frame clock ticking again, the background off, a new window, START, RESUME and the window's
+//               events as at the start but the rectangle, the gate opening as at the start; once they are answered,
+//               "apk-run: the return was answered" on stderr.
 //   tap:<x>:<y> (ADR-0045 step 7b2) a finger's tap at <x>, <y> in the window's pixels, on the session's input
 //               channel: DOWN and UP at the same time, with the pressures 1 and 0, as Android's `input tap`;
 //   swipe:<x1>:<y1>:<x2>:<y2>:<ms>  a finger's swipe from the first place to the second: DOWN, then a MOVE every
@@ -96,7 +101,7 @@
 //               NATIVE_WINDOW_RESIZED, CONTENT_RECT_CHANGED (the whole window) and REDRAW_NEEDED, whose answer it
 //               waits for. Without surface layers under graphics-run's layers only the guest's window turns;
 //   pause:<ms>  waits <ms> more (up to 30000) before the next step, for an app whose own steps take longer than the
-//               second between steps;
+//               second between steps, or for a longer stay in the background;
 //   barinsets:<top>:<bottom>  the system bars' heights in px change, as the host posts APKRT_EVENT_BAR_INSETS at a
 //               turn of the display;
 //   trimmemory:<level>  the system trims the app's memory: APKRT_EVENT_TRIM_MEMORY with the level of
@@ -162,6 +167,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -244,8 +250,14 @@ bool parse_configuration(const std::string &value, apkrt_configuration &configur
     return true;
 }
 
+/// The frame clock holds its ticks in the background, as the app's display link does not fire there; with
+/// --background-vsync the runtime then answers the guest's requests (apkrt_vsync_background), as the App does for a
+/// session on the Java path.
+std::atomic<bool> clock_held{false};
+bool background_vsync = false;
+
 /// The session's frame clock, as the app's CADisplayLink (ADR-0036, decision 1): a tick on the uptime clock, the
-/// guest's CLOCK_MONOTONIC, every period of `rate` (frame_clock.h), for good.
+/// guest's CLOCK_MONOTONIC, every period of `rate` (frame_clock.h), for good, but none while `clock_held`.
 void run_frame_clock(std::int32_t rate) {
     frame_clock::run(
         1'000'000'000 / rate, [] { return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); },
@@ -254,7 +266,7 @@ void run_frame_clock(std::int32_t rate) {
             nanosleep(&delay, nullptr);
         },
         [](std::int64_t tick, std::int64_t target) {
-            apkrt_vsync_post(tick, target);
+            if (!clock_held.load()) apkrt_vsync_post(tick, target);
             return true;
         });
 }
@@ -430,7 +442,7 @@ bool parse_trim_memory(const std::string &step, int &level) {
 }
 
 /// --lifecycle's steps: start first, then background and foreground in turn, and touches, battery and network changes
-/// and backs after the start or a foreground; false for any other list.
+/// and backs after the start or a foreground, and pauses after a background too; false for any other list.
 bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) {
     std::istringstream list(value);
     std::size_t turns = 0;  // the start, the backgrounds and the foregrounds so far
@@ -441,6 +453,10 @@ bool parse_lifecycle(const std::string &value, std::vector<std::string> &steps) 
                               step == "imehide" || parse_bar_insets(step, top, bottom) ||
                               parse_turn(step, wide, high) || parse_pause(step, level) ||
                               parse_trim_memory(step, level) || parse_network(step, level))) {
+            steps.push_back(step);
+            continue;
+        }
+        if (turns >= 2 && turns % 2 == 0 && parse_pause(step, level)) {  // a longer stay in the background
             steps.push_back(step);
             continue;
         }
@@ -1304,6 +1320,8 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             }
             play_touch(input, touch, rate);
         } else if (steps[index] == "background") {
+            clock_held.store(true);
+            if (background_vsync) apkrt_vsync_background(1'000'000'000 / rate);
             surfaces.set_background(true);
             windows.set_background(true);
             // The teardown's answers come first, while the runtime lets the guest's GPU work through: a GL thread
@@ -1313,9 +1331,15 @@ void run_lifecycle(std::vector<std::string> steps, std::int32_t width, std::int3
             if (stop != 0) apkrt_session_wait(stop, 1.5);
             apkrt_set_background(1);
             if (apkrt_wait_scheduled(1.0) != 1) std::fprintf(stderr, "apk-run: \"scheduled\" did not answer yes\n");
+            const auto saved = std::chrono::steady_clock::now();
             if (!answered(post(APKRT_EVENT_SAVE_INSTANCE_STATE), "the background")) return;
+            std::fprintf(stderr, "apk-run: SAVE_INSTANCE_STATE was answered after %lld ms\n",
+                         static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                    std::chrono::steady_clock::now() - saved)
+                                                    .count()));
             stopped = true;
         } else {
+            clock_held.store(false);
             apkrt_set_background(0);
             surfaces.set_background(false);
             windows.set_background(false);
@@ -1601,6 +1625,10 @@ int main(int argc, char **argv) {
         }
         if (option == "--webview-fake") {
             webview_fake = true;
+            continue;
+        }
+        if (option == "--background-vsync") {
+            background_vsync = true;
             continue;
         }
         if (index + 1 >= argc) return usage();

@@ -1,0 +1,11 @@
+I/background-frame-test: onStart
+I/background-frame-test: onResume
+I/background-frame-test: ready
+I/background-frame-test: onPause
+I/background-frame-test: onStop, within a second of onPause: true
+I/background-frame-test: the frame loop in the first second after onStop: ticks
+I/background-frame-test: onRestart
+I/background-frame-test: onStart
+I/background-frame-test: onResume
+I/background-frame-test: after the return: frames again
+I/background-frame-test: done

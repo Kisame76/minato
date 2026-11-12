@@ -517,7 +517,9 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
             raise SystemExit(f"monet-overlays.py failed: {result.stderr.strip()}")
         command += ["--mount", f"/data/resource-cache={cache}"]
     if configuration is not None:
-        command += ["--configuration", configuration, "--lifecycle", lifecycle or "start"]
+        # A session through app_process starts on the Java path, whose background the App answers with requested
+        # vsyncs (apkrt_vsync_background); apk-run's frame clock holds its ticks there, as the display link does.
+        command += ["--configuration", configuration, "--lifecycle", lifecycle or "start", "--background-vsync"]
     if picks or photos or saves or tree or export_dir or shares:
         command += ["--pick-data", os.path.join(run, data.lstrip("/"))]
     if picks:
