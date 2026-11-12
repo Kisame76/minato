@@ -28,7 +28,7 @@ Tests and reference runs are described in [TESTING.md](TESTING.md), releases in 
   `~/Library/Android/sdk`). Android Studio is not needed. See [TESTING.md](TESTING.md).
 - **For the device:** an Apple account signed in to Xcode (Settings, Accounts); a free account is enough. The
   iPhone needs Developer Mode.
-- **Disk space:** plan for about 25 GB for `build/` with test outputs, plus the NDK (about 3 GB) and, for reference
+- **Disk space:** plan for 25 to 40 GB for `build/` with test outputs, plus the NDK (about 3 GB) and, for reference
   runs, the emulator (about 3 GB). [measured on one machine]
 
 The JDK 17 that builds the Java parts is fetched by the project (see below); no system JDK is needed.

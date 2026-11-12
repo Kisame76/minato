@@ -34,7 +34,7 @@ swift test --package-path importer/APKKit
 ```
 
 The parser (ZIP, binary XML, resources, signatures), the analysis, formats and split selection, the library, the
-packer and the session's logic. Many tests feed damaged or hostile input. About 1,200 tests; a few that need
+packer and the session's logic. Many tests feed damaged or hostile input. About 2,000 tests; a few that need
 bundletool's real output run in `tools/formats-check.sh`.
 
 ### CTest (runtime, converter, graphics, fixtures)
@@ -60,7 +60,7 @@ CTest.
 
 ### Check scripts (`tools/*-check.sh`)
 
-Most features have a check script: about 165 of them, from `tools/aapt2-check.sh` to
+Most features have a check script: about 280 of them, from `tools/aapt2-check.sh` to
 `tools/windows-return-check.sh`. Each builds what it needs, so it never tests an old binary, runs one scenario and
 compares the result with Android 15's expected lines. They run in one of three places:
 
@@ -78,7 +78,7 @@ Each script's header comment says what it checks, what it needs first and which 
 need a download skip with a message when it is missing; none downloads anything by itself.
 
 **Many checks in one go.** Every Mac-harness check rebuilds the framework first, and that takes over a minute even
-when nothing changed. `tools/check-lanes.sh [-j 3] [-o DIR] tools/a-check.sh tools/b-check.sh ...` builds once
+when nothing changed. `tools/check-lanes.sh [-j 3] [-o DIR] tools/<name>-check.sh ...` builds once
 (`tools/check-prepare.sh`) and then runs the checks in parallel lanes with `MINATO_PREPARED=1`, which makes
 `tools/build-framework.sh`, `tools/build-framework-native.sh` and the macOS app's cmake return at once while their
 inputs are unchanged (`tools/prepared-stamp.py`; a changed input builds again). It prints each check's result and time,
