@@ -26,7 +26,8 @@ below, run; many real apps still hit a missing piece of the framework.
 Vulkan 1.3 as MoltenVK offers it, touch, hardware keys, AAudio and OpenSL ES output, Choreographer at 60 or 120 Hz,
 asset access and orientation changes. An app whose launcher subclasses NativeActivity starts on the Java path, so
 the framework calls its native code makes through JNI work. An app whose launcher is `android.app.NativeActivity`
-itself still starts without Java, where such calls fail, until ADR-0069 moves it to the Java path too.
+itself starts on the Java path too when it brings Java code of its own. One without Java code still starts without Java,
+where calls into Android's Java framework fail, until ADR-0069 moves it to the Java path as well.
 
 **Java and Kotlin apps,** on AOSP's ART, in its fast interpreter and, once an app was optimized after its first
 close, as compiled code:
@@ -176,7 +177,7 @@ a limit that is named, and 5 partly closed.**
   the iPhone too. A page from the app's assets sees `minato-asset:` as its protocol where Android says `file:`. A page
   also shows under a window's theme background (a splash that the app takes away once the page is ready), and
   `onPageCommitVisible`, `getContentHeight`, `getContentWidth` and a `PictureListener` answer as they do on Android;
-  the check of these on the iPhone is still to come.
+  the eight WebView test pages behave the same on the iPhone.
 
 **Partly closed:**
 
