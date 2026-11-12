@@ -83,8 +83,9 @@ What a free Apple account means:
 
 - The installation must be refreshed every 7 days, as with any sideloaded app. Imported apps and their data stay.
 - iOS allows three sideloaded apps per device, SideStore or AltStore included, and 10 new App IDs per week.
-- SideStore does not request the increased memory limit for free accounts, so an app in Minato gets about 2.5 GB
-  of memory instead of about 5 GB. Most apps fit; very large games may not.
+- An app gets a limited share of the phone's memory. Minato asks for the increased memory limit, which a free
+  account through SideStore does not receive (Get Info shows whether it is there). Most apps fit; very large
+  games may not.
 
 Minato needs an iPhone with iOS 26 or later; it is developed and measured on iOS 27 with an A17 Pro. Releases are
 betas, listed in [CHANGELOG.md](CHANGELOG.md).
