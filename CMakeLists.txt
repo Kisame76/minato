@@ -157,6 +157,9 @@ if(APK_HOST_BUILD)
   add_test(NAME tools.ui_strings COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/ui-strings-check.py")
   add_test(NAME tools.ui_strings_check
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/ui-strings-check-test.py")
+  # java-start-check's returns judge on made rounds: the device and Simulator rounds with patch 0032 ok, without red.
+  add_test(NAME tools.returns_judge
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/tests/returns_judge_test.py")
   # The source archive of the parts under the GPL-2.0 with the Classpath Exception and its SOURCE.txt (ADR-0033).
   add_test(NAME release.source_archive
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/source-archive-test.py")

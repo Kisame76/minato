@@ -1871,8 +1871,13 @@ PY
 # and makes a new one, which is orphaned here. Android dies of the same race (the emulator: SIGSEGV 12 ms after such a
 # reset, the process gone). So a game with the gate counts its "display reset" lines between each HOME and the return
 # (the races): the EGL contexts may be the start's plus the races so far, and after the first return depth= may hold
-# RETURNS_RACE_DEPTH textures (4, the most one orphan held) and color=, mtl= and the footprint RETURNS_RACE_GROWTH MiB
-# (96; one orphan held 69 MiB of footprint in the Simulator) more per race; every context, texture or MiB beyond is red.
+# RETURNS_RACE_DEPTH textures (4, the most one orphan held), color= and mtl= RETURNS_RACE_GROWTH MiB (96) more per
+# race, and the footprint RETURNS_RACE_FOOT MiB (20) more per race plus RETURNS_RACE_SPIKE MiB (48) once when there was
+# a race; every context, texture or MiB beyond is red. The footprint's figures: with ANGLE's buffer release (patch
+# 0032) a race cost about +17 MiB in the Simulator, and a device round (4 returns, a race each) went +77 MiB at its
+# second return and then below its first return's; without the release a race kept about +65 MiB in the Simulator,
+# which this makes red by the second race, while one spike of the device's size stays within RETURNS_GROWTH and
+# RETURNS_RACE_SPIKE. The judge's own test: tools/tests/returns_judge_test.py.
 # Waits until the anim game's last gate line is "preload done" after its "start" line and at least $2 "display reset"
 # lines; label $1. Sets RESETS to the resets seen. False, after its FAIL line, when the line did not come in time.
 RESETS=0
@@ -1951,12 +1956,13 @@ run_sdl_returns() {
   fetch_events
   cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
   end_start "$app" 1
-  if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${RETURNS_RACE_DEPTH:-4}" "${RETURNS_RACE_GROWTH:-96}" "${races[@]}" \
-      -- "${lines[@]}" -- "${gls[@]}" <<'PY'; then
+  if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${RETURNS_RACE_DEPTH:-4}" "${RETURNS_RACE_GROWTH:-96}" \
+      "${RETURNS_RACE_FOOT:-20}" "${RETURNS_RACE_SPIKE:-48}" "${races[@]}" -- "${lines[@]}" -- "${gls[@]}" <<'PY'; then
 import re
 import sys
 growth, trips, race_depth, race_growth = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-rest = sys.argv[5:]
+race_foot, race_spike = float(sys.argv[5]), float(sys.argv[6])
+rest = sys.argv[7:]
 races, rest = [int(n) for n in rest[:rest.index("--")]], rest[rest.index("--") + 1:]
 lines, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
 races += [0] * (trips + 1 - len(races))
@@ -2000,9 +2006,13 @@ for n in range(2, trips + 1):
         if g[name][0] > allowed:
             bad.append(f"return {n}: {name}= {g[name][0]} textures, the first return's {first_gl[name][0]}"
                        + (f" and {sum(races[2:n + 1])} race(s)" if allowed > first_gl[name][0] else ""))
-    for name, now, then in (("color=", g["color"][1], first_gl["color"][1]), ("mtl=", g["mtl"], first_gl["mtl"]),
-                            ("the footprint", float(m[6]), float(first[6]))):
-        if now - then > growth + race_growth * sum(races[2:n + 1]):
+    raced = sum(races[2:n + 1])
+    for name, now, then, allowed in (
+            ("color=", g["color"][1], first_gl["color"][1], growth + race_growth * raced),
+            ("mtl=", g["mtl"], first_gl["mtl"], growth + race_growth * raced),
+            ("the footprint", float(m[6]), float(first[6]),
+             growth + race_foot * raced + (race_spike if raced else 0))):
+        if now - then > allowed:
             bad.append(f"return {n}: {name} {now - then:.0f} MiB above the first return's"
                        + (f" with {sum(races[2:n + 1])} race(s)" if sum(races[2:n + 1]) else ""))
 print("note    texture sets (live: windows surfaces layers; gl: color depth msaa as count/MiB, mtl MiB, EGL "
