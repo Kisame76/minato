@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.zip.CRC32;
 
 /**
- * The compatibility plan's gap 7 test: an app's own SQLite databases through android.database.sqlite, on the main
+ * The SQLite test: an app's own SQLite databases through android.database.sqlite, on the main
  * thread, as Firebase's datatransport opens its event store there. Its parts run one after the other from the resumed
  * activity: SQLiteOpenHelper's create, configure and open with the defaults Android gives a new database, rows through
  * ContentValues and cursors, constraint errors, transactions, compiled statements and DatabaseUtils, Android's SQL

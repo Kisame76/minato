@@ -16,7 +16,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The battery (gap 1 of the compatibility plan), as apps and libraries read it (WorkManager's battery constraints,
+ * The battery, as apps and libraries read it (WorkManager's battery constraints,
  * game engines' power state, analytics):
  * <ul>
  *   <li>the sticky ACTION_BATTERY_CHANGED that registerReceiver gives for a null receiver: its flags, its extras' names

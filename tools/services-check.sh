@@ -5,7 +5,7 @@
 # then starts services-test through app_process and compares its log with Android 15's on apk-runner-35-bare
 # (fixtures/expected/services-test.logcat, from tools/android-reference.sh --app services-test): the speech
 # listener's defaults, the sensor service without sensors, the Wi-Fi service's multicast and Wi-Fi locks, the storage
-# service's volume and app ops' modes; part 2 (gap 1, batch 1) the activity, display, power, audio and connectivity
+# service's volume and app ops' modes; part 2 the activity, display, power, audio and connectivity
 # services, whose device-dependent values (memory, the display, the audio output, the network) are shown only.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/services-check.sh

@@ -1,4 +1,4 @@
-// stdcxx-test: Android's libstdc++.so, the NDK's "system" C++ runtime (the compatibility plan's gap 14), which a
+// stdcxx-test: Android's libstdc++.so, the NDK's "system" C++ runtime, which a
 // library built with ANDROID_STL=system names in its NEEDED: new and delete in their plain, array and nothrow forms,
 // the guard of a function's static, and the library each of these comes from.
 #include <dlfcn.h>

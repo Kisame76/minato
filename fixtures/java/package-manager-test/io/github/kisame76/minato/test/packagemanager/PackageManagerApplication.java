@@ -40,7 +40,7 @@ import java.util.UUID;
  * framework-res's manifest, with those behind a feature flag that is off left out, and the signatures. A certificate
  * is logged as its SHA-256, computed here, since Minato's guest has no JCA provider yet; the harnesses replace the
  * APK's own, which make-apk's per-machine debug key gives (ADR-0031), with a mark. hasSigningCertificate is asked
- * with the raw certificate only: its SHA-256 form digests through the JCA. The gids come later. Since gap 1's batch 2
+ * with the raw certificate only: its SHA-256 form digests through the JCA. The gids come later. The test asks
  * also the installer of the app and of an unknown package.
  */
 public class PackageManagerApplication extends Application {

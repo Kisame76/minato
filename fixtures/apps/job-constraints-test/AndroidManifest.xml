@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of the jobs that lose a constraint while they run (gap 9 of the compatibility plan): a job that needs the
+<!-- The test of the jobs that lose a constraint while they run: a job that needs the
      device to charge and ones that need a battery that is not low, stopped as the battery changes and started again
      as it recovers. The launcher activity is the framework's own android.app.Activity, so that `am start` starts the
      process on Android. -->

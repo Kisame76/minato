@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of the battery (gap 1 of the compatibility plan): the sticky ACTION_BATTERY_CHANGED, the broadcasts of
+<!-- The test of the battery: the sticky ACTION_BATTERY_CHANGED, the broadcasts of
      a battery that changes and BatteryManager, as apps and libraries read them (battery-test). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.battery" android:versionCode="1" android:versionName="1.0">

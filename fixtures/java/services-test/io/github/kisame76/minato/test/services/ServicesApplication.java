@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.TreeSet;
 
 /**
- * ADR-0045's test of the local services that Godot's start asks for (gaps 11, 12 and 14 of the Godot survey), in
+ * ADR-0045's test of the local services that Godot's start asks for, in
  * Application.onCreate, before its launcher activity starts:
  * <ul>
  *   <li>a subclass of UtteranceProgressListener, whose default onError(id, code) calls the older onError(id)
@@ -51,15 +51,15 @@ import java.util.TreeSet;
  *       (CAMERA), of one it does not request (RECORD_AUDIO), of all-files access, picture in picture and no isolated
  *       storage; a note; a check that throws for an errored op; an unknown op.
  * </ul>
- * Part 2, gap 1's first batch (the services that answered null): the activity, display, power, audio and
+ * Part 2 (the services that answered null): the activity, display, power, audio and
  * connectivity services, each with its class, the same object by its class, and its answers; a wake lock without
  * WAKE_LOCK, refused. apk-runner-35-bare has a network after all (its emulated modem's), so the network's state is
  * shown on the device tag.
- * Part 3, gap 1's batch 1b: the user service, with its class, the same object by its class, and Android's one user's
+ * Part 3: the user service, with its class, the same object by its class, and Android's one user's
  * answers: unlocked, the system user, no profile, no restriction on installing apps, running; the calls that need a
  * system permission, refused. The user's restrictions and multi-user support, which the device's build sets, go to
  * the device tag.
- * Part 4, gap 1's batch 2 (the notification service): its class and answers for an app without POST_NOTIFICATIONS,
+ * Part 4 (the notification service): its class and answers for an app without POST_NOTIFICATIONS,
  * which Android 15 does not let post; channel groups and channels, each kept as a copy, created again with a new
  * name, a higher and a lower importance, refused for a group that does not exist, the reserved ID and an importance
  * out of range, deleted and created again; a notification built for a channel, posted and gone, one without a small

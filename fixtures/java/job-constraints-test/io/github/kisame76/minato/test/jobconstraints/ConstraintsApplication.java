@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Jobs that lose a constraint while they run (gap 9 of the compatibility plan): job 1 needs the device to charge, job
+ * Jobs that lose a constraint while they run: job 1 needs the device to charge, job
  * 2 and job 3 a battery that is not low, job 9 a network (jobs 4 to 8 only make five jobs ready). The test's host
  * unplugs the device at the start and plugs it in once jobs 2, 3 and 9 run; after "ready" it unplugs it, takes the
  * level to 10 %, plugs it in, takes it to 50 % and then turns the network off and on. A job stopped for the lost

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- action-bar-menu-test (the platform action bar's options menu, compatibility plan gap 5, step 4): an activity of a
+<!-- action-bar-menu-test (the platform action bar's options menu): an activity of a
      theme with an action bar (Theme.DeviceDefault.Light) whose options menu is opened by the MENU key and walked with
      the arrow and enter keys, then invalidated. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

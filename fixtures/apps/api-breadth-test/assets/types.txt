@@ -1,5 +1,5 @@
-# The public types the framework breadth's batches took, batch by batch.
-# Batch 1: android.content, android.database, android.net, android.os.
+# The public types the framework took, in groups.
+# android.content, android.database, android.net, android.os.
 android.content.AsyncQueryHandler
 android.content.AsyncTaskLoader
 android.content.ClipData
@@ -52,7 +52,7 @@ android.os.TokenWatcher
 android.os.TransactionTooLargeException
 android.os.WorkDuration
 android.os.WorkSource
-# Batch 2: android.content.pm, android.view, android.view.autofill.
+# android.content.pm, android.view, android.view.autofill.
 android.content.pm.ApkChecksum
 android.content.pm.ArchivedActivityInfo
 android.content.pm.ArchivedPackageInfo
@@ -108,7 +108,7 @@ android.view.WindowMetrics
 android.view.autofill.AutofillId
 android.view.autofill.AutofillValue
 android.view.autofill.VirtualViewFillInfo
-# Gap 5 batch 1: android.widget and the types it stands on; batch 2's SuppressLint.
+# android.widget and the types it stands on, and SuppressLint.
 android.annotation.SuppressLint
 android.graphics.drawable.shapes.ArcShape
 android.graphics.drawable.shapes.OvalShape
@@ -210,12 +210,12 @@ android.widget.ViewSwitcher
 android.widget.WrapperListAdapter
 android.widget.ZoomButton
 android.widget.ZoomControls
-# Batch 3a: the Unity test APK probe's android.os.Debug and android.util's Base64 streams.
+# The Unity test APK's android.os.Debug and android.util's Base64 streams.
 android.os.Debug
 android.util.Base64DataException
 android.util.Base64InputStream
 android.util.Base64OutputStream
-# Batch M1: android.media's take-in classes (the Unity test APK gap sort, category 1).
+# android.media's take-in classes.
 android.media.AudioFocusRequest
 android.media.AudioTimestamp
 android.media.Rating
@@ -233,10 +233,10 @@ android.media.MediaDrmResetException
 android.media.MediaMetadataEditor
 android.media.UnsupportedSchemeException
 android.media.ResourceBusyException
-# Batch M3: android.media's ApplicationMediaCapabilities, with its Builder, from the Media module.
+# android.media's ApplicationMediaCapabilities, with its Builder, from the Media module.
 android.media.ApplicationMediaCapabilities
 android.media.ApplicationMediaCapabilities$Builder
-# Batch C1: the secondary display, the credential manager's request
+# The secondary display, the credential manager's request
 # types, the device admin info, slices and MBMS's service info with its two subclasses.
 android.app.Presentation
 android.credentials.Credential
@@ -254,7 +254,7 @@ android.telephony.mbms.ServiceInfo
 android.telephony.mbms.FileServiceInfo
 android.telephony.mbms.FileInfo
 android.telephony.mbms.StreamingServiceInfo
-# Batch C2: the MIDI device types, the text-to-speech service's request and callback, the chooser's types, three provider
+# The MIDI device types, the text-to-speech service's request and callback, the chooser's types, three provider
 # contracts, the key confirmation types, a conversation status and a blob handle.
 android.media.midi.MidiDeviceInfo
 android.media.midi.MidiDeviceStatus
@@ -275,9 +275,9 @@ android.security.ConfirmationCallback
 android.security.ConfirmationNotAvailableException
 android.app.people.ConversationStatus
 android.app.blob.BlobHandle
-# Batch C3: classes of our own under AOSP's names: the splash screen's view.
+# Classes of our own under AOSP's names: the splash screen's view.
 android.window.SplashScreenView
-# Batch H1: the accessibility gesture event, the TV input and interactive-app request and response types, the device
+# The accessibility gesture event, the TV input and interactive-app request and response types, the device
 # controls' types and templates and the MBMS callbacks and requests (InlineContentView waits for its surface-control
 # members).
 android.accessibilityservice.AccessibilityGestureEvent
@@ -338,7 +338,7 @@ android.telephony.mbms.MbmsGroupCallSessionCallback
 android.telephony.mbms.MbmsStreamingSessionCallback
 android.telephony.mbms.StreamingServiceCallback
 android.widget.inline.InlinePresentationSpec
-# Batch H2: the device policy types, the autofill service's types, and PhoneNumberFormattingTextWatcher and
+# The device policy types, the autofill service's types, and PhoneNumberFormattingTextWatcher and
 # UiccCardInfo; the legacy activity groups wait for their hidden members.
 android.app.admin.ConnectEvent
 android.app.admin.DevicePolicyIdentifiers
@@ -383,7 +383,7 @@ android.service.autofill.Validators
 android.service.autofill.VisibilitySetterAction
 android.telephony.PhoneNumberFormattingTextWatcher
 android.telephony.UiccCardInfo
-# Batch H3: the companion device filters, the media effect interfaces, MediaProjectionConfig, TvAdServiceInfo, the MTP
+# The companion device filters, the media effect interfaces, MediaProjectionConfig, TvAdServiceInfo, the MTP
 # types, AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
 # UnsafeStateException. EffectFactory, the activity
 # groups, InlineContentView and VcnUnderlyingNetworkTemplate
@@ -425,7 +425,7 @@ android.security.identity.SessionTranscriptMismatchException
 android.security.identity.UnknownAuthenticationKeyException
 android.security.identity.WritableIdentityCredential
 android.service.carrier.MessagePdu
-# Batch H4: the credential provider service's types (android.service.credentials), the quick access wallet's, the
+# The credential provider service's types (android.service.credentials), the quick access wallet's, the
 # translation and content capture value types, the spell checker's info and subtype, the telephony data slicing types,
 # CallAudioState, CallAttributes, ImsException, EuiccInfo and VisibleActivityInfo. Conference, ConnectionRequest (with
 # the Connection family) and CallControlCallback (DisconnectCause needs androidx's IntDef) wait for steps of their own.
@@ -468,17 +468,17 @@ android.view.translation.TranslationRequestValue
 android.view.translation.TranslationResponse
 android.view.translation.TranslationResponseValue
 android.view.translation.UiTranslationStateCallback
-# Batch H5: SliceMetrics (with AOSP's LogMaker; the metrics are written nowhere).
+# SliceMetrics (with AOSP's LogMaker; the metrics are written nowhere).
 android.app.slice.SliceMetrics
-# Batch H5, part 2: ApplicationStartInfo and VisualVoicemailService.
+# ApplicationStartInfo and VisualVoicemailService.
 android.app.ApplicationStartInfo
 android.telephony.VisualVoicemailService
-# Batch H6: the assist structure and the autofill requests (ViewRootImpl's getTitle, getDisplayId, getWindowFlags).
+# The assist structure and the autofill requests (ViewRootImpl's getTitle, getDisplayId, getWindowFlags).
 android.app.assist.AssistStructure
 android.service.autofill.FillContext
 android.service.autofill.FillRequest
 android.service.autofill.SaveRequest
-# Batch H6, part 2: the media route button and its action provider (hidden members of the legacy MediaRouter).
+# The media route button and its action provider (hidden members of the legacy MediaRouter).
 android.app.MediaRouteActionProvider
 android.app.MediaRouteButton
 # The callable network and security types.

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The link properties test (gap 3 of the networking plan, net-link-test): the Application reads what
+<!-- The link properties test (net-link-test): the Application reads what
      ConnectivityManager.getLinkProperties(getActiveNetwork()) hands out on the host's network (its interface,
      addresses, routes, DNS servers and MTU) and logs its structure, not its values: the values differ by network and
      device. The launcher activity is the framework's own android.app.Activity. -->

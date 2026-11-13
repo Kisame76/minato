@@ -6,13 +6,13 @@ every container in Guest/ passes `codesign -v`.
   bin/              activity-host, app_process64 and dex2oat, the programs /system/bin/activity-host and
                     app_process64, and dex2oat64 of the compile start (GuestStart(compile:))
   lib64/            /system/lib64: bionic, libandroid, the front libs, libandroid_runtime.so with libsqlite.so (the
-                    compatibility plan's gap 7), hwui's set with libjnigraphics (ADR-0041 a5) and ART's copies for it
+                    ), hwui's set with libjnigraphics (ADR-0041 a5) and ART's copies for it
                     (graphics/tests/hwui_load_run.py's PLATFORM_COPIES)
   system/           /system's files: framework.jar and the framework-res folder in framework/ (ADR-0039, decision 8),
                     platform.xml in etc/permissions/, public.libraries.txt, the time zones and the fonts, and an
                     empty etc/security/cacerts, a name the runtime links to Conscrypt's certificates
   apex/             /apex's files: the boot jars that BOOTCLASSPATH names (runtime/src/environment.cpp), ICU's data,
-                    the tzdata module's files (the compatibility plan's gap 21), and Conscrypt's CA certificates in
+                    the tzdata module's files, and Conscrypt's CA certificates in
                     its cacerts/, the files of build/sources/ca-certificates (ADR-0046 decision 4)
   apex-lib64/       the APEXes' lib64: libart.so and libandroidicu.so (libsqlite's ICU) in ART's, libjavacrypto.so in
                     Conscrypt's
@@ -69,7 +69,7 @@ REQUIRED = (
     + ["apex/com.android.conscrypt/javalib/conscrypt.jar", "apex/com.android.i18n/etc/icu/icudt75l.dat",
        "apex-lib64/com.android.art/libart.so.dylib", "apex-lib64/com.android.art/libandroidicu.so.dylib",
        "apex-lib64/com.android.conscrypt/libjavacrypto.so.dylib"]
-    # The tzdata module as Android 15's (the compatibility plan's gap 21).
+    # The tzdata module as Android 15's.
     + [f"apex/com.android.tzdata/etc/tz/{name}" for name in TZDATA_MODULE]
     + [f"resource-cache/{name}" for name in monet_files()]
 )

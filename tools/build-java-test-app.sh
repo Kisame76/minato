@@ -11,7 +11,7 @@
 # test 2), context-test and looper-test (step c1), provider-test (step c2c1), view-tree-test (step c2c2), app-calls-test
 # (step c2d), animator-test and gles-java-test (ADR-0041 a)), compat-test and compat-test-35 (step c2e),
 # activity-start-test (step c2c3), services-test (ADR-0045, the start's local services), input-service-test (ADR-0045,
-# the input service), start-stops-test (ADR-0042 b, Godot's start stops) and settings-test (ADR-0045, gap 13). An app
+# the input service), start-stops-test (ADR-0042 b, Godot's start stops) and settings-test (ADR-0045). An app
 # without its own fixtures/java folder, a twin such as compat-test-35, takes the sources of the app it is named after.
 # jnigraphics-test (ADR-0041 a5) is one more, whose JNI library links libjnigraphics, and touch-test (ADR-0045 step
 # 7b), whose events are made up.
@@ -28,21 +28,21 @@
 # (step b3.5b2-2b), whose starts follow the launch modes and the task's flags.
 # key-test (ADR-0045 step 7c) is one more, whose keys it injects into its own window.
 # broadcast-test (ADR-0045 decision 5) is one more, whose activity sends its own broadcasts to its own receivers.
-# api-breadth-test (the compatibility plan's entry 22) is one more, whose assets/types.txt names the public types it
-# loads, and so is widgets-test (gap 5), with layouts of widgets in res/layout and a shape in res/drawable.
+# api-breadth-test is one more, whose assets/types.txt names the public types it
+# loads, and so is widgets-test, with layouts of widgets in res/layout and a shape in res/drawable.
 # breadth-test, the framework breadth's behavior test, is one too.
-# sqlite-test (the compatibility plan's gap 7) is one more, whose activity makes, changes and deletes its own SQLite
+# sqlite-test is one more, whose activity makes, changes and deletes its own SQLite
 # database.
-# timezone-test (the compatibility plan's gap 21) is one more, whose activity reads the time zone data.
-# package-installer-test (the Unity test APK resolve list, batch E) is one more, whose activity asks the package installer
+# timezone-test is one more, whose activity reads the time zone data.
+# package-installer-test (the Unity test APK resolve list) is one more, whose activity asks the package installer
 # for sessions and a new one, and reads the exit reasons.
 # media-absent-test (the Unity test APK gap sort, category 2) is one more, whose activity asks android.media's DRM, codec,
 # retriever and extractor classes.
 # resolve-log-test (the Unity test APK probe's log of failed resolutions) is one more, whose compile-only/ classes javac
 # compiles the app against and D8 leaves out, so that the app meets missing classes and members at run time.
-# system-services-test (gap 1 of the compatibility plan, batch 3) is one more, whose activity asks the system services
+# system-services-test is one more, whose activity asks the system services
 # as libraries do; its twin system-services-test-unpermitted requests none of their permissions.
-# battery-test (gap 1 of the compatibility plan) is one more, whose activity reads the battery's sticky broadcast,
+# battery-test is one more, whose activity reads the battery's sticky broadcast,
 # its changes and BatteryManager.
 # Needs the JDK and D8 of tools/fetch-sources.py --set art, the boot jars' classes of tools/build-art.sh,
 # tools/build-framework.sh's output, for res/ tools/build-aapt2.sh and tools/build-framework-res.sh, and for jni/ the

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The compatibility plan's gap 21 test (timezone-test): the time zone data an app reads, the tzdata module's files
+<!-- The time zone test (timezone-test): the time zone data an app reads, the tzdata module's files
      as Android 15 lays them out, and what java.util.TimeZone, java.time, ICU and the date formats answer from them for
      fixed instants in zones with and without daylight saving time. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

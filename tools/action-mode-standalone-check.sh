@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the standalone action mode test (action-mode-standalone-test; the compatibility plan's gap 5, step 5b) on the Mac
+# Runs the standalone action mode test (action-mode-standalone-test) on the Mac
 # (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app, app_process
 # with libandroid_runtime.so (incremental), framework.jar and the app every time, then starts the app through
 # app_process on the M4 plan's display. The app, of a theme without an action bar, starts an action mode, which its

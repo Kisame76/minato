@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ADR-0042 b, gaps 6 and 9 (pointer-insets-test): the Application class asks PointerIcon for system and custom
+<!-- ADR-0042 b (pointer-insets-test): the Application class asks PointerIcon for system and custom
      icons, loads its own <pointer-icon>, and drives a WindowInsetsAnimation, its Bounds and a Callback, as Godot's
      views do, and logs what each answers, without a window. The launcher activity is the framework's own
      android.app.Activity, as in drawables-test; the driver loads only the Application class. -->

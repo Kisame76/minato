@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The twin of system-services-test (gap 1's batch 3 of the compatibility plan): the same sources
+<!-- The twin of system-services-test: the same sources
      (fixtures/java/system-services-test) without the VIBRATE permission, so that the vibrator service's checks show. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.systemservicesunpermitted" android:versionCode="1" android:versionName="1.0">

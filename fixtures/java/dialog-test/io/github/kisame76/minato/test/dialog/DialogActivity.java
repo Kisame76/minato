@@ -32,7 +32,7 @@ public class DialogActivity extends Activity {
     }
 
     /**
-     * Only shown: what needs the dialog's own window, which Minato does not show yet (ADR-0041 decision 2, gap 4): its
+     * Only shown: what needs the dialog's own window, which Minato does not show yet (ADR-0041 decision 2): its
      * attach, focus and detach, and the back key, with what they cause.
      */
     private static void logDevice(String line) {

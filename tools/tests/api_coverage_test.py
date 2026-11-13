@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/api-coverage.py, the framework's breadth (the compatibility plan's entry 22): on an API file, a classes folder
+"""tools/api-coverage.py, the framework's breadth: on an API file, a classes folder
 and a source folder this test writes, the missing public types by group, with the closure over the missing types a
 source uses, the nested types our own top-level types lack, the batches and the table, and a module API's types
 apart. Python 3.9."""
@@ -224,7 +224,7 @@ with tempfile.TemporaryDirectory() as work:
     open(os.path.join(ours, "a", "b", "Present.java"), "w").close()
     taken = os.path.join(work, "taken.txt")
     with open(taken, "w") as handle:
-        handle.write("# Other steps\na.b.Cycle2\tgap 7 (SQLite)\na\tno package of this name has types\n"
+        handle.write("# Other steps\na.b.Cycle2\tSQLite\na\tno package of this name has types\n"
                      "m.n.Far\t(9), a module step\n")
     context_impl = os.path.join(work, "ContextImpl.java")
     with open(context_impl, "w") as handle:
@@ -310,7 +310,7 @@ with tempfile.TemporaryDirectory() as work:
                           ["g.h.Inflating", "g.h.Registered", "g.h.Typing"]],
           f"then a.b's pure-Java types but the taken Cycle2, up to 3 a batch, each after what it uses, then e.f's "
           f"and g.h's: {batches[1:]}")
-    check(report["types"].get("a.b.Cycle2", {}).get("taken") == "gap 7 (SQLite)", "Cycle2 is taken by gap 7")
+    check(report["types"].get("a.b.Cycle2", {}).get("taken") == "SQLite", "Cycle2 is taken by SQLite")
     check(report["types"].get("a.b.Parceled", {}).get("pulls") == ["a.b.Box"], "Parceled pulls in the hidden Box")
     check(groups.get("a.b.Archived") == "pure Java", "a structured parcelable's .aidl is plain Java")
     check(report["types"].get("a.b.Archived", {}).get("pulls") == ["a.b.ArchivedParcel", "a.b.internal.Details"],
@@ -319,7 +319,7 @@ with tempfile.TemporaryDirectory() as work:
     check("| a.b | 1 | 16 | 9 | 3 | 2 | 1 | 1 |" in text, "the table's row for a.b")
     check("- a.b.UsesModule: android.hardware.thing.V1_0.Strength" in text, "the table lists what a type needs")
     check("Do not edit by hand." in text, "the table says it is generated")
-    check("- gap 7 (SQLite): 1 (Cycle2)" in text, "the table lists the taken type with its step")
+    check("- SQLite: 1 (Cycle2)" in text, "the table lists the taken type with its step")
     check("- a.b: Elsewhere" in text, "the table lists the type without a source")
     module = report.get("modules", {}).get("mod", {})
     check(module.get("present") == ["g.h.Counted", "p.q.Whole"], f"framework.jar has Counted and Whole: {module}")

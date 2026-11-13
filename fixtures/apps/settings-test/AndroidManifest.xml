@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ADR-0045's test of the settings Godot's start reads (gap 13, stop 10; settings-test): the settings provider through
+<!-- ADR-0045's test of the settings Godot's start reads (settings-test): the settings provider through
      the app's ContentResolver, on apk-runner-35, wiped, as its image sets its settings. It requests no permission, so
      that every write is refused. The launcher activity is the framework's own android.app.Activity, so that `am start`
      starts the process on Android. -->

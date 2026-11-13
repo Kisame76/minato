@@ -11,7 +11,7 @@
 #     bodies may call framework.jar's own types, as they do in its build (TrafficStats' Log, StrictMode and
 #     Process): its classes and stubs.jar stand behind the sources;
 #   - each of the three managers has the hidden ctor (android.content.Context) that SystemServiceRegistry calls.
-# AudioDeviceInfo is among the generated classes, as AudioManager's hand file makes its devices; AudioTrack (gap 13) is
+# AudioDeviceInfo is among the generated classes, as AudioManager's hand file makes its devices; AudioTrack is
 # not, as its hand file calls AudioFormat's hidden members, which framework.jar's build has (tools/framework-check.sh).
 # Nor is MediaSessionManager, whose signatures name the media module's Session2Token, in no API file here (the
 # module's are not fetched): framework.jar's build compiles it against our placeholder of that class.

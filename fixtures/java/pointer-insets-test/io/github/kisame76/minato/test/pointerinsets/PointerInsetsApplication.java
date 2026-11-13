@@ -16,7 +16,7 @@ import android.view.animation.DecelerateInterpolator;
 import java.util.List;
 
 /**
- * ADR-0042 b's test of gaps 6 and 9's last classes, which Godot's views reach: PointerIcon and WindowInsetsAnimation.
+ * ADR-0042 b's test of the last classes, which Godot's views reach: PointerIcon and WindowInsetsAnimation.
  * Without a window, on Theme.Material.Light, it logs under the tag pointer-insets-test what PointerIcon answers for
  * every system type from 0 to 2003 that has a name, and for the numbers between that have none (its names tell
  * PointerIconType's values, the hidden ones too), for TYPE_CUSTOM, the cache and a null context; for icons made from

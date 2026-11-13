@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the test of the accessibility data classes (the compatibility plan's gap 1: AccessibilityNodeInfo with its
+# Runs the test of the accessibility data classes (AccessibilityNodeInfo with its
 # actions, collection and range infos, AccessibilityWindowInfo and AccessibilityServiceInfo) on the Mac
 # (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and accessibility-answers-test

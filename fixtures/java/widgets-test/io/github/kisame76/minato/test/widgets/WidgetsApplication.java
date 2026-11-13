@@ -53,7 +53,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The compatibility plan's gap 5, widgets, batch 1: AOSP's android.widget with the types it stands on, in App's order
+ * AOSP's android.widget with the types it stands on, in App's order
  * of what AppCompat, Material Components and RecyclerView lean on. On Theme.Material.Light, whose colors are fixed
  * (Monet's stay out), it inflates res/layout's widgets, lays each layout out at fixed sizes in px at the M4 plan's
  * display (density 480), and logs under the tag widgets-test what they answer:

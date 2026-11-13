@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the platform action bar's options menu test (action-bar-menu-test; the compatibility plan's gap 5, step 4) on the
+# Runs the platform action bar's options menu test (action-bar-menu-test) on the
 # Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app,
 # app_process with libandroid_runtime.so (incremental), framework.jar and the app every time, then starts the app through
 # app_process on the M4 plan's display and plays the keys that the AVD's adb shell input keyevent plays in

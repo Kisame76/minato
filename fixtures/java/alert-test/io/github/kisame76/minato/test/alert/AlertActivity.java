@@ -17,7 +17,7 @@ import java.util.Arrays;
 /**
  * android.app.AlertDialog as an app uses it (the Unity test APK probe: UnityPlayer.<init> resolves the class): the builder, the
  * title, message and buttons, items, single and multiple choice, a custom view, the clicks and the listeners. The
- * dialog has no window of its own on Minato yet (gap 4), so the test reads its views and clicks the buttons in code;
+ * dialog has no window of its own on Minato yet, so the test reads its views and clicks the buttons in code;
  * how a dialog looks is for the window tests. It runs on the main thread when the launcher activity first has the
  * window focus.
  */

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the link properties test on the Mac (gap 3 of the networking plan, framework/tests/java_app_run.py): builds
+# Runs the link properties test on the Mac (framework/tests/java_app_run.py): builds
 # apk-run and apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so
 # (incremental), framework.jar (about 10 s) and net-link-test (seconds) every time, so it never tests an old binary;
 # then starts net-link-test through app_process under MINATO_FAKE_NETWORK (the session's fake path monitor: one fixed

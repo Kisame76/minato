@@ -13,7 +13,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
- * Compatibility plan gap 5, step 5b: an action mode in a window without an action bar. The activity starts one once it
+ * An action mode in a window without an action bar. The activity starts one once it
  * has the focus (startActionMode returns the mode, which the window's own standalone bar shows), logs the callbacks
  * in order, the mode's title and subtitle, whether the window has the bar's view, then finishes the mode with its
  * finish(). Ends with "done".

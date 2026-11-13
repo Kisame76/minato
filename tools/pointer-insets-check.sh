@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs ADR-0042 b's test of gaps 6 and 9's last classes, PointerIcon and WindowInsetsAnimation, on the Mac
+# Runs ADR-0042 b's test of the last classes, PointerIcon and WindowInsetsAnimation, on the Mac
 # (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and pointer-insets-test (seconds)
 # every time, so it never tests an old binary; then starts pointer-insets-test through app_process. Without a window it

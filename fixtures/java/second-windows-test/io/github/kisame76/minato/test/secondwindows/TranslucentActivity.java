@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The b3 part's translucent activity (ADR-0041 gap 4 (b3)), on Theme.Translucent.NoTitleBar above SecondWindowsActivity,
+ * The b3 part's translucent activity (ADR-0041 (b3)), on Theme.Translucent.NoTitleBar above SecondWindowsActivity,
  * which stays paused below it: a SurfaceView filled by lockCanvas, whose callbacks it keeps for one line at the end, a
  * dialog of its own, a dialog of the activity below, which goes with it and comes back, then setTranslucent(false),
  * convertToTranslucent with a listener, as swipe-back libraries call it, and setTranslucent(true) once translucent

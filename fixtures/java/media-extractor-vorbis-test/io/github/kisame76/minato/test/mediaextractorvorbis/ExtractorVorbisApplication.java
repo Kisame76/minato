@@ -25,7 +25,7 @@ import java.util.TreeSet;
 import java.util.zip.CRC32;
 
 /**
- * The compatibility plan's gap 13: MediaExtractor and MediaCodec on Ogg Vorbis. From a thread that
+ * MediaExtractor and MediaCodec on Ogg Vorbis. From a thread that
  * Application.attachBaseContext starts, for media-player-ogg-test's two stereo Ogg Vorbis files:
  * - through the asset's descriptor: the track count, the track's format (every key with its value, its buffers in
  *   hex), the metrics, every sample's time, size and flags (the first and last ones logged, all of them by CRC32),

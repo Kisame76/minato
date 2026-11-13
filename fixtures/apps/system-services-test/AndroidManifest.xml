@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of gap 1's batch 3 (the compatibility plan): system services that answered null, each asked as the
+<!-- The test of system services that answered null, each asked as the
      libraries that call it ask, in an activity whose window is attached (system-services-test). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.systemservices" android:versionCode="1" android:versionName="1.0">

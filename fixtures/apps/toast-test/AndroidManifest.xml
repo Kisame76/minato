@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of toasts (toast-test; ADR-0041 gap 4 (b4)): text toasts and their callbacks, durations and queue, a
+<!-- The test of toasts (toast-test; ADR-0041 (b4)): text toasts and their callbacks, durations and queue, a
      cancel, the package's limit, a toast with a view of its own, and what a toast window without the system's token and
      a toast on a thread without a looper meet. Its launcher activity runs the test when its window first has the
      focus. -->

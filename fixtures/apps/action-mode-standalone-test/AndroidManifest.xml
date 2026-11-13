@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- action-mode-standalone-test (the platform action bar's gap 5, step 5b): an activity of a theme without an action
+<!-- action-mode-standalone-test (the platform action bar): an activity of a theme without an action
      bar (Theme.DeviceDefault.Light.NoActionBar) that starts an action mode, as a text selection or a contextual
      toolbar does: the window's own standalone bar shows it. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

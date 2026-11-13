@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of second windows (second-windows-test; ADR-0041 gap 4 (b)): dialogs and popups in windows of their own,
+<!-- The test of second windows (second-windows-test; ADR-0041 (b)): dialogs and popups in windows of their own,
      their frames, callbacks and what a bad token meets. Its launcher activity runs the test when its window first has
      the focus; FinishedActivity finishes at once, so that a dialog it shows later meets a dead token.
-     TranslucentActivity and FloatingActivity (gap 4 (b3)) are a translucent and a floating activity above it. -->
+     TranslucentActivity and FloatingActivity (ADR-0041 (b3)) are a translucent and a floating activity above it. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.secondwindows" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>

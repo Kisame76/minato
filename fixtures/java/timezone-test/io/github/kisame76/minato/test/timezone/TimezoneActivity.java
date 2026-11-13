@@ -20,7 +20,7 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * The compatibility plan's gap 21 test: the time zone data an app reads. Its parts run one after the other from the
+ * The time zone test: the time zone data an app reads. Its parts run one after the other from the
  * resumed activity: the tzdata module's files as Android 15 lays them out, its versioned folder with ICU's files among
  * them; java.util.TimeZone's rules, names and IDs, which libcore reads from the module's versioned tzdata; the date
  * formats and Calendar over them; java.time's zones and ICU's; each for two fixed instants, in zones with and without

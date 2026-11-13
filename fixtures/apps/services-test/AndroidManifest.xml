@@ -3,7 +3,7 @@
      service without sensors, the Wi-Fi service's locks, the storage volume and app ops, on apk-runner-35-bare, which
      has no sensors either. It requests CHANGE_WIFI_MULTICAST_STATE, a normal permission, for the multicast lock, and
      not WAKE_LOCK, so that the Wi-Fi lock is refused. It requests CAMERA, which neither grants (decision 6, and an
-     install without -g), so that the camera's app op follows a denied permission. Part 2 (gap 1) requests
+     install without -g), so that the camera's app op follows a denied permission. Part 2 requests
      ACCESS_NETWORK_STATE, a normal permission, for the connectivity service. The launcher activity is the framework's own android.app.Activity, so that `am start`
      starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

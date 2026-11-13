@@ -1,4 +1,4 @@
-// camera-media-test (ADR-0042 b, gap 15): libcamera2ndk.so and libmediandk.so as Godot's libgodot_android.so
+// camera-media-test (ADR-0042 b): libcamera2ndk.so and libmediandk.so as Godot's libgodot_android.so
 // links them. Both load, every function libgodot_android.so imports from them is there, the camera manager has
 // no camera, and an image reader of YUV_420_888 is made (ADR-0058 e1), G3c), though no producer can dequeue for it
 // (G3a's YUV limit). Opened with dlopen, so that their absence shows at run time.

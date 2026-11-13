@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the guest's libsqlite.so test on the Mac (compatibility plan, gap 7; framework/tests/sqlite_native_run.py):
+# Runs the guest's libsqlite.so test on the Mac (framework/tests/sqlite_native_run.py):
 # builds apk-run and apk-convert for macOS into build/native/macos-app and the framework's guest code, libsqlite.so and
 # sqlite-native-test among it, then lets sqlite-native-test open the library in the guest and compares its lines with
 # fixtures/expected/sqlite-native-test.txt, Android 15's: the same program's on apk-runner-35, where it opens Android's

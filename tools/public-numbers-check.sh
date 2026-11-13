@@ -91,11 +91,6 @@ def changelog_claims(pattern, group=1):
 def gaps():
     text = read(C)
     flat_text = flat(text)
-    counted = text.split("## The gaps, counted", 1)[1].split("\n## ", 1)[0]
-    entries = [int(n) for n in re.findall(r"\(gap (\d+)\)", counted)]
-    check("gaps: the list has 22 entries, numbered 1 to 22 once each",
-          claims(C, r"has (\d+) gaps that stop real apps"),
-          len(entries) if sorted(entries) == list(range(1, 23)) else -1, C + " entries")
     section = text.split("## The gaps, counted", 1)[1].split("\n## ", 1)[0]
 
     def count(start, stop):
@@ -104,6 +99,8 @@ def gaps():
     closed = count("**Closed:**", "**Closed except")
     named = count("**Closed except for a limit that is named below:**", "**Partly closed:**")
     partly = count("**Partly closed:**", "**Found after")
+    check("gaps: the list has 22 entries (the three lists together)",
+          claims(C, r"has (\d+) gaps that stop real apps"), closed + named + partly, "its three lists")
     check("gaps: closed in total (the Closed list and the limit-named list)",
           claims(C, r"\*\*(\d+) closed,"), closed + named, "the two lists")
     check("gaps: closed except for a named limit", claims(C, r"closed, (\d+) of them except"), named, "its list")

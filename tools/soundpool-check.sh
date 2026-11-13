@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the test of SoundPool (soundpool-test; the compatibility plan's gap 13) on the Mac
+# Runs the test of SoundPool (soundpool-test) on the Mac
 # (framework/tests/java_app_run.py): it builds apk-run and apk-convert for macOS into build/native/macos-app, app_process with libandroid_runtime.so
 # (incremental), framework.jar and the app every time, then starts the app through app_process and compares its log
 # with Android 15's (fixtures/expected/soundpool-test.logcat, from tools/android-reference.sh --app soundpool-test):

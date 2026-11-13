@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the compatibility plan's gap 7 test on the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert
+# Runs the SQLite test on the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert
 # for macOS into build/native/macos-app, and app_process with libandroid_runtime.so and libsqlite.so (incremental),
 # framework.jar (about 10 s) and sqlite-test (seconds) every time, so it never tests an old binary; then starts
 # sqlite-test through app_process in a session on the M4 plan's display and compares its log with Android 15's

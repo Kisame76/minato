@@ -49,7 +49,7 @@ FILEGROUPS = {
 # ld-android.so is a stub that libc.so and libdl.so link against; at run time the runtime's own
 # version takes its place (ADR-0021). libdl_android.so has the linker's namespace functions, which
 # ART's libart, libnativeloader, libnativebridge and libopenjdk link (ADR-0033). libstdc++.so is the NDK's "system"
-# C++ runtime, operator new and delete and the static guards, which apps built with ANDROID_STL=system link (gap 14).
+# C++ runtime, operator new and delete and the static guards, which apps built with ANDROID_STL=system link.
 LIBRARIES = ["ld-android", "libdl", "libdl_android", "libc", "libm", "libstdc++"]
 
 # Modules from projects we do not fetch, and what stands in for them (runtime/bionic/CMakeLists.txt):

@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.TreeMap;
 
 /**
- * Alarms and jobs that run, beyond run-test's (gap 9 of the compatibility plan). Alarms of an app that holds
+ * Alarms and jobs that run, beyond run-test's. Alarms of an app that holds
  * USE_EXACT_ALARM: exact, exact and allowed while idle, an alarm clock with its next-alarm info, a window, one with a
  * listener on a handler thread, one cancelled; jobs: an expedited one with its params, a regular one, one
  * rescheduled by its linear backoff, one cancelled while it runs (onStopJob and its stop reason), one with work items,

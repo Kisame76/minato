@@ -1,5 +1,5 @@
-// unbacked-libs-test: the NDK libraries that Android 15 has and Minato has nothing behind (the compatibility plan's
-// gap 14): libsync, libamidi, libbinder_ndk, libneuralnetworks and libOpenMAXAL. A program that names them in NEEDED
+// unbacked-libs-test: the NDK libraries that Android 15 has and Minato has nothing behind: libsync, libamidi,
+// libbinder_ndk, libneuralnetworks and libOpenMAXAL. A program that names them in NEEDED
 // must load, and each function it takes comes from its own library. What the libraries do differs from a phone's on
 // purpose (Android's NNAPI lists devices, its OpenMAX AL makes an engine) and the generated stubs log, so only what
 // does not differ is printed: the library of each name, the status of the device count and of the engine interface

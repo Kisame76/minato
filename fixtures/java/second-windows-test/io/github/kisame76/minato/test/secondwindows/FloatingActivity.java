@@ -9,7 +9,7 @@ import android.view.WindowManager;
 import android.widget.TextView;
 
 /**
- * The b3 part's floating activity (ADR-0041 gap 4 (b3)), on Theme.Material.Light.Dialog.NoActionBar (our PhoneWindow
+ * The b3 part's floating activity (ADR-0041 (b3)), on Theme.Material.Light.Dialog.NoActionBar (our PhoneWindow
  * has no title bar yet, a listed gap) above SecondWindowsActivity, which stays paused below it: its window's frame,
  * which WindowLayout gives it as a dialog's, and its dim, then its finish.
  */

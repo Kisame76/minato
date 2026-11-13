@@ -33,7 +33,7 @@ import javax.microedition.khronos.opengles.GL10;
 import javax.microedition.khronos.opengles.GL11;
 
 /**
- * ADR-0041 a)'s test of GLES from Java (decision 4; test 2's gap 8): AOSP's android.opengl,
+ * ADR-0041 a)'s test of GLES from Java (decision 4): AOSP's android.opengl,
  * javax.microedition.khronos and com.google.android.gles_jni with their core/jni natives over Minato's front libs.
  * It runs in Application.onCreate on the main thread, as there is no window before step c2c3, so every surface is a
  * 64 x 64 pbuffer:

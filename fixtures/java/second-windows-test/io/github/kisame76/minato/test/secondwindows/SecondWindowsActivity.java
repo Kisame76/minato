@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * Second windows (ADR-0041 gap 4 (b)): an AlertDialog and PopupWindows in windows of their own, with their frames and
+ * Second windows (ADR-0041 (b)): an AlertDialog and PopupWindows in windows of their own, with their frames and
  * callbacks, their touches, keys and focus, and what a bad token meets. It runs on the main thread when the launcher
  * activity first has the window focus. Frames are compared as sizes and as places against their anchor or the screen's
  * width; a window's place on the screen's height depends on the system bars' insets, so it goes to the -device tag,

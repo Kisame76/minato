@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the test of MediaBrowser against a MediaBrowserService of its own, with the MediaSession the service keeps and a
-# MediaController of its token (services batch G, the compatibility plan's gap 1) on the Mac
+# MediaController of its token on the Mac
 # (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into build/native/macos-app, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and media-browser-test (seconds)
 # every time, so it never tests an old binary; then starts the app's own Application through app_process and compares

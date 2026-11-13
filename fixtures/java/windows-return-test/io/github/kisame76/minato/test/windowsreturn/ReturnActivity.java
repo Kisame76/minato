@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The windows at the background and the return (ADR-0041 gap 4 (b5a)): once the launcher activity first has the
+ * The windows at the background and the return (ADR-0041 (b5a)): once the launcher activity first has the
  * focus, a dialog over it (not canceled by a touch outside), a popup on the dialog's button, and a translucent activity
  * with a SurfaceView above them; the translucent one says "ready" before HOME and logs the windows after the return,
  * then finishes, and the popup and the dialog go. The activities' lifecycle and the windows' focus are logged; the

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- soundpool-test (the compatibility plan's gap 13, SoundPool): a pool that loads PCM files the app writes, plays them
+<!-- soundpool-test (SoundPool): a pool that loads PCM files the app writes, plays them
      with rate, volume and loop, pauses, stops and unloads them. The launcher activity is the framework's own
      android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

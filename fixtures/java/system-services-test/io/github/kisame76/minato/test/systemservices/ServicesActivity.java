@@ -47,7 +47,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Gap 1's batch 3 (the compatibility plan): system services that answered null in Minato, each asked as the libraries
+ * System services that answered null in Minato, each asked as the libraries
  * that call it ask, once the window has focus, so that its views are attached:
  * <ul>
  *   <li>the vibrator, by name and by class, and the vibrator manager: their classes, the same object by name and by
@@ -212,7 +212,7 @@ public class ServicesActivity extends Activity {
     }
 
     /** The UI mode manager as the libraries ask it, from the application's context. */
-    /** The game manager as an app asks it: no game, so no game mode (batch A of gap 1). */
+    /** The game manager as an app asks it: no game, so no game mode. */
     private void game() {
         final Context application = getApplicationContext();
         final GameManager manager = (GameManager) application.getSystemService(Context.GAME_SERVICE);
@@ -224,7 +224,7 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "game mode " + manager.getGameMode());
     }
 
-    /** The keyguard manager as ad SDKs and key stores ask it: no secure lock screen (batch A of gap 1). */
+    /** The keyguard manager as ad SDKs and key stores ask it: no secure lock screen. */
     @SuppressWarnings("deprecation")
     private void keyguard() {
         final Context application = getApplicationContext();
@@ -240,7 +240,7 @@ public class ServicesActivity extends Activity {
         Log.i(mTag, "confirm credential intent " + manager.createConfirmDeviceCredentialIntent("title", "text"));
     }
 
-    /** The USB manager as SDL and controller libraries ask it: nothing plugged in (batch A, step 2). */
+    /** The USB manager as SDL and controller libraries ask it: nothing plugged in. */
     private void usb() {
         final Context application = getApplicationContext();
         final UsbManager manager = (UsbManager) application.getSystemService(Context.USB_SERVICE);
@@ -253,7 +253,7 @@ public class ServicesActivity extends Activity {
                 + (manager.getAccessoryList() == null ? "none" : "some"));
     }
 
-    /** The download manager as a WebView's download listener asks it (batch A, step 2). */
+    /** The download manager as a WebView's download listener asks it. */
     private void download() {
         final Context application = getApplicationContext();
         final DownloadManager manager = (DownloadManager) application.getSystemService(Context.DOWNLOAD_SERVICE);
@@ -261,7 +261,7 @@ public class ServicesActivity extends Activity {
                 + (manager == application.getSystemService(DownloadManager.class)));
     }
 
-    /** The usage stats manager as analytics libraries ask it, without usage access (batch A, step 2). */
+    /** The usage stats manager as analytics libraries ask it, without usage access. */
     private void usageStats() {
         final Context application = getApplicationContext();
         final UsageStatsManager manager =

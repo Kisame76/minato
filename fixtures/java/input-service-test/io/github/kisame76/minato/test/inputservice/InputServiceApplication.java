@@ -12,7 +12,7 @@ import android.view.ScaleGestureDetector;
 import java.util.List;
 
 /**
- * ADR-0045's test of the input service that Godot's start asks for (gap 7a of the Godot survey), in
+ * ADR-0045's test of the input service that Godot's start asks for, in
  * Application.onCreate, before its launcher activity starts:
  * <ul>
  *   <li>the input service's class, and a device listener registered and unregistered, as Godot's input handler

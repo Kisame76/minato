@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- soundpool-codec-test (the compatibility plan's gap 13, SoundPool): a pool that loads the compressed files the app
+<!-- soundpool-codec-test (SoundPool): a pool that loads the compressed files the app
      ships (Ogg Vorbis now; the plan's steps 3 and 5 add the rest) and plays them. The launcher activity is the
      framework's own android.app.Activity, so that `am start` starts the process on Android. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- action-bar-test-34: action-bar-test at target SDK 34, where edge-to-edge is not enforced (the platform action
-     bar, compatibility plan gap 5): an activity of Theme.DeviceDefault.Light, no AppCompat. -->
+     bar): an activity of Theme.DeviceDefault.Light, no AppCompat. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.actionbar" android:versionCode="1" android:versionName="1.0">
   <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="34"/>

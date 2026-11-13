@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Runs the test of Bluetooth's GATT classes and the adapter's answers (services batch E, gap 1 of the compatibility
-# plan) on the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into
+# Runs the test of Bluetooth's GATT classes and the adapter's answers
+# on the Mac (framework/tests/java_app_run.py): builds apk-run and apk-convert for macOS into
 # build/native/macos-app, and app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and
 # bluetooth-gatt-test (seconds) every time, so it never tests an old binary; then starts the app's own Application
 # through app_process and compares its log with Android 15's on apk-runner-35-bare (fixtures/expected/bluetooth-gatt-

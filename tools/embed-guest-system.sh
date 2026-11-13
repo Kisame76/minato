@@ -7,7 +7,7 @@
 #                             libnativewindow, libaaudio (ADR-0036) and libz, and the graphics front libs
 #                             libEGL, libGLESv1_CM (ADR-0041 a1), libGLESv2, libGLESv3 and libvulkan (ADR-0029,
 #                             ADR-0030); for the Java start libandroid_runtime.so with libsqlite.so (the compatibility
-#                             plan's gap 7), hwui's set (ADR-0043) and ART's copies of libbase, libziparchive, libexpat
+#                             ), hwui's set (ADR-0043) and ART's copies of libbase, libziparchive, libexpat
 #                             and libc++_shared that it links
 #   system/                   the guest's /system for files: bionic's time zone file, public.libraries.txt
 #                             (ADR-0040), etc/export-table.txt, the names every library below exports (ADR-0055
@@ -18,7 +18,7 @@
 #                             Conscrypt's certificates (ADR-0046 decision 4)
 #   apex/                     the guest's /apex for files (ADR-0033 d2): ART's, Conscrypt's, ICU's and the time
 #                             zones' APEX folders as ART and ICU look for them, with the boot jars in javalib/, ICU's
-#                             data, the tzdata module's files (the compatibility plan's gap 21), and Conscrypt's CA
+#                             data, the tzdata module's files, and Conscrypt's CA
 #                             certificates in its cacerts/ (ADR-0046 decision 4)
 #   apex-lib64/<APEX>/        the APEXes' lib64: ART's release flavor in com.android.art, libjavacrypto in
 #                             com.android.conscrypt
@@ -159,7 +159,7 @@ for jar in "$ART"/javalib/*.jar; do
   fi
 done
 cp "$ICU_DATA" "$APEX/com.android.i18n/etc/icu/"
-# The tzdata module as Android 15's com.android.tzdata (the compatibility plan's gap 21): bionic's tzdata and its
+# The tzdata module as Android 15's com.android.tzdata: bionic's tzdata and its
 # tz_version at the top and in versioned/8, where libcore reads them; there too the tag's lookups, and ICU's time
 # zone resources of the same release in icu/: one IANA release for bionic, libcore and ICU (ADR-0033 decision 9).
 TZ_MODULE="$APEX/com.android.tzdata/etc/tz"

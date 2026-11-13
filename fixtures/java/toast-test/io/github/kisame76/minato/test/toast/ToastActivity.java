@@ -13,7 +13,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * Toasts (ADR-0041 gap 4 (b4)), a step after each toast's end, from the launcher activity's first window focus: a
+ * Toasts (ADR-0041 (b4)), a step after each toast's end, from the launcher activity's first window focus: a
  * text toast's view, gravity and offset, and how long a short and a long one show (as a range, which the device's
  * animations stay inside); two toasts in a row, which show one after the other; a cancel; the package's limit of five
  * queued toasts; a toast with a view of its own, its window and its view's frame, and a dialog shown after it, which

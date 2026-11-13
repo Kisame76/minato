@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The translucent activity of windows-return-test (ADR-0041 gap 4 (b5a)), on Theme.Translucent.NoTitleBar above the
+ * The translucent activity of windows-return-test (ADR-0041 (b5a)), on Theme.Translucent.NoTitleBar above the
  * launcher activity, its dialog and popup: a SurfaceView filled by lockCanvas, whose callbacks it keeps for one line
  * after the return; "ready" a moment after its first focus, which the reference's HOME waits for; after the return,
  * once it has the focus again, the windows as the app sees them, then its finish.

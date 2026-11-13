@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the compatibility plan's gap 13 test of MediaExtractor and MediaCodec on Ogg Vorbis on the Mac
+# Runs the test of MediaExtractor and MediaCodec on Ogg Vorbis on the Mac
 # (framework/tests/java_app_run.py): builds apk-run, apk-convert and graphics-run for macOS into
 # build/native/macos-checks, and app_process with libandroid_runtime.so (incremental), framework.jar and the app every
 # time, so it never tests an old binary; then media-extractor-vorbis-test against Android 15's log

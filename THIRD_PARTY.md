@@ -135,8 +135,8 @@ the release icu-data's files below are pinned for, from `/var/db/timezone/tz/<re
 holds that release beside the active one, else from `/usr/share/zoneinfo` when that is the release, and stops with the
 ways out when neither is.
 
-Android's tzdata module (`com.android.tzdata`) lies in every app build as Android 15 lays it out (the compatibility
-plan's gap 21): `etc/tz/tzdata` and `etc/tz/versioned/8/tzdata` are the file above, with a `tz_version` beside each
+Android's tzdata module (`com.android.tzdata`) lies in every app build as Android 15 lays it out:
+`etc/tz/tzdata` and `etc/tz/versioned/8/tzdata` are the file above, with a `tz_version` beside each
 in the tag's format (`008.001|<release>|001`, the release of the file's header); `versioned/8/tzlookup.xml` and
 `telephonylookup.xml` are `system/timezone`'s `output_data/android` at the tag (Apache-2.0, generated from IANA's data
 and ISO country data); `versioned/8/icu/` has ICU's four time zone resources of the same release, `zoneinfo64.res`,
@@ -189,7 +189,7 @@ builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 | `platform/system/unwinding` | `63e40770259e` | Apache-2.0 | `libunwindstack`, for ART's stack dumps |
 | `platform/external/dlmalloc` | `f18b9ade29f2` (dlmalloc 2.8.6) | public domain (CC0-1.0, `NOTICE`) | the allocator of ART's dlmalloc spaces, compiled into `libart` |
 | `platform/system/logging` | `54d3fa266d21` | Apache-2.0 (`liblog/NOTICE`) | only `liblog/include`: the headers ART and libcore compile against; `liblog.so` is Minato's own |
-| `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 (`NOTICE` license type; the generated data follows IANA's notice) | the format of the time zone files (ADR-0033, decision 9) is only read; `output_data/android/tzlookup.xml` and `telephonylookup.xml` ship in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/` (gap 21) |
+| `platform/system/timezone` | `fba551ac75e9` | Apache-2.0 (`NOTICE` license type; the generated data follows IANA's notice) | the format of the time zone files (ADR-0033, decision 9) is only read; `output_data/android/tzlookup.xml` and `telephonylookup.xml` ship in `Guest/apex/com.android.tzdata/etc/tz/versioned/8/` |
 
 **GPL-2.0 with the Classpath Exception** (ADR-0033): core-oj from libcore's `ojluni/`, `libopenjdk` and `libopenjdkjvm`
 ship as separate components, each with its license text in `Licenses/`. Their source code is not in the app: every
@@ -247,7 +247,7 @@ its Licenses folder:
 - `system/etc/permissions/platform.xml`, unchanged;
 - `lib64/libandroid_runtime.so`: `core/jni` and libandroidfw, with static libbase and fmtlib, libcutils and libutils,
   libziparchive, libincfs-utils and libpng, and core/jni's database natives over libsqlite.so;
-- `lib64/libsqlite.so`: external/sqlite's SQLite 3.44.3 with Android's functions (the compatibility plan's gap 7),
+- `lib64/libsqlite.so`: external/sqlite's SQLite 3.44.3 with Android's functions,
   linking ICU's libandroidicu;
 - `bin/app_process64`: ours (`framework/app_process`), linking ART's libnativehelper, libsigchain and liblog.
 
@@ -263,7 +263,7 @@ protobuf and Soong's libbuildversion stay build tools and do not ship.
 | `platform/build/soong` | `3fe78dc9b32f` | Apache-2.0 | only `cc/libbuildversion`, which aapt2 links |
 | `platform/build/release` | `e1dfb3dc7831` | Apache-2.0 | only `aconfig/ap3a`: Android 15's flag values, read by our flag generator |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `graphics/java` and `ravenwood/annotations-src` (3.0 MB): the graphics and annotation classes that framework.jar's taken files name, as compile-only stubs or taken files (ADR-0039 b3) |
-| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | the types' set (`build/sources/frameworks_base_types`: `media/java`, `telephony/java`, `apex/jobscheduler/framework/java` and others, as `third_party/sources.json` lists them): the files `framework/sources.txt` takes from it, AudioFormat, AudioRouting and VolumeAutomation among them; and `media/java/android/media/AudioTrack.java`'s checks, states and messages, adapted into our written AudioTrack with its notice (`framework/managers/android/media/AudioTrack.java`, gap 13) |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | the types' set (`build/sources/frameworks_base_types`: `media/java`, `telephony/java`, `apex/jobscheduler/framework/java` and others, as `third_party/sources.json` lists them): the files `framework/sources.txt` takes from it, AudioFormat, AudioRouting and VolumeAutomation among them; and `media/java/android/media/AudioTrack.java`'s checks, states and messages, adapted into our written AudioTrack with its notice (`framework/managers/android/media/AudioTrack.java`) |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java`'s player (its IRingtonePlayer), adapted into `framework/java/android/media/LocalRingtonePlayer.java` with its notice, and `media/java/android/media/AudioManager.java`'s hasHapticChannelsImpl in our written AudioManager (ADR-0060 e2e1's RingtoneManager step) |
 | `platform/system/media` | `0287f16fc74c` | Apache-2.0 (`NOTICE`) | `camera/include`, `camera/src/camera_metadata.c` and `camera_metadata_tag_info.c` (`build/sources/system_media_camera`): libcamera_metadata, under our natives of camera2's CameraMetadataNative (ADR-0073 step a1) |
 | `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | only `apex/framework/java/android/media/ApplicationMediaCapabilities.java` and `MediaFeature.java` (0.04 MB, `build/sources/media_module`): what an app declares it can play, taken as they are by `framework/sources.txt` (the Unity test APK gap sort, category 1) |
@@ -312,7 +312,7 @@ themselves never ship.
 | `platform/packages/modules/HealthFitness` | `37f52da6d15b` | Apache-2.0 | `framework/api/current.txt` | 141,484 | `2f3c5da74406cf29…` |
 | `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | `apex/framework/api/current.txt` | 17,884 | `be75d4afd890a189…` |
 
-The module APIs' Java sources (the framework breadth), fetched by
+The module APIs' Java sources, fetched by
 `tools/fetch-sources.py --set framework` at the tag on 2026-10-08 (`build/sources/location_java`,
 `connectivity_java`, `wifi_java`). `tools/api-coverage.py` reads them to classify the module APIs' types, and a breadth
 batch takes the plain Java ones into `framework/sources.txt`. Their folders hold tests, build files and AIDL besides the
@@ -344,7 +344,7 @@ parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; n
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Generic.kcm` | 15,940 | `4710a130708720a6…` |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `data/keyboards/Virtual.kcm` | 15,716 | `6356265ec24b7eb2…` |
 
-The vibrator HAL's AIDL (gap 1 of the compatibility plan, batch 3), fetched by `tools/fetch-sources.py --set framework`
+The vibrator HAL's AIDL, fetched by `tools/fetch-sources.py --set framework`
  on 2026-10-29 (`build/sources/hardware_interfaces_vibrator`, the entry
 `hardware_interfaces_vibrator`, digest `398c80a3…c7ae`; 12 files, 31,015 bytes). tools/build-framework.sh compiles its
 ten types of `android.hardware.vibrator` with aidl into framework.jar, whose AOSP VibratorInfo and Vibrator read
@@ -375,7 +375,7 @@ constants in Minato's own filters (biquads and a mix); no code of the bundle is 
 response is checked against these numbers in runtime/tests/audio_effects_test.cpp. The row above names the files the
 numbers come from.
 
-SQLite and Android's functions for it (the compatibility plan's gap 7), fetched by `tools/fetch-sources.py --set
+SQLite and Android's functions for it, fetched by `tools/fetch-sources.py --set
 framework` on 2026-10-07 (`build/sources/sqlite`, the entry `sqlite`, digest
 `6ba2eee5…f850`). framework/CMakeLists.txt builds `lib64/libsqlite.so` from them, as `dist/Android.bp` builds
 libsqlite for the android target: SQLite 3.44.3's amalgamation, the version that android-15.0.0_r1's release flag
@@ -436,8 +436,8 @@ Cowan. TagSoup is licensed under the Apache License, Version 2.0", the project's
 `MODULE_LICENSE_APACHE2` is present, and `METADATA` says `license_type: NOTICE`. Android.bp also lists AFL-3.0 and
 "legacy unencumbered" for the project, both permissive; there is no GPL file or header in the files we take.
 
-stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), the Ogg Vorbis decoder of SoundPool (the compatibility plan's gap 13,
-step 4) and of MediaPlayer (ADR-0060 e2), fetched by `tools/fetch-sources.py --set framework`, on 2026-10-30, built into
+stb_vorbis 1.22 (Sean Barrett, `nothings/stb`), the Ogg Vorbis decoder of SoundPool
+and of MediaPlayer (ADR-0060 e2), fetched by `tools/fetch-sources.py --set framework`, on 2026-10-30, built into
 `libandroid_runtime.so` without stdio and the push-data API:
 
 | Project | Commit | License | File | Size | SHA-256 |
@@ -474,7 +474,7 @@ stand in their components' license lines.
 | `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
-| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045 gap 13a; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, fetched 2026-10-13) for ETC1's natives in libandroid_runtime (the graphics breadth's G1) |
+| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, fetched 2026-10-13) for ETC1's natives in libandroid_runtime (the graphics breadth's G1) |
 | `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 (`NOTICE`) | the AIDL of graphics common and composer3, for their enum headers |

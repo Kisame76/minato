@@ -14,7 +14,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
- * The platform action bar (the compatibility plan's gap 5): an activity of Theme.DeviceDefault.Light with no AppCompat
+ * The platform action bar: an activity of Theme.DeviceDefault.Light with no AppCompat
  * does what a default-theme app does in onCreate and later. Each step logs what Android 15 answers: whether
  * getActionBar() has a bar, its title, subtitle, display options and height, where the content starts, the options menu
  * (items, the prepare calls, clicks on an action item and an overflow item, the overflow opening and closing), hide and

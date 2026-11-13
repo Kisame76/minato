@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the battery (gap 1 of the compatibility plan) on the Mac (framework/tests/java_app_run.py): builds apk-run and
+# Runs the battery on the Mac (framework/tests/java_app_run.py): builds apk-run and
 # apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
 # framework.jar and battery-test every time, so it never tests an old binary; then starts the app's activity through
 # app_process on apk-run's fixed battery, 100 % charging, changes the host's battery in the steps of

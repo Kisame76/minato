@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The compatibility plan's gap 5, widgets, batch 1 (widgets-test): the Application class inflates res/layout's
+<!-- The widgets test (widgets-test): the Application class inflates res/layout's
      widgets, lays them out at fixed sizes in px and logs what each answers, without a window. The launcher activity is
      the framework's own android.app.Activity, as in checkbox-test; the driver loads only the Application class. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

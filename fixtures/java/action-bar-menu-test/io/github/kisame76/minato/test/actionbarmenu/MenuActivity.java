@@ -13,7 +13,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
- * Compatibility plan gap 5, step 4: the options menu of the platform action bar, driven from outside by keys. The MENU
+ * The options menu of the platform action bar, driven from outside by keys. The MENU
  * key opens the overflow (onMenuOpened), the arrow down and enter keys walk the popup and choose its first item
  * (onOptionsItemSelected), the app then invalidates the menu (onPrepareOptionsMenu again, with the changed title),
  * and the MENU key opens and a second one closes the overflow. The app then starts an action mode, which the BACK key

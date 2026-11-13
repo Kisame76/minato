@@ -136,47 +136,47 @@ Only what the project has evidence for is stated as working; "untested" means th
 
 ## The gaps, counted
 
-The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry names its number. Recounted on 2026-11-12:
+The list below has 22 gaps that stop real apps. Recounted on 2026-11-12:
 **17 closed, 6 of them except for a limit that is named, and 5 partly closed.**
 
 **Closed:**
 
-- 4 KB libraries (gap 2): libraries aligned for 4 KB pages load.
-- Second windows (gap 4): dialogs, toasts, popups and translucent activities.
-- Widgets and menus (gap 5): every widget the plan listed is in, with the action bar, the text selection menus and the
+- 4 KB libraries: libraries aligned for 4 KB pages load.
+- Second windows: dialogs, toasts, popups and translucent activities.
+- Widgets and menus: every widget that was missing is in, with the action bar, the text selection menus and the
   magnifier.
-- Activity results, start flags and launch modes (gap 6).
-- SQLite (gap 7).
-- Speed of Java code (gap 10): the fast interpreter is the default and an app is compiled once after its first close.
-- Missing NDK libraries (gap 14): every name that the API 35 NDK exports in the libraries Minato builds exists, some as
+- Activity results, start flags and launch modes.
+- SQLite.
+- Speed of Java code: the fast interpreter is the default and an app is compiled once after its first close.
+- Missing NDK libraries: every name that the API 35 NDK exports in the libraries Minato builds exists, some as
   stubs that answer nothing; the check compares the names with the NDK's own.
-- Files, pickers and shared media (gap 16).
-- Intents to iOS (gap 18): links, mail, messages, calls, maps and shares.
-- Play Asset Delivery at run time (gap 20).
-- Time zone data for ICU (gap 21).
+- Files, pickers and shared media.
+- Intents to iOS: links, mail, messages, calls, maps and shares.
+- Play Asset Delivery at run time.
+- Time zone data for ICU.
 
 **Closed except for a limit that is named below:**
 
-- Google Play services absent (gap 12): an app that looks for Google Play services or the Play Store gets the answers an
+- Google Play services absent: an app that looks for Google Play services or the Play Store gets the answers an
   Android phone without them gives, and a test compares them with Android 15. Minato never names a store as the
   installer. What an app's own libraries do with those answers is the app's behavior.
-- Graphics coverage (gap 19): ES 3.1, `SurfaceTexture` and hardware buffers. ES 3.2 is not available, and Vulkan
+- Graphics coverage: ES 3.1, `SurfaceTexture` and hardware buffers. ES 3.2 is not available, and Vulkan
   features that MoltenVK lacks stay missing.
-- System services that answer null (gap 1): all of Android 15's 88 public system services answer, the ones without their
+- System services that answer null: all of Android 15's 88 public system services answer, the ones without their
   hardware or permissions as a phone without them does; a check asks for each of the 88 names and compares the answers
   with Android 15's. The limits: the text services manager says no spell checker is enabled, and a spell checker session
   is never opened, where Android hands one out. The service discovery manager reports a discovery as started and finds
   nothing, and advertises nothing, as Minato has no multicast; Wi-Fi Direct answers every action with an error; the IMS
   managers answer as a phone without IMS does.
-- Services, broadcasts, jobs, alarms and notifications (gap 9): all of them work while the app runs. Nothing runs while
+- Services, broadcasts, jobs, alarms and notifications: all of them work while the app runs. Nothing runs while
   iOS has the app suspended or after it ends; a job the app keeps across restarts comes back at its next start.
   WorkManager (androidx.work 2.12.0) logs what Android 15 logs and finds its waiting work again after a restart.
-- Networking (gap 3): sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
+- Networking: sockets, DNS, the INTERNET permission, the real network (Wi-Fi state, connectivity changes) and
   connections to devices on the local network, once you allow them in iOS's prompt, are in and run on the iPhone; with
   Local Network switched off for Minato they fail with Android's errors for a host it cannot reach, and none hangs.
   Multicast and service discovery are not in. The active network's link properties (addresses, DNS servers, routes, MTU)
   are filled from the iPhone's network; what iOS lets Minato read of them is not checked on the iPhone yet.
-- WebView (gap 8): pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects.
+- WebView: pages show inside the app, with cookies, scrolling, typing and the app's own JavaScript objects.
   Pages that an app serves itself under `https://localhost` or `https://appassets.androidplatform.net` load as on
   Android, on the iPhone too. A page from the app's assets sees `minato-asset:` as its protocol where Android says
   `file:`. A page also shows under a window's theme background (a splash that the app takes away once the page is
@@ -185,11 +185,11 @@ The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry nam
 
 **Partly closed:**
 
-- Text input, keys and controllers (gap 11): the keyboard, its text bar, the Return key, hardware keys and the
+- Text input, keys and controllers: the keyboard, its text bar, the Return key, hardware keys and the
   keyboard's inset work. Game controllers reach apps as Android 15's standard pad; rumble, a PlayStation pad's touchpad
   and its extra keys are not passed on. A mouse or trackpad reaches apps where iOS gives a pointer; on the iPhone iOS
   offers a mouse only through AssistiveTouch, which turns it into taps, so apps see touches there.
-- Java media and video (gap 13): `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg
+- Java media and video: `AudioTrack`, `SoundPool` (WAV, Ogg Vorbis, MP3, AAC and FLAC), `MediaPlayer` (also Ogg
   Vorbis and Opus), `MediaExtractor` (also Ogg Opus and Ogg Vorbis) and `MediaCodec` for H.264, HEVC, AAC, MP3, FLAC,
   Vorbis and Opus (up to 8 channels) are in. The Equalizer, Bass Boost, Virtualizer and Loudness Enhancer change the
   sound of the `AudioTrack` and AAudio streams of their audio session (session 0: the whole mix, which `SoundPool` takes
@@ -199,16 +199,16 @@ The list below has 22 gaps that stop real apps, numbered 1 to 22; each entry nam
   their session, also as an approximation; the reflections are not played, as in Android's bundle. The Visualizer shows
   the app's whole mix, `MediaPlayer` included, after the effects and the player's volume, also while a player plays at a
   speed other than 1. Recording to a file (`MediaRecorder`) and the `MediaCodec` encoders are not in.
-- Runtimes that need a JIT (gap 15): the import names the engine and refuses an app whose engine library cannot run, and
+- Runtimes that need a JIT: the import names the engine and refuses an app whose engine library cannot run, and
   Get Info says when an engine needs a JIT, which iOS does not allow (Mono without AOT images, CoreCLR, a LuaJIT the
   switch cannot reach, emulators' recompilers). Minato switches Mono to its interpreter when the app starts it, so a
   .NET app with AOT images that carry the interpreter's wrappers does not need a JIT; this is built and tested with a
   stand-in for Mono, not yet with a real .NET app. Unity games on the Mono backend ship no AOT images, so Get Info lists
   them as needing a JIT.
-- Device features and permissions (gap 17): sensors, location, the microphone and the camera work. For each app Minato
+- Device features and permissions: sensors, location, the microphone and the camera work. For each app Minato
   asks first, then iOS asks once for Minato, and a no stays a no after the second time, as on Android. The camera works
   through Android's Camera API; Camera2 and CameraX are not in yet.
-- Framework breadth (gap 22): some public types of Android 15's API are still missing from `framework.jar`; this release
+- Framework breadth: some public types of Android 15's API are still missing from `framework.jar`; this release
   added more of them, among them Formatter, SearchView, Proxy, PhoneNumberUtils, VideoView, the local sockets, the
   provider contracts for the calendar, the call log and voicemail, VpnService with Android's own IpPrefix, LinkAddress
   and RouteInfo, SpeechRecognizer, SliceMetrics, ApplicationStartInfo, VisualVoicemailService, the assist structure, the

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of the windows at the background and the return (windows-return-test; ADR-0041 gap 4 (b5a)): a dialog
+<!-- The test of the windows at the background and the return (windows-return-test; ADR-0041 (b5a)): a dialog
      with a popup on its button over the launcher activity, and a translucent activity with a SurfaceView above them,
      through HOME and the return. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

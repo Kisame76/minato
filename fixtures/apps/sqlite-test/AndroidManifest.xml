@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The compatibility plan's gap 7 test (sqlite-test): an app's own SQLite databases through android.database.sqlite,
+<!-- The SQLite test (sqlite-test): an app's own SQLite databases through android.database.sqlite,
      opened on the main thread as Firebase's datatransport opens its event store. Its activity creates, upgrades and
      deletes a database with SQLiteOpenHelper, and writes and reads it with ContentValues, cursors, statements,
      transactions, Android's SQL functions and collations, FTS and WAL. -->

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Gap 13's test of MediaExtractor and MediaCodec on Ogg Vorbis (media-extractor-vorbis-test): two stereo Ogg Vorbis
+<!-- The test of MediaExtractor and MediaCodec on Ogg Vorbis (media-extractor-vorbis-test): two stereo Ogg Vorbis
      files (assets/vorbis.ogg at 22050 Hz and assets/vorbis-long.ogg at 44100 Hz, those of media-player-ogg-test)
      through their descriptors and through MediaDataSources, their track formats with the codec-specific data, samples
      and seeks, and their samples decoded by MediaCodec, which is also asked for by name and listed in MediaCodecList.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the compatibility plan's gap 5 test, widgets-test, on the Mac (framework/tests/java_app_run.py): builds apk-run
+# Runs the widgets test, widgets-test, on the Mac (framework/tests/java_app_run.py): builds apk-run
 # and apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
 # framework.jar (about 10 s) and widgets-test (seconds) every time, so it never tests an old binary; then starts
 # widgets-test through app_process. Without a window it inflates layouts of android.widget's widgets on

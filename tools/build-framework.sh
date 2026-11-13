@@ -120,11 +120,11 @@ for path in "${taken[@]}"; do
   package=$(sed -n 's/^package \([a-zA-Z0-9_.]*\);.*/\1/p' "$source" | head -1)
   name=$(basename "$path")
   if [[ "$name" == *.aidl ]]; then
-    # media's root only for its own files (the media metrics', gap 1's batch 3): for IDisplayManager's import,
+    # media's root only for its own files (the media metrics'): for IDisplayManager's import,
     # aidl-imports declares IMediaProjection, which media's root would give twice.
     roots=()
     [[ "$path" == frameworks_base_types/media/* ]] && roots=(-I"$SOURCES/frameworks_base_types/media/java")
-    # The vibrator HAL's AIDL (gap 1's batch 3) from its own root, at its VINTF stability.
+    # The vibrator HAL's AIDL from its own root, at its VINTF stability.
     [[ "$path" == hardware_interfaces_vibrator/* ]] &&
       roots=(-I"$SOURCES/hardware_interfaces_vibrator/vibrator/aidl" --structured --stability=vintf)
     # The connectivity module's AIDL (CaptivePortal's ICaptivePortal) under its own root.
@@ -211,8 +211,8 @@ python3 tools/managergen/managergen.py \
 python3 tools/managergen/managergen.py \
   --implement "$SOURCES/frameworks_base/core/java/android/content/Context.java" \
   --as android.app.ContextImpl --hand framework/managers --out "$GEN/managers" >/dev/null
-# Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step; gap 1's audio and
-# connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats and gap 13's
+# Our managers from the public API (steps c2c1, c2c2, c2c3 and ADR-0045's storage and app ops step; audio and
+# connectivity with the Connectivity module's network classes; the Unity test APK probe's TrafficStats and
 # AudioTrack and AudioDeviceInfo; android.media's absent hardware: DRM, codec lists, retriever, image reader and the
 # TV input manager), logged once where
 # framework/managers' hand files do not answer.

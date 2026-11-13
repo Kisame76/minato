@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The test of alarms and jobs that run beyond run-test's (gap 9 of the compatibility plan): exact alarms of an app that
+<!-- The test of alarms and jobs that run beyond run-test's: exact alarms of an app that
      holds USE_EXACT_ALARM (exact, exact and allowed while idle, an alarm clock, a window), and jobs: an expedited one,
      one with its params, one rescheduled by its backoff, one cancelled while it runs, one with work items and the
      charging, battery-not-low and storage-not-low constraints. The launcher activity is the framework's own

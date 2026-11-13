@@ -1,58 +1,58 @@
 # The types other steps take, which tools/api-coverage.py batches never (--taken): a package, its own types only,
-# or a type, then a tab and the step (the compatibility plan's section 2, and the steps under way).
-android.database.sqlite	gap 7, SQLite
+# or a type, then a tab and the step.
+android.database.sqlite	SQLite
 android.content.IntentFilter	step d1
 android.os.ConditionVariable	App's ContextImpl step
 android.os.Messenger	App's ContextImpl step
-android.os.UserManager	gap 1 batch 1
-android.app.Dialog	gap 4, second windows
-android.app.AlertDialog	gap 4, second windows
-android.app.DialogFragment	gap 4, second windows
-android.app.ProgressDialog	gap 4, second windows
-android.app.DatePickerDialog	gap 4, second windows
-android.app.TimePickerDialog	gap 4, second windows
-android.widget.Toast	gap 4, second windows
-android.widget.PopupWindow	gap 4, second windows
-android.widget.PopupMenu	gap 4, second windows
-android.widget.ListPopupWindow	gap 4, second windows
-android.webkit	gap 8, WebView
-android.app.job	gap 9, jobs and alarms
-android.app.AlarmManager	gap 9, jobs and alarms
-android.app.PendingIntent	gap 9, PendingIntent
-android.app.Notification	gap 9, notifications
-android.app.NotificationChannel	gap 9, notifications
-android.app.NotificationChannelGroup	gap 9, notifications
-android.app.NotificationManager	gap 9, notifications
-android.view.inputmethod	gap 11, text input
-android.inputmethodservice	gap 11, text input
-android.media	gap 13, Java media
-android.provider.DocumentsContract	gap 16, pickers
-android.provider.DocumentsProvider	gap 16, pickers
-android.hardware.camera2	gap 17, device features
-android.hardware.camera2.params	gap 17, device features
-android.hardware.Camera	gap 17, device features
-android.hardware.Sensor	gap 17, device features
-android.hardware.SensorManager	gap 17, device features
-android.hardware.SensorEvent	gap 17, device features
-android.hardware.SensorEventListener	gap 17, device features
-android.os.Vibrator	gap 1 batch 2, the vibrator
-android.os.VibratorManager	gap 1 batch 2, the vibrator
-android.os.VibrationEffect	gap 1 batch 2, the vibrator
-android.os.VibrationAttributes	gap 1 batch 2, the vibrator
-android.os.CombinedVibration	gap 1 batch 2, the vibrator
-android.database.AbstractWindowedCursor	gap 7, SQLite
-android.database.CursorWindowAllocationException	gap 7, SQLite
-android.database.DatabaseErrorHandler	gap 7, SQLite
-android.database.DefaultDatabaseErrorHandler	gap 7, SQLite
-android.content.SearchRecentSuggestionsProvider	waits for gap 7's SQLiteOpenHelper, then a breadth batch
+android.os.UserManager	system services
+android.app.Dialog	second windows
+android.app.AlertDialog	second windows
+android.app.DialogFragment	second windows
+android.app.ProgressDialog	second windows
+android.app.DatePickerDialog	second windows
+android.app.TimePickerDialog	second windows
+android.widget.Toast	second windows
+android.widget.PopupWindow	second windows
+android.widget.PopupMenu	second windows
+android.widget.ListPopupWindow	second windows
+android.webkit	WebView
+android.app.job	jobs and alarms
+android.app.AlarmManager	jobs and alarms
+android.app.PendingIntent	PendingIntent
+android.app.Notification	notifications
+android.app.NotificationChannel	notifications
+android.app.NotificationChannelGroup	notifications
+android.app.NotificationManager	notifications
+android.view.inputmethod	text input
+android.inputmethodservice	text input
+android.media	Java media
+android.provider.DocumentsContract	pickers
+android.provider.DocumentsProvider	pickers
+android.hardware.camera2	device features
+android.hardware.camera2.params	device features
+android.hardware.Camera	device features
+android.hardware.Sensor	device features
+android.hardware.SensorManager	device features
+android.hardware.SensorEvent	device features
+android.hardware.SensorEventListener	device features
+android.os.Vibrator	the vibrator
+android.os.VibratorManager	the vibrator
+android.os.VibrationEffect	the vibrator
+android.os.VibrationAttributes	the vibrator
+android.os.CombinedVibration	the vibrator
+android.database.AbstractWindowedCursor	SQLite
+android.database.CursorWindowAllocationException	SQLite
+android.database.DatabaseErrorHandler	SQLite
+android.database.DefaultDatabaseErrorHandler	SQLite
+android.content.SearchRecentSuggestionsProvider	waits for SQLiteOpenHelper, then a later group
 android.content.SyncInfo	waits for android.accounts.Account, which its static initializer makes (a service type)
-# The compatibility plan's gap 5, widgets, batch 1: what waits.
-android.widget.Spinner	waits for gap 4's ListPopupWindow, which its dropdown and its dialog make
-android.widget.AutoCompleteTextView	waits for gap 4's ListPopupWindow, its dropdown
-android.widget.MultiAutoCompleteTextView	waits for gap 4's ListPopupWindow, as AutoCompleteTextView
-android.widget.Toolbar	gap 5 batch 2, with ActionMenuView's overflow popup (gap 4)
-android.widget.ActionMenuView	gap 5 batch 2, its overflow popup (gap 4)
-android.widget.MediaController	gap 5 batch 2, a window of its own (gap 4)
-android.widget.Magnifier	gap 5 batch 2, a surface of its own
-android.widget.ZoomButtonsController	gap 5 batch 2, a window of its own (gap 4)
+# What waits for another step.
+android.widget.Spinner	waits for ListPopupWindow, which its dropdown and its dialog make
+android.widget.AutoCompleteTextView	waits for ListPopupWindow, its dropdown
+android.widget.MultiAutoCompleteTextView	waits for ListPopupWindow, as AutoCompleteTextView
+android.widget.Toolbar	with ActionMenuView's overflow popup
+android.widget.ActionMenuView	its overflow popup
+android.widget.MediaController	a window of its own
+android.widget.Magnifier	a surface of its own
+android.widget.ZoomButtonsController	a window of its own
 android.view.inspector.WindowInspector	waits for our WindowManagerGlobal's getWindowViews

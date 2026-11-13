@@ -18,7 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * SoundPool (the compatibility plan's gap 13): a pool of two streams on a thread with a Looper, which loads three
+ * SoundPool: a pool of two streams on a thread with a Looper, which loads three
  * files the app writes (a short and a long 16-bit PCM WAV and a file of text that no decoder takes), then plays,
  * changes, pauses, stops and unloads. The lines compared are the values SoundPool's contract gives: the sound IDs
  * load returns, the status each onLoadComplete carries, whether play returns a stream ID and which, what unload

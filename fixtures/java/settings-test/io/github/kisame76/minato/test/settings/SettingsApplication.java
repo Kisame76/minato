@@ -15,7 +15,7 @@ import android.view.ViewConfiguration;
 import java.util.Arrays;
 
 /**
- * ADR-0045's test of the settings that Godot's start reads (gap 13, stop 10), in Application.onCreate, before its
+ * ADR-0045's test of the settings that Godot's start reads, in Application.onCreate, before its
  * launcher activity starts:
  * <ul>
  *   <li>the app's ContentResolver;

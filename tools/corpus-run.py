@@ -9,7 +9,7 @@ The levels, as the plan's section 3 defines them:
   starts     the launcher activity's window drawn, as ActivityTaskManager logs it ("Displayed <component> for user 0:
              +<time>"), or, for an app without that line, a window's first post on apk-run's headless host; for a
              NativeActivity also its start answered on activity-host ("apk-run: the start was answered", which
-             Runtime's gap 4 (a) brings), as it may draw by GLES or not at all;
+             the runtime brings), as it may draw by GLES or not at all;
   frame      after the tap or the swipe, a window's frame that differs from its last one before the touch, or a new
              window that posted (apk-run's "after <step>" lines); a blinking cursor or an animation counts too, and
              under --graphics it is not measured (H2);
@@ -53,7 +53,7 @@ LIFECYCLE = "start,tap:645:1398,swipe:300:1398:1000:1398:200,background,foregrou
 FIRST_POST = "apk-run: the first post of window"
 # ActivityMetricsLogger's line for a launch, which our ActivityThread logs at the window's first draw.
 DISPLAYED = re.compile(r"^I/ActivityTaskManager: Displayed (\S+) for user \d+: (\S+)$")
-# apk-run's line once the session's start was answered: every callback of the start returned (Runtime's gap 4 (a)).
+# apk-run's line once the session's start was answered: every callback of the start returned.
 START_ANSWERED = "apk-run: the start was answered"
 # apk-run's line for each window after a touch step (headless_host.h's Buffers).
 TOUCHED = re.compile(r"^apk-run: window (\d+) after (\S+): (\d+) posts since, (\d+) in all, "

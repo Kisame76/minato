@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- selection-mode-test (the text selection's action mode, after the platform action bar's gap 5): an EditText whose
+<!-- selection-mode-test (the text selection's action mode, after the platform action bar): an EditText whose
      text a long press selects a word of, which starts the selection's floating action mode (ActionMode.TYPE_FLOATING):
      the app's custom callback sees its menu, its type and the selection. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"

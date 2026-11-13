@@ -126,9 +126,9 @@ sharedmem-test system
 ifaddrs-test system
 # The routes an app reads: RTM_GETROUTE's dump, lo's routes and Android's layout of the tables.
 route-test system
-# Android's libstdc++.so, the NDK's "system" C++ runtime: new, delete and the guards of a static (gap 14).
+# Android's libstdc++.so, the NDK's "system" C++ runtime: new, delete and the guards of a static.
 stdcxx-test system
-# libsync, libamidi, libbinder_ndk, libneuralnetworks and libOpenMAXAL, which Minato has nothing behind (gap 14).
+# libsync, libamidi, libbinder_ndk, libneuralnetworks and libOpenMAXAL, which Minato has nothing behind.
 # Runtime-only: on Android 15 the program prints the same lines (two runs of apk-runner-35), but libbinder_ndk and
 # NNAPI log seven lines when they load, which Minato's libraries do not.
 unbacked-libs-test system runtime-only
@@ -151,7 +151,7 @@ hwcap-test system measures
 # What the instructions of ADR-0047 decision 3's features do at EL0 (b1), the device's own: shown, and on the Mac
 # compared with what its sysctl lets one expect by runtime.el0_check_fixture.
 el0-check system measures
-# No camera and no media codecs, the stubs that let Godot's library load (ADR-0042 b, gap 15); Android's emulator
+# No camera and no media codecs, the stubs that let Godot's library load (ADR-0042 b); Android's emulator
 # has cameras.
 camera-media-test system runtime-only
 # libmediandk.so's AMEDIAFORMAT_KEY_* and AMEDIACODEC_KEY_* strings, Android 15's values (ADR-0060 e2b).

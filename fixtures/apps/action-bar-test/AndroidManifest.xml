@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- action-bar-test (the platform action bar, compatibility plan gap 5): an activity of a theme with an action bar
+<!-- action-bar-test (the platform action bar): an activity of a theme with an action bar
      (Theme.DeviceDefault.Light), no AppCompat, that uses getActionBar(), an options menu and an action mode. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kisame76.minato.test.actionbar" android:versionCode="1" android:versionName="1.0">

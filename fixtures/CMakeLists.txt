@@ -238,7 +238,7 @@ add_executable(hwcap-test suite/hwcap-test.c)
 # el0-check: what the instructions of the CPU features that ADR-0047 reports only after a check at EL0 do on the
 # device, each under a SIGILL handler (b1).
 add_executable(el0-check suite/el0-check.c)
-# camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b, gap 15).
+# camera-media-test: libcamera2ndk.so and libmediandk.so as Godot's library links them (ADR-0042 b).
 add_executable(camera-media-test suite/camera-media-test.c)
 target_link_libraries(camera-media-test PRIVATE dl)
 # media-keys-test: libmediandk.so's key strings (ADR-0060 e2b).
@@ -305,12 +305,12 @@ target_link_libraries(sharedmem-test PRIVATE android)
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
 # route-test: the routes an app reads, RTM_GETROUTE's dump, lo's lines and Android's layout (ADR-0054 c3).
 add_executable(route-test suite/route-test.c)
-# stdcxx-test: Android's libstdc++.so, which ANDROID_STL=system links, in place of the NDK's libc++ (gap 14).
+# stdcxx-test: Android's libstdc++.so, which ANDROID_STL=system links, in place of the NDK's libc++.
 add_executable(stdcxx-test suite/stdcxx-test.cpp)
 target_compile_options(stdcxx-test PRIVATE -std=gnu++20 -fno-exceptions -fno-rtti)
 target_link_options(stdcxx-test PRIVATE -nostdlib++)
 target_link_libraries(stdcxx-test PRIVATE stdc++ dl)
-# unbacked-libs-test: the NDK libraries with nothing behind them in Minato, which an app may name in NEEDED (gap 14).
+# unbacked-libs-test: the NDK libraries with nothing behind them in Minato, which an app may name in NEEDED.
 add_executable(unbacked-libs-test suite/unbacked-libs-test.c)
 target_link_libraries(unbacked-libs-test PRIVATE sync amidi binder_ndk neuralnetworks OpenMAXAL)
 # cacerts-test: the trust store's CA certificates, in Conscrypt's APEX and in /system/etc/security (ADR-0046).
