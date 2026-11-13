@@ -1,4 +1,4 @@
-// Checks apk-run's headless host (headless_host.h, ADR-0043 c4, ADR-0041 gap 4): its answers to the session's surfaces
+// Checks apk-run's headless host (headless_host.h, ADR-0043 c4, ADR-0041): its answers to the session's surfaces
 // and requested windows, recorded instead of made, and its buffers, one per window, as apkrt.h's struct
 // apkrt_window_buffers asks them to behave.
 #include "headless_host.h"
@@ -178,7 +178,7 @@ TEST(a_surface_made_in_the_background_opens_its_gate_at_the_return) {
     CHECK(record.take() == again);
 }
 
-// --- Windows (ADR-0041, gap 4) -------------------------------------------------------------------
+// --- Windows (ADR-0041) --------------------------------------------------------------------------
 
 /// What the host did with the requested windows, as Record has it for the surfaces: "add 1098x796 at 96,1000 type 2
 /// -> 2", "place 2 at 96,1000 alpha 1065353216", the posts with the windows' event names.

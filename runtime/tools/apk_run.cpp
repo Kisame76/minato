@@ -106,7 +106,7 @@
 //               turn of the display;
 //   trimmemory:<level>  the system trims the app's memory: APKRT_EVENT_TRIM_MEMORY with the level of
 //               ComponentCallbacks2.onTrimMemory (20 UI_HIDDEN, 40 BACKGROUND, ...);
-//   battery:<level>:<state>  (the battery, gap 1 of the compatibility plan) the host's battery changes to <level> %
+//   battery:<level>:<state>  (the battery) the host's battery changes to <level> %
 //               (-1 unknown) in APKRT_BATTERY_STATE_<state> (0 unknown, 1 unplugged, 2 charging, 3 full), as the App's
 //               UIDevice side sets it (apkrt_battery_set);
 //   network:<flags>  (ADR-0054 step d)) the host's network changes to the APKRT_NETWORK_* flags <flags> (decimal), as
@@ -122,10 +122,10 @@
 // make, the gate opening outside the background; SURFACE_RESIZED for a place with another size; a remove takes the
 // window away. Under graphics-run the window and each surface have layers of its window host (apk_run_layers.h),
 // which follow the places and the window's opacity, as the App's do (ADR-0043 c4 (c)).
-// The guest's requested windows (ADR-0041, gap 4: dialogs, popups, toasts, translucent activities, sub-windows) are
+// The guest's requested windows (ADR-0041: dialogs, popups, toasts, translucent activities, sub-windows) are
 // answered in the same way: WINDOW_CREATED, WINDOW_RESIZED, and at the background and the end WINDOW_DESTROYED, a
 // sub-window's before its parent's; under graphics-run each has a layer in Android 15's order of windows, which
-// follows its places, alpha and dim (ADR-0041 gap 4 (c)).
+// follows its places, alpha and dim (ADR-0041 (c)).
 // The windows' buffers for drawing by the CPU are graphics-run's under graphics-run, and headless ones under apk-run
 // alone (ADR-0043 c3), one per window, as a host without a screen has: a lock gives a buffer kept for the window's
 // geometry, cleared when that is new, and the post drops what was drawn, saying so once per window on stderr
@@ -931,7 +931,7 @@ void on_surface(void *, const apkrt_surface_request *request) {
     surfaces.request(*request);
 }
 
-/// --lifecycle's requested windows (headless_host.h, ADR-0041 gap 4): windows on graphics-run's layers or none,
+/// --lifecycle's requested windows (headless_host.h, ADR-0041): windows on graphics-run's layers or none,
 /// opened, sized and removed in the registry, and the events posted, as for the surfaces. A removed window's layer
 /// goes to the window host after the removal.
 headless::Windows windows({

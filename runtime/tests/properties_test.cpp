@@ -147,7 +147,7 @@ TEST(the_earlier_values_stay) {
 
 TEST(the_time_zone_is_the_hosts) {
     // Android keeps the device's zone in persist.sys.timezone, which bionic's localtime and libcore's default time
-    // zone read (the compatibility plan's gap 21): the iPhone's zone, or the Mac's.
+    // zone read: the iPhone's zone, or the Mac's.
     CHECK(get("persist.sys.timezone") == host_time_zone());
 }
 

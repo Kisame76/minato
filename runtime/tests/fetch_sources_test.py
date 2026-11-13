@@ -330,8 +330,8 @@ def main():
               f"{os.readlink(same) if os.path.islink(same) else None}")
     del SERVED[chain]
 
-    # Single files of one commit from a host that serves them raw (ICU's time zone resources from icu-data on GitHub,
-    # the compatibility plan's gap 21): its "raw" url names the commit by all 40 hex digits, and only the content
+    # Single files of one commit from a host that serves them raw (ICU's time zone resources from icu-data on GitHub):
+    # its "raw" url names the commit by all 40 hex digits, and only the content
     # digest pins them.
     raw_commit = "5555" * 10
     raw = f"https://raw.example/icu-data/{raw_commit}"

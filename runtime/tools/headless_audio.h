@@ -1,5 +1,5 @@
 // apk-run's audio output (ADR-0036): an output that plays nowhere, as the host has no speaker of its own, so the
-// guest's streams open and play on the Mac as on a device (the AudioTrack of gap 13, audiotrack-test). The hardware is
+// guest's streams open and play on the Mac as on a device (the AudioTrack, audiotrack-test). The hardware is
 // 48 kHz with 10 ms bursts; each open stream gets a thread that reads one burst of its ring every 10 ms with
 // apkrt_audio_read, as the App's render block does, and drops it. The close stops and joins that thread.
 #pragma once

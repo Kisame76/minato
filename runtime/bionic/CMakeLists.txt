@@ -287,7 +287,7 @@ apk_bionic_unit(apk_opensles SOURCES "${android_sources}/opensles.cpp" INCLUDES 
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libOpenSLES UNITS apk_opensles NEEDED libc libm liblog libaaudio VERSION_SCRIPTS "${opensles_map}")
 
-# libcamera2ndk.so and libmediandk.so (ADR-0042 b, gap 15): no camera and no media codecs, so that an app that
+# libcamera2ndk.so and libmediandk.so (ADR-0042 b): no camera and no media codecs, so that an app that
 # links them, as Godot's libgodot_android.so does, loads. The camera manager has no camera
 # (runtime/android/camera_manager.c); libmediandk's AImageReader and AImage are on libnativewindow's buffer queue
 # (runtime/android/image_reader.cpp, ADR-0058 e1)), and its key strings have Android 15's values
@@ -315,7 +315,7 @@ apk_bionic_unit(apk_mediandk SOURCES "${android_sources}/image_reader.cpp" "${an
 apk_bionic_library(libmediandk UNITS apk_mediandk NEEDED libc libdl liblog libm libnativewindow
   VERSION_SCRIPTS "${mediandk_map}")
 
-# libsync.so, libamidi.so, libbinder_ndk.so, libneuralnetworks.so and libOpenMAXAL.so (the compatibility plan's gap 14):
+# libsync.so, libamidi.so, libbinder_ndk.so, libneuralnetworks.so and libOpenMAXAL.so:
 # nothing stands behind them in Minato (no sync files, MIDI devices, Binder, NNAPI driver or OpenMAX AL engine), so that
 # an app that names one in NEEDED loads, and every function answers its API's error, as it does on a phone without
 # the service. The generated stubs log their name once; neuralnetworks.c (the device count 0) and openmaxal.c (the

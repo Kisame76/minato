@@ -222,7 +222,7 @@ bool same(const apkrt_surface_request &a, const apkrt_surface_request &b) {
     return std::memcmp(&a, &b, sizeof a) == 0;
 }
 
-// A window request as the host's window handler saw it (ADR-0041, gap 4), with its fixed layout, which both sides
+// A window request as the host's window handler saw it (ADR-0041), with its fixed layout, which both sides
 // assert.
 static_assert(sizeof(apkrt_window_request) == 72);
 static_assert(offsetof(apkrt_window_request, op) == 0 && offsetof(apkrt_window_request, type) == 4 &&
@@ -2204,7 +2204,7 @@ TEST(one_tokens_makes_and_removes_from_two_threads_reach_the_host_in_the_order_t
     CHECK(alternating && made.load() == pairs);
 }
 
-// --- Window requests (ADR-0041, gap 4) ------------------------------------------------------------
+// --- Window requests (ADR-0041) -------------------------------------------------------------------
 
 TEST(a_window_request_reaches_the_window_handler_with_its_size_and_opacity) {
     take_requests();

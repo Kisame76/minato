@@ -126,7 +126,7 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.location_transport COMMAND location_transport_test)
   set_tests_properties(runtime.location_transport PROPERTIES TIMEOUT 60)
 
-  # The battery transport (App gap-1, 2026-10-29): APKRT_NR_BATTERY (GET) through the dispatcher, and apkrt_battery_set
+  # The battery transport: APKRT_NR_BATTERY (GET) through the dispatcher, and apkrt_battery_set
   # announcing APKRT_EVENT_BATTERY through the session event stream, only on a change and only while a session runs.
   add_executable(battery_transport_test tests/battery_transport_test.cpp)
   target_include_directories(battery_transport_test PRIVATE src)
@@ -246,7 +246,7 @@ if(APK_HOST_BUILD)
   set_tests_properties(runtime.mp4_extractor_sweep PROPERTIES TIMEOUT 120)
 
   # ADR-0060 e2: libmediandk's Ogg Opus reader on the host, with ASan, on media-player-ogg-test's Ogg Opus files and
-  # files of pages it builds, and every changed and cut mono file; with its Ogg Vorbis reader (gap 13) over stb_vorbis
+  # files of pages it builds, and every changed and cut mono file; with its Ogg Vorbis reader over stb_vorbis
   # (tools/fetch-sources.py).
   add_executable(ogg_extractor_test tests/ogg_extractor_test.cpp android/ogg_extractor.cpp android/vorbis_codec.c)
   target_include_directories(ogg_extractor_test PRIVATE android "${PROJECT_SOURCE_DIR}/build/sources/stb_vorbis")
@@ -369,7 +369,7 @@ if(APK_HOST_BUILD)
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/android/stubgen.py" check --built "${APK_BIONIC_DIR}")
   set_tests_properties(runtime.android_libraries PROPERTIES SKIP_REGULAR_EXPRESSION "skipped:")
 
-  # The NDK libraries built from bionic's own modules (the compatibility plan's gap 14): libstdc++.so exports exactly
+  # The NDK libraries built from bionic's own modules: libstdc++.so exports exactly
   # the names of the NDK's stub, with their versions, and the guest's public.libraries.txt lists it.
   add_test(NAME runtime.ndk_libraries
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/ndk_libraries_test.py" "${APK_BIONIC_DIR}"

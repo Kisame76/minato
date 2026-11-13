@@ -77,7 +77,7 @@
 //   whose frames are all discarded gives no output buffer, as C2SoftOpusDec's empty work. A packet libopus refuses
 //   (no frames, more than 120 ms) and a configuration it refuses are the codec's error. Input buffers of 5760 bytes;
 //   the output format is the decoder's 48000 Hz and OpusHead's channels, with configure's channel mask.
-// - Vorbis (gap 13), as Android 15's C2SoftVorbisDec [verified: media-extractor-vorbis-test]: c2.android.vorbis.decoder
+// - Vorbis, as Android 15's C2SoftVorbisDec [verified: media-extractor-vorbis-test]: c2.android.vorbis.decoder
 //   and OMX.google.vorbis.decoder, decoded in the guest by stb_vorbis (vorbis_codec.h): its first two units, from csd-0
 //   and csd-1 or queued, flagged or not, are the identification and the setup header; every packet after them ends in
 //   the 4 bytes of its page's sample count (OggExtractor's), which cut the frames of the page's last packet; the first

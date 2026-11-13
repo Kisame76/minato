@@ -335,7 +335,7 @@ std::string area() {
     written.add("ro.product.model", model);
     written.add("ro.product.device", model);
     // The device's time zone, which Android keeps in persist.sys.timezone and every process reads: bionic's
-    // localtime, libcore's default time zone and ICU's through it (the compatibility plan's gap 21). Without it they
+    // localtime, libcore's default time zone and ICU's through it. Without it they
     // take GMT, as on an Android device whose zone was never set.
     if (const std::string zone = time_zone(); !zone.empty()) written.add("persist.sys.timezone", zone);
     // The Vulkan driver's name, which Android 15's libvulkan reads to load vulkan.<name>.so (driver.cpp), only while

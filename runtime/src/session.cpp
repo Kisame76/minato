@@ -207,7 +207,7 @@ long surface(std::uint64_t address) {
     return 0;
 }
 
-// The windows' live tokens (ADR-0041, gap 4), each with its make's type, parent, group and format, apart from the
+// The windows' live tokens (ADR-0041), each with its make's type, parent, group and format, apart from the
 // surfaces'. As for those, a request's check, its change of the tokens and the host's call happen under one lock.
 static_assert(sizeof(apkrt_window_request) == 72);
 static_assert(offsetof(apkrt_window_request, op) == 0 && offsetof(apkrt_window_request, type) == 4 &&
@@ -1410,10 +1410,10 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     // on, even though the app does not call apkrt_report_memory_to; the lines survive a jetsam kill
     // (memory_watermark.h).
     if (::getenv("MINATO_LOADER_LOG") != nullptr) apkrt::memory::start_instrument();
-    // The network probe (gap 3): one counts-only line of what the sandbox lets the runtime read for LinkProperties.
+    // The network probe: one counts-only line of what the sandbox lets the runtime read for LinkProperties.
     // Under MINATO_NET_PROBE, and under MINATO_LOADER_LOG too, so any instrumented run's kept guest log carries it.
     if (::getenv("MINATO_NET_PROBE") != nullptr || ::getenv("MINATO_LOADER_LOG") != nullptr) apkrt_network_probe();
-    // The Mac session's fake path monitor (gap 3): a fixed host network where there is no NWPathMonitor, so
+    // The Mac session's fake path monitor: a fixed host network where there is no NWPathMonitor, so
     // net-link-test runs end to end on the Mac. Never set on the device. Set before the guest reads getifaddrs.
     if (::getenv("MINATO_FAKE_NETWORK") != nullptr) apkrt::network::start_fake_path_monitor();
     begun.store(true, std::memory_order_release);

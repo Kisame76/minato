@@ -215,7 +215,7 @@ TEST(a_packet_across_pages_is_one_packet) {
     CHECK(got.size() == 1 && got[0].data == long_packet);
 }
 
-// Gap 13: media-player-ogg-test's tone.ogg (Ogg Vorbis, stereo, 22050 Hz, 7 audio packets on one page of 5568 samples)
+// media-player-ogg-test's tone.ogg (Ogg Vorbis, stereo, 22050 Hz, 7 audio packets on one page of 5568 samples)
 // as OggExtractor reads it [verified: media-extractor-vorbis-test on Android 15]: the packets' times, the 4 bytes
 // that follow each (the page's samples after its first packet, else -1) and the format.
 TEST(vorbis_file_has_its_track_and_times) {

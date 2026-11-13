@@ -1,5 +1,5 @@
 // apk-run's headless host for --lifecycle (ADR-0043 c4, decision 4): the session's surfaces and requested windows
-// (ADR-0041, gap 4), each a window of its own without a layer and answered with the events the iOS host posts, and
+// (ADR-0041), each a window of its own without a layer and answered with the events the iOS host posts, and
 // the windows' buffers for drawing by the CPU, one per window, as apkrt.h's struct apkrt_window_buffers asks them to
 // behave. The calls to the runtime's registry and session come in from outside, so that headless_host_test.cpp
 // records them instead.
@@ -132,7 +132,7 @@ private:
     bool background_ = false;
 };
 
-/// What the host does with the requested windows (ADR-0041, gap 4), as Calls has it for the surfaces: in apk-run
+/// What the host does with the requested windows (ADR-0041), as Calls has it for the surfaces: in apk-run
 /// apkrt_window_add of the request's buffer size, on graphics-run's layer for it or none, apkrt_window_set_gate with
 /// 1, apkrt_window_set_size, apkrt_window_remove, apkrt_session_post, and graphics-run's change of the layer for each
 /// place.

@@ -1,4 +1,4 @@
-// libOpenMAXAL.so (the compatibility plan's gap 14): OpenMAX AL has no engine in Minato, so that an app that links the
+// libOpenMAXAL.so: OpenMAX AL has no engine in Minato, so that an app that links the
 // library loads, as it does on a phone, and finds the engine unsupported. xaCreateEngine answers
 // XA_RESULT_FEATURE_UNSUPPORTED and leaves no object behind, the two queries list no interface, and the 41 interface
 // IDs are exported as the header declares them.

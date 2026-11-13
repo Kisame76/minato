@@ -2885,7 +2885,7 @@ TEST(a_path_of_path_max_bytes_is_too_long) {
     CHECK(open_guest(at_fdcwd, proc.c_str(), o_rdonly) == -enametoolong);
 }
 
-// --- Memory (the compatibility plan's gap 1: ActivityManager.getMemoryInfo, sysconf, engines) -----------------------
+// --- Memory (ActivityManager.getMemoryInfo, sysconf, engines) -------------------------------------------------------
 
 /// Android 15's /proc/meminfo on the emulator (kernel 6.6, arm64): these lines in this order, each name with its colon
 /// padded to 16 characters, the value right-aligned in 8 or more, then " kB" [verified: cat on the emulator,

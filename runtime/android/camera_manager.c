@@ -1,4 +1,4 @@
-// libcamera2ndk.so's camera manager (ADR-0042 b, gap 15): a manager without cameras, as Android's on a device that
+// libcamera2ndk.so's camera manager (ADR-0042 b): a manager without cameras, as Android's on a device that
 // has none, so that an app that links the library, as Godot's libgodot_android.so does, loads and finds no camera.
 // Every other function of the library is a stub that stubgen.py generates and that answers an error.
 #include <camera/NdkCameraManager.h>

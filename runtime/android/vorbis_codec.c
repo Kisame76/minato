@@ -1,4 +1,4 @@
-// Ours (gap 13): vorbis_codec.h over stb_vorbis's push-data mode.
+// Ours: vorbis_codec.h over stb_vorbis's push-data mode.
 #include "vorbis_codec.h"
 
 #include <stdlib.h>

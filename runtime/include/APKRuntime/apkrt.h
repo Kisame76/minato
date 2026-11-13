@@ -230,7 +230,7 @@ typedef void (*apkrt_request_handler)(void *context, int type, uint64_t argument
 ///     place and remove of such a surface still come, and the host ignores them.
 typedef void (*apkrt_surface_handler)(void *context, const struct apkrt_surface_request *request);
 
-/// Called for each window request of the guest (ADR-0041, gap 4, guest_interface.h's struct apkrt_window_request), as
+/// Called for each window request of the guest (ADR-0041, guest_interface.h's struct apkrt_window_request), as
 /// the surface handler is for surfaces, under the runtime's window lock: per token a make, places and a remove, at
 /// most 16 tokens live; for a make and a place the buffer's size is set and so is `opaque`, and a place carries the
 /// make's type, parent, group and format; a remove carries only the op and the token, and a sub-window's comes
@@ -263,7 +263,7 @@ struct apkrt_session {
     apkrt_request_handler request;             // NULL: the requests go nowhere
     struct apkrt_configuration configuration;  // what activity-host gets when it connects
     apkrt_surface_handler surface;             // NULL: surface requests answer -EOPNOTSUPP (ADR-0043 c4)
-    apkrt_window_handler window;               // NULL: window requests answer -EOPNOTSUPP (ADR-0041, gap 4)
+    apkrt_window_handler window;               // NULL: window requests answer -EOPNOTSUPP (ADR-0041)
     apkrt_webview_handler webview;             // NULL: WebView requests answer -EOPNOTSUPP (ADR-0056 step a)
 };
 
@@ -1149,7 +1149,7 @@ void apkrt_location_push(const struct apkrt_location_fix *fix);
 /// already-resolved token is ignored. Runs on the host's own thread; takes only the hub's lock.
 void apkrt_location_push_single(uint64_t token, const struct apkrt_location_fix *fix);
 
-/// The host reports the battery (App's gap-1 proposal, 2026-10-29): `level_percent` the charge 0..100, or -1 when
+/// The host reports the battery: `level_percent` the charge 0..100, or -1 when
 /// unknown; `state` an APKRT_BATTERY_STATE_* value (UIDevice.batteryState raw). Stores the value on any thread, also
 /// before a session exists (APKRT_BATTERY_GET then reads it). While a session runs it posts APKRT_EVENT_BATTERY only
 /// when the value changed since the last post, as Android's ACTION_BATTERY_CHANGED broadcasts only on a change; a
@@ -1164,8 +1164,8 @@ void apkrt_network_set(uint32_t state);
 /// Writes one network-probe line to the session log (stderr): counts and families only -- how many up interfaces and
 /// routable ones, the active interface's address counts by family and v6 scope, prefix-ok, a private IPv4 yes/no, the
 /// MTU, the resolver's server counts, and whether sysctl NET_RT_DUMP and a default route are seen. Never an address,
-/// an interface name or an SSID. A diagnostic for gap 3's design; session.cpp calls it at session start under
-/// MINATO_NET_PROBE. Returns 0.
+/// an interface name or an SSID. A diagnostic for the network probe's design; session.cpp calls it at session start
+/// under MINATO_NET_PROBE. Returns 0.
 int apkrt_network_probe(void);
 
 #ifdef __cplusplus

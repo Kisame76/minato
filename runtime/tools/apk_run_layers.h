@@ -1,4 +1,4 @@
-// apk-run's layers (ADR-0043 c4 (c), ADR-0041 gap 4 (c)): the hooks that graphics-run's session layers
+// apk-run's layers (ADR-0043 c4 (c), ADR-0041 (c)): the hooks that graphics-run's session layers
 // (graphics/tests/session_layers.m) give apk-run's --lifecycle, so that the session's window, its surfaces and the
 // guest's requested windows get layers, as the App's session view gives them; apk-run alone has none, and its windows
 // no layer. C, for apk_run.cpp and the session layers alike.
@@ -33,7 +33,7 @@ struct apk_run_layer_hooks {
     /// A surface's layer after its window's removal, at the guest's remove, the background or the end: the reference
     /// apkrt_window_layer gave out before the removal, which the hook releases once. NULL for a window without one.
     void (*surface_removed)(void *layer);
-    /// A requested window's layer (ADR-0041, gap 4: a dialog's, a popup's, a toast's, a translucent activity's or a
+    /// A requested window's layer (ADR-0041: a dialog's, a popup's, a toast's, a translucent activity's or a
     /// sub-window's) at the request's frame, opaque as the request says, with its alpha as the layer's opacity, in
     /// Android 15's order of windows (the plan's decision 1), with the dim of the topmost dimming window; the runtime
     /// retains it for its window.

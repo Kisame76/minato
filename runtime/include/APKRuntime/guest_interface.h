@@ -145,7 +145,7 @@ enum apkrt_event_type {
                                           // window has it (apkrt_window_set_size); a place that only moves gets none
     APKRT_EVENT_SURFACE_DESTROYED,        // a0: the token; a1: the window's ID. The host took the surface away on its
                                           // own, at the background or the end; the guest still removes the token
-    // A window of the guest's own (ADR-0041, gap 4): a dialog's, a popup's, a toast's, a translucent activity's or a
+    // A window of the guest's own (ADR-0041): a dialog's, a popup's, a toast's, a translucent activity's or a
     // sub-window's, which the guest asks for with APKRT_REQUEST_WINDOW:
     APKRT_EVENT_WINDOW_CREATED,           // the answer to a make: a0 the window's token; a1 its window's ID
                                           // (apkrt_window_add); a2 width | height << 32 in pixels (32 bits each)
@@ -284,7 +284,7 @@ enum apkrt_event_type {
                                           // GET follows); a2 the one-shot's token when bit 0 is set, else 0. A
                                           // continuous fix (bit 0 clear) is fetched with GET by its sequence, or read
                                           // whole with APKRT_LOCATION_LAST (getLastKnownLocation)
-    APKRT_EVENT_BATTERY,                  // the battery state changed (App's gap-1 proposal, 2026-10-29): a0 the
+    APKRT_EVENT_BATTERY,                  // the battery state changed: a0 the
                                           // charge level in percent 0..100, or -1 over the full 64-bit field when
                                           // unknown; a1 the state (APKRT_BATTERY_STATE_* below), UIDevice.batteryState
                                           // passed through raw; a2 0. Posted only on a change while a session runs, as
@@ -397,7 +397,7 @@ enum apkrt_request_type {
                                    // (ANativeActivity_setWindowFormat)
     APKRT_REQUEST_WINDOW_OPAQUE,   // host only: the argument is 1 or 0, reported when the window's opacity changes
     APKRT_REQUEST_SURFACE,         // guest only: a0 the address of a struct apkrt_surface_request (ADR-0043 c4)
-    APKRT_REQUEST_WINDOW,          // guest only: a0 the address of a struct apkrt_window_request (ADR-0041, gap 4)
+    APKRT_REQUEST_WINDOW,          // guest only: a0 the address of a struct apkrt_window_request (ADR-0041)
     APKRT_REQUEST_PICK,            // guest only (ADR-0057 step a): a0 the address of NUL-terminated text, a1 the
                                    // request's ID (not 0, not one that waits); the host gets the ID as `argument` and
                                    // the text as `text`: "<kind>\t<flags>\t<max>\t<MIME types>\t<title>". The runtime
@@ -724,7 +724,7 @@ struct apkrt_webview_call {
     int64_t length;           // APKRT_WEBVIEW_ANSWER_FD: bytes from the offset, or -1 to EOF
 };
 
-/// What a window of the guest's own asks of the host (ADR-0041, gap 4), APKRT_REQUEST_WINDOW's.
+/// What a window of the guest's own asks of the host (ADR-0041), APKRT_REQUEST_WINDOW's.
 enum apkrt_window_op {
     APKRT_WINDOW_MAKE = 1,  // a window for a token that has none
     APKRT_WINDOW_PLACE,     // the window's new frame, buffer size, alpha or dim; type, parent, group and format stay
@@ -789,7 +789,7 @@ enum apkrt_gate_kind {
 /// and 0, outside 1 to 8192. The runtime keeps the live tokens, at most 16: a make answers -EEXIST for a live token and
 /// -ENOSPC beyond 16, a place or remove -ENOENT for a token that is not live, and the remove frees it. A token stays
 /// live until its remove, also after SURFACE_DESTROYED. The host gets a copy with the buffer's size and the opacity.
-/// APKRT_REQUEST_WINDOW (ADR-0041, gap 4) answers as APKRT_REQUEST_SURFACE for the reading, the op, the token, the
+/// APKRT_REQUEST_WINDOW (ADR-0041) answers as APKRT_REQUEST_SURFACE for the reading, the op, the token, the
 /// frame and the size, and has no z. A make or place also answers -EINVAL for alpha or dim that is not finite or not
 /// within 0 to 1, and for reserved not 0. A make answers -EINVAL for a type outside 1 to 99, 1000 to 1999 and 2005,
 /// for a parent on another type than a sub-window, and for a group on a sub-window or a toast. A sub-window's parent
@@ -1373,7 +1373,7 @@ struct apkrt_location_fix {
     uint32_t valid;                   // APKRT_LOCATION_HAS_* bits
 };
 
-// MARK: - Battery (App's gap-1 proposal, 2026-10-29)
+// MARK: - Battery
 //
 // The host (App's UIDevice side on iOS, apk_run's fixed model on the Mac) reports the battery with
 // apkrt_battery_set (apkrt.h). It stores the value and, while a session runs, posts APKRT_EVENT_BATTERY on a

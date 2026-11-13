@@ -127,7 +127,7 @@ LIBRARIES = {
     # OpenSL ES on libaaudio (opensles.cpp, ADR-0036, decision 7): its 3 functions and 53 interface IDs, every name
     # written by hand.
     "libOpenSLES": {"version": None, "implemented": ["*"], "stubbed": [], "private": []},
-    # No camera (ADR-0042 b, gap 15), so that an app that links the library loads, as Godot's libgodot_android.so
+    # No camera (ADR-0042 b), so that an app that links the library loads, as Godot's libgodot_android.so
     # does: the camera manager answers an empty ID list (camera_manager.c), every other function an error.
     "libcamera2ndk": {
         "version": None,
@@ -136,10 +136,10 @@ LIBRARIES = {
         "stubbed": [],
         "private": [],
     },
-    # AImageReader and AImage (ADR-0058 e1), G3c, runtime/android/image_reader.cpp), the key strings
+    # AImageReader and AImage (ADR-0058 e1, runtime/android/image_reader.cpp), the key strings
     # (AMEDIAFORMAT_KEY_*, AMEDIACODEC_KEY_*, data with Android 15's values, runtime/android/media_keys.cpp,
-    # ADR-0060 e2b), AMediaFormat (media_format.cpp), AMediaCodec's decoders (media_codec.cpp, e2b3), and
-    # AMediaExtractor with AMediaDataSource (media_extractor.cpp, e2d); no crypto, muxer or DRM yet (gap 15): every
+    # ADR-0060 e2b), AMediaFormat (media_format.cpp), AMediaCodec's decoders (media_codec.cpp), and
+    # AMediaExtractor with AMediaDataSource (media_extractor.cpp); no crypto, muxer or DRM yet: every
     # other function answers an error.
     "libmediandk": {"version": None,
                     "implemented": ["AImageReader_new", "AImageReader_newWithUsage", "AImageReader_newWithDataSpace",
@@ -171,7 +171,7 @@ LIBRARIES = {
                     "private": ["minato_AMediaFormat_count", "minato_AMediaFormat_entry", "minato_media_codec_count",
                                 "minato_media_codec_at", "minato_AMediaCodec_isReleased",
                                 "minato_AMediaCodec_setVideoScalingMode"]},
-    # The libraries an app may name in NEEDED although Minato has nothing behind them (gap 14): libsync, libamidi,
+    # The libraries an app may name in NEEDED although Minato has nothing behind them: libsync, libamidi,
     # libbinder_ndk, libneuralnetworks and libOpenMAXAL load, and every function answers its API's error, as on a phone
     # without the service behind it. The ones that write through an argument are written by hand
     # (neuralnetworks.c and openmaxal.c).
@@ -237,9 +237,9 @@ VALUES = {
     "android_res_nquery": "-ENOSYS", "android_res_nresult": "-ENOSYS", "android_res_nsend": "-ENOSYS",
     "android_setprocdns": _ERRNO, "android_setprocnetwork": _ERRNO, "android_setsocknetwork": _ERRNO,
     "android_tag_socket": "-ENOSYS", "android_tag_socket_with_uid": "-ENOSYS", "android_untag_socket": "-ENOSYS",
-    # Cameras: none exists (ADR-0042 b, gap 15); their status results come from STATUS_VALUES
+    # Cameras: none exists (ADR-0042 b); their status results come from STATUS_VALUES
     "ACameraMetadata_isLogicalMultiCamera": "0",
-    # Media beyond the decoders and the extractor (gap 15): no crypto or muxer, so nothing is supported or counted
+    # Media beyond the decoders and the extractor: no crypto or muxer, so nothing is supported or counted
     "AMediaCodecActionCode_isRecoverable": "0", "AMediaCodecActionCode_isTransient": "0",
     "AMediaCrypto_isCryptoSchemeSupported": "0", "AMediaCrypto_requiresSecureDecoderComponent": "0",
     "AMediaDrm_isCryptoSchemeSupported": "0",
@@ -257,12 +257,12 @@ HEADERS = [
     "permission_manager", "sensor", "sharedmem", "sharedmem_jni", "storage_manager", "surface_control",
     "surface_control_input_receiver", "surface_control_jni", "surface_texture", "surface_texture_jni",
     "system_fonts", "thermal", "trace", "window",
-    # Not in android/: the camera's and the media's (ADR-0042 b, gap 15).
+    # Not in android/: the camera's and the media's (ADR-0042 b).
     "camera/NdkCameraCaptureSession", "camera/NdkCameraDevice", "camera/NdkCameraManager", "camera/NdkCameraMetadata",
     "camera/NdkCaptureRequest", "media/NdkImage", "media/NdkImageReader", "media/NdkMediaCodec",
     "media/NdkMediaCrypto", "media/NdkMediaDataSource", "media/NdkMediaDrm", "media/NdkMediaExtractor",
     "media/NdkMediaFormat", "media/NdkMediaMuxer",
-    # The libraries with nothing behind them (gap 14).
+    # The libraries with nothing behind them.
     "binder_ibinder", "binder_ibinder_jni", "binder_parcel", "binder_parcel_jni", "binder_status",
     "persistable_bundle", "sync", "NeuralNetworks", "amidi/AMidi", "OMXAL/OpenMAXAL",
 ]

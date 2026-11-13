@@ -35,7 +35,7 @@ DEBUG = ["libartd", "libopenjdkjvmd", "libopenjdkd"]
 # Conscrypt's JNI library, which conscrypt.jar loads (ADR-0046 c).
 CONSCRYPT = ["libjavacrypto"]
 # ICU's shim with the *_android names, which libsqlite and other platform libraries link instead of libicuuc and
-# libicui18n, as on Android (the compatibility plan's gap 7).
+# libicui18n, as on Android.
 ICU_SHIM = ["libandroidicu"]
 PROGRAMS = ["dalvikvm"]
 # The guest system's libraries that ART links. Minato's bionic build makes them and ART's build none, so that the

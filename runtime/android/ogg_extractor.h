@@ -18,7 +18,7 @@
 //   start position then stays below 0.
 // - A seek goes 80 ms before its time, to the first page of the table whose time is not before that, and on from
 //   its first packet (a packet that page continues is read from there, as OggExtractor does).
-// - Ogg Vorbis (gap 13 of the compatibility plan) [verified at android-15.0.0_r1: OggExtractor.cpp; the answers
+// - Ogg Vorbis [verified at android-15.0.0_r1: OggExtractor.cpp; the answers
 //   checked against the emulator by media-extractor-vorbis-test]: three headers (identification, comment, setup)
 //   in order; the track is audio/vorbis at the identification header's rate and channels, the identification header as
 //   csd-0 and the setup header as csd-1, the nominal bit rate, the duration from the last page's granule position

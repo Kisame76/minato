@@ -1,4 +1,4 @@
-// Gap 13 of the compatibility plan: Ogg Vorbis for libmediandk's extractor and decoder, as packets, over stb_vorbis
+// Ogg Vorbis for libmediandk's extractor and decoder, as packets, over stb_vorbis
 // (Sean Barrett, MIT or public domain; third_party/sources.json) in its push-data mode. A Vorbis stream is its three
 // headers (identification, comment, setup) and then audio packets; Android's OggExtractor hands the identification
 // and the setup header out as csd-0 and csd-1, its decoder (C2SoftVorbisDec, libvorbis) takes them first and then
