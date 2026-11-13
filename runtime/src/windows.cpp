@@ -459,6 +459,10 @@ void apkrt_stall_window_created(uint64_t id) {
     apkrt::stall::window_created(id, clock_gettime_nsec_np(CLOCK_MONOTONIC));
 }
 
+void apkrt_stall_set_work_source(uint64_t (*source)(uint64_t id)) {
+    apkrt::stall::set_work_source(source);
+}
+
 int apkrt_is_background(void) {
     return in_background.load() ? 1 : 0;
 }

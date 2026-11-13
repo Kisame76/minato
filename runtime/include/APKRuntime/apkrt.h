@@ -420,6 +420,16 @@ void apkrt_stall_surface_created(uint64_t id);
 /// draws in the host's view. apkrt_window_remove stops the watch.
 void apkrt_stall_window_created(uint64_t id);
 
+/// For graphics: registers the source the stall watchdog pulls to tell whether a surface with no first frame yet is
+/// making progress toward one. `source(id)` returns a cumulative, monotonically rising count of real work done toward
+/// surface `id`'s first frame -- live texture/buffer bytes resident (a high-water, so a re-upload loop stays flat;
+/// later also bytes read from assets or the OBB) -- and 0 for an id it cannot measure (a Vulkan surface, a window with
+/// no live EGL context, the decor). The watchdog slides the no-first-frame deadline only when the pulled value grows;
+/// a hard cap still reports a surface that has gone too long even while it grows. The source must be non-blocking and
+/// lock-free and must not call back into the runtime -- the watchdog calls it under its own lock. NULL clears it;
+/// register it once.
+void apkrt_stall_set_work_source(uint64_t (*source)(uint64_t id));
+
 /// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
 int apkrt_is_background(void);
 
