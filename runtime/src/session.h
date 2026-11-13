@@ -23,6 +23,12 @@ void end();
 /// The display's refresh rate in the session's configuration, frames per second; 0 without a session.
 int refresh_rate();
 
+/// 1 from the activity's onPause (APKRT_EVENT_PAUSE/STOP) until its onResume (APKRT_EVENT_RESUME), 0 otherwise
+/// and before any session: the state libc.so's minato_activity_paused reports for the SDL swap override. The
+/// address is stable for the process; the loader points libc's minato_activity_paused_flag at it (dl.cpp
+/// preload_sdl_swap).
+int *activity_paused_address();
+
 /// The private syscalls (guest_interface.h): session_connect with the guest's struct apkrt_configuration,
 /// session_configuration, session_answer and session_request.
 long connect(std::uint64_t configuration);

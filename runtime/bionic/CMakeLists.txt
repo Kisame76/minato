@@ -132,6 +132,13 @@ target_compile_options(bionic_ld_android PRIVATE -mno-outline-atomics)
 # Scudo's #include "custom_scudo_config.h" finds our copy.
 target_include_directories(bionic_libscudo BEFORE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/scudo")
 
+# minato_activity_paused: the query the SDL swap override (libminato-sdl.so) asks, exported from libc.so and reading
+# the host's paused int through a pointer the loader sets (runtime/src/dl.cpp preload_sdl_swap). Added to guest_libc
+# before the bigregions variant copies its sources below, so both carry it; exported by src/libc_start.map.
+apk_bionic_unit(apk_minato_activity SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/minato_activity.c"
+  CFLAGS -Wall -Wextra STRICT)
+target_sources(guest_libc PRIVATE $<TARGET_OBJECTS:apk_minato_activity>)
+
 # A second guest libc, libc-bigregions.so: identical to libc.so but with scudo's 256 MiB regions (RegionSizeLog 28 vs
 # 27, ADR-0035 item 3). The loader maps /system/lib64/libc.so to whichever the process's address space allows. Only
 # the scudo objects differ -- one -D -- so recompile just those (bionic_libscudo_big) and relink libc with them swapped
@@ -350,6 +357,13 @@ apk_bionic_library(libminato-frame-rate UNITS apk_frame_rate NEEDED libc)
 apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${android_includes}
   CFLAGS -Wall -Wextra STRICT)
 apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
+
+# libminato-sdl.so (the SDL swap override): the wrapper of SDL_GL_SwapWindow that answers 0 for a swap that fails in
+# SDL's context backup at a pause, which the loader preloads when it is among the system's libraries
+# (runtime/android/sdl.c).
+apk_bionic_unit(apk_sdl SOURCES "${android_sources}/sdl.c" INCLUDES ${android_includes}
+  CFLAGS -Wall -Wextra STRICT)
+apk_bionic_library(libminato-sdl UNITS apk_sdl NEEDED libc)
 
 # libminato-mono.so (the Mono switch, ADR-0071 decision 3): the wrapper of mono_jit_set_aot_mode that hands Mono the
 # interpreter's mode, which the loader preloads when it is among the system's libraries (runtime/android/mono.c).

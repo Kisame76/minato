@@ -55,6 +55,8 @@ constexpr std::size_t text_limit = 1024;        // of a START_FAILED text, the N
 std::atomic_flag claimed = ATOMIC_FLAG_INIT;  // by the first apkrt_session_begin that is valid
 apkrt_session described{};                    // written once, before `begun`
 std::atomic<bool> begun{false};
+// 1 from onPause/onStop until onResume; libc's minato_activity_paused reads it
+std::atomic<int> activity_paused{0};
 std::atomic<double> render_scale{1.0};  // ADR-0067 point 3: the session configuration the guest reads is scaled
                                         // by this (0.25 to 1, applied on read); 1 is no change
 
@@ -1369,6 +1371,8 @@ long request(std::uint64_t type, std::uint64_t a0, std::uint64_t a1) {
     }
 }
 
+int *activity_paused_address() { return reinterpret_cast<int *>(&activity_paused); }
+
 }  // namespace apkrt::session
 
 extern "C" int apkrt_session_set_render_scale(double scale) {
@@ -1457,8 +1461,10 @@ extern "C" uint32_t apkrt_session_post(uint32_t type, uint64_t a0, uint64_t a1, 
     // Minato's stall watchdog: resume arms its no-first-frame timer, pause or stop disarms it (session log diagnostic).
     if (type == APKRT_EVENT_RESUME) {
         apkrt::stall::resumed(clock_gettime_nsec_np(CLOCK_MONOTONIC));
+        activity_paused.store(0, std::memory_order_relaxed);
     } else if (type == APKRT_EVENT_PAUSE || type == APKRT_EVENT_STOP) {
         apkrt::stall::paused();
+        activity_paused.store(1, std::memory_order_relaxed);
     }
     if (type == APKRT_EVENT_TRIM_MEMORY) {
         log_memory_footprint(static_cast<unsigned>(a0));

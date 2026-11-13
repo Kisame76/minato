@@ -5,4 +5,6 @@ APKRT_PRIVATE {
     __apkrt_tlsdesc_resolvers;
     __apkrt_register_tls_module;
     __apkrt_sigreturn;
+    minato_activity_paused;
+    minato_activity_paused_flag;
 };

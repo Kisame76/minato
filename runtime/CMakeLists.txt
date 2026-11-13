@@ -786,6 +786,12 @@ if(APK_HOST_BUILD)
       "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
       "${CMAKE_CURRENT_BINARY_DIR}/luajit_switch_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/luajit-switch-test.out")
   set_tests_properties(runtime.luajit_switch PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
+  # The SDL swap override: an SDL 2 swap that fails in SDL's context backup at a pause counts as a dropped frame.
+  add_test(NAME runtime.sdl_swap
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/sdl_swap_run.py" "${APK_FIXTURES_DIR}"
+      "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}" $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run>
+      "${CMAKE_CURRENT_BINARY_DIR}/sdl_swap_runs" "${PROJECT_SOURCE_DIR}/fixtures/expected/sdl-swap-test.out")
+  set_tests_properties(runtime.sdl_swap PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 120)
   # The Mono switch (Mono's JIT switched to its interpreter, ADR-0071 decision 3): mono_jit_set_aot_mode of a Mono gets
   # MONO_AOT_MODE_INTERP.
   add_test(NAME runtime.mono_switch

@@ -166,6 +166,13 @@ add_library(fake-luajit SHARED suite/libfake-luajit.c)
 add_library(fake-lua SHARED suite/libfake-lua.c)
 add_executable(luajit-switch-test suite/luajit-switch-test.c)
 target_link_libraries(luajit-switch-test PRIVATE fake-luajit dl)
+# sdl-swap-test and the two libraries that stand in for libSDL2 by its exported names and for the runtime's
+# minato_activity_paused (the SDL swap override, runtime/tests/sdl_swap_run.py): the app imports SDL_GL_SwapWindow, or
+# looks it up with dlsym.
+add_library(fake-sdl2 SHARED suite/libfake-sdl2.c)
+add_library(fake-activity-paused SHARED suite/libfake-activity-paused.c)
+add_executable(sdl-swap-test suite/sdl-swap-test.c)
+target_link_libraries(sdl-swap-test PRIVATE fake-sdl2 fake-activity-paused dl)
 # mono-switch-test and the two libraries that stand in for Mono and for a library that only borrows its mode name (the
 # Mono switch, runtime/tests/mono_switch_run.py): the app imports the names, or looks them up with dlsym.
 add_library(fake-mono SHARED suite/libfake-mono.c)

@@ -4,6 +4,7 @@
 #include "guest_call.h"
 #include "loader_syscalls.h"
 #include "process_exit.h"
+#include "session.h"
 #include "signals.h"
 #include "vfs.h"
 
@@ -1237,6 +1238,39 @@ std::vector<Library *> preload_ffi_closures(State &state, Library &program, bool
     return std::move(preloaded->added);
 }
 
+/// The SDL swap override, libminato-sdl.so (runtime/android/sdl.c), loaded the same way: SDL_GL_SwapWindow of an
+/// object that also defines SDL_GL_GetCurrentContext (SDL 2) becomes its wrapper, which answers 0 for a swap that
+/// failed in SDL's context backup at a pause (no context current, the activity paused). The libraries it adds to
+/// the program's group, none without it.
+std::vector<Library *> preload_sdl_swap(State &state, Library &program, bool &missed) {
+    constexpr std::string_view name = "libminato-sdl.so";
+    auto preloaded = preload_optional(state, program, missed, name);
+    if (!preloaded) return {};
+    const auto &object = preloaded->library->object;
+    const auto slot = [&](const char *wanted) {
+        return reinterpret_cast<std::uint64_t *>(
+            linker::symbol_address(object, *required_symbol(object, name, wanted)));
+    };
+    linker::add_overrides({{.name = "SDL_GL_SwapWindow",
+                            .wrapper = &object,
+                            .replacement = required_symbol(object, name, "minato_sdl_swap_window"),
+                            .original = slot("minato_sdl_swap_original"),
+                            .requires_symbol = "SDL_GL_GetCurrentContext",
+                            .companion = slot("minato_sdl_current_context")}});
+    // The wrapper's weak import minato_activity_paused is answered by libc.so, which reads the int whose address
+    // the loader enters here: the host's paused flag (apkrt_session_post toggles it at onPause/onStop and
+    // onResume). libc is in scope -- preload_optional returned non-null only because the program links libc.
+    for (auto *library : local_group(program)) {
+        if (library->object.name != "libc.so") continue;
+        if (const auto *flag = linker::find_symbol(library->object, "minato_activity_paused_flag"); flag != nullptr) {
+            *reinterpret_cast<int **>(linker::symbol_address(library->object, *flag)) =
+                apkrt::session::activity_paused_address();
+        }
+        break;
+    }
+    return std::move(preloaded->added);
+}
+
 /// The JavaScriptCore switch, libminato-jsc.so (runtime/android/jsc.c), loaded the same way: its one function, which
 /// sets the two variables that make JavaScriptCore start its interpreter (ADR-0071), is kept for the loader to call
 /// when a library that defines JSGlobalContextCreate is mapped (prepare_jit_engines).
@@ -1385,6 +1419,7 @@ void load_program(const std::filesystem::path &container, const loader::Image &i
         for (auto *library : preload_frame_rate(state, program, missed)) added.push_back(library);
         for (auto *library : preload_luajit_switch(state, program, missed)) added.push_back(library);
         for (auto *library : preload_mono_switch(state, program, missed)) added.push_back(library);
+        for (auto *library : preload_sdl_swap(state, program, missed)) added.push_back(library);
         for (auto *library : preload_jsc_switch(state, program, missed)) added.push_back(library);
         for (auto *library : preload_ffi_closures(state, program, missed)) added.push_back(library);
         for (auto *library : added) {
