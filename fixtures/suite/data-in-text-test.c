@@ -23,7 +23,8 @@
     long dit_after##suffix(void);                 \
     long dit_nofde##suffix(void);                 \
     long dit_weak_victim##suffix(void);           \
-    long dit_noret##suffix(void);
+    long dit_noret##suffix(void);                 \
+    long dit_weak_x18##suffix(void);
 DECLARE(_sym)
 DECLARE(_strip)
 DECLARE(_rela)
@@ -43,7 +44,7 @@ DECLARE(_relr)
                dit_after##suffix() == (long)getpid() && dit_add##suffix() == (long)getpid() &&                \
                        dit_ldur##suffix() == (long)getpid() && dit_nofde##suffix() == (long)getpid() &&               \
                        dit_weak_victim##suffix() == (long)getpid() &&                                          \
-                       dit_noret##suffix() == (long)getpid()                                                   \
+                       dit_noret##suffix() == (long)getpid() && dit_weak_x18##suffix() == (long)getpid()       \
                    ? "match" : "differ");                                                                      \
         printf("%s stubs: %s %s %s %s\n", name, dit_via_adr##suffix() == (long)getpid() ? "match" : "differ", \
                dit_via_bl##suffix() == (long)getpid() ? "match" : "differ",                                  \

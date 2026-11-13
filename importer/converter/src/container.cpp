@@ -329,6 +329,23 @@ CodeScan scan_sections(const elf::File &file, std::span<const std::byte> elf_byt
                       true);  // ADR-0020
         scan.code_bytes += section.size;
     }
+    // A refused word that no proven code reaches and that has the one form no compiler writes (a SIMD structure
+    // access that steps SP by x18) is data that nothing proves: it stays as it is and is only counted (ADR-0020). Only
+    // with the split: without it nothing is known of what is reached. Only a word that would still be refused after
+    // the whole-function renames: a function that option (c) renames takes the word too, and a word kept as it is
+    // would run with the platform's x18.
+    if (split) {
+        auto &unsupported = scan.findings.x18_unsupported;
+        auto plan = c_rename_plan(elf_bytes, unsupported);
+        keep_c_functions_clear_of_islands(plan, scan.findings);
+        std::erase_if(unsupported, [&](const rewrite::Unsupported &use) {
+            const bool strong = data_ranges.reach_of(use.address) == data::Reach::strong;
+            if (strong || !rewrite::is_simd_sp_step_by_x18(use.word)) return false;
+            if (std::ranges::find(plan.covered_sites, use.address) != plan.covered_sites.end()) return false;
+            scan.findings.x18_kept_weak.push_back(use);
+            return true;
+        });
+    }
     return scan;
 }
 
@@ -1077,6 +1094,10 @@ void refuse_unsupported_x18(std::span<const std::byte> elf_bytes, const rewrite:
         hints += std::format("; refused words: {} strongly reached, {} weakly reached, {} unreached ({} behind an "
                              "unproven base)",
                              strong, weak, unreached, behind);
+        if (!findings.x18_kept_weak.empty()) {
+            hints += std::format("; kept: {} weakly reached words of a form no compiler writes",
+                                 findings.x18_kept_weak.size());
+        }
     } catch (const std::exception &) {
     }
     throw Incompatible(x18_refusal(remaining, elf::read_symbols(elf_bytes), sections,
@@ -1655,6 +1676,7 @@ Counts counts(std::span<const std::byte> elf_bytes) {
     const auto &findings = scan.findings;
     Counts result;
     result.svc_data = static_cast<std::uint32_t>(findings.data_syscalls.size());
+    result.x18_kept_weak = static_cast<std::uint32_t>(findings.x18_kept_weak.size());
     result.undefined_words = static_cast<std::uint32_t>(findings.undefined_words.size());
     // svc words that lie in a proven data range: the part of each range inside a section the scan reads, the same
     // clipping as the scan's own masking, so the two agree on every word.

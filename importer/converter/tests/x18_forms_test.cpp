@@ -1,7 +1,7 @@
-// Two words that use x18 in an encoding no compiler writes, as a library with them in a function: the refusal names
+// Two words that use x18 in encodings that no island runs, as a library with them in a function: the refusal names
 // each one exactly (the word and its kind), so a report from a real import can be compared with it, and the pair
 // together.
-//  - 0x0c928be6: st2 {v6.2s, v7.2s}, [sp], x18: x18 is the post-index amount and the stack pointer is the base.
+//  - 0xf84107f2: ldr x18, [sp], #16: x18 is written and the stack pointer moves by the writeback.
 //  - 0x49dcdc72: caspalt x28, x29, x18, x19, [x3]: the unprivileged compare-and-swap pair of FEAT_LSUI (Armv9.6), whose
 //    second pair is x18, x19; undefined on a CPU without that feature.
 #include "apkconv/container.h"
@@ -17,7 +17,7 @@ namespace {
 
 using namespace apk::testing;
 
-constexpr std::uint32_t st2_sp_x18 = 0x0c92'8be6;
+constexpr std::uint32_t pop_x18_sp = 0xf841'07f2;
 constexpr std::uint32_t caspalt_x18 = 0x49dc'dc72;
 constexpr std::uint32_t nop = 0xd503'201f;
 constexpr std::uint32_t ret = 0xd65f'03c0;
@@ -125,14 +125,14 @@ bool contains(const std::string &text, const std::string &part) {
 // With the function's bounds from a sized symbol, the converter renames x18 through the whole function and takes the
 // store: nothing is refused.
 TEST(takes_the_store_with_sp_as_base_and_x18_as_post_index_in_a_function_with_a_sized_symbol) {
-    CHECK(refusal_of(library({nop, st2_sp_x18, ret})).empty());
+    CHECK(refusal_of(library({nop, pop_x18_sp, ret})).empty());
 }
 
 // Without a symbol (a stripped library) it has no bounds for the function and refuses the word, as in a real report.
 TEST(refuses_the_store_with_sp_as_base_in_a_stripped_library_and_names_the_word) {
-    const auto text = refusal_of(library({nop, st2_sp_x18, ret}, false));
+    const auto text = refusal_of(library({nop, pop_x18_sp, ret}, false));
     CHECK(contains(text, "x18 at 0x204 cannot run on iOS: it moves the stack pointer, below which the island keeps "
-                         "its registers [word 0x0c928be6, stack pointer use]"));
+                         "its registers [word 0xf84107f2, stack pointer use]"));
     CHECK(contains(text, "no .symtab"));
 }
 
@@ -147,50 +147,50 @@ TEST(keeps_the_unprivileged_compare_and_swap_pair_that_ends_in_x18_and_x19_with_
 // A stripped library with unwind tables: the FDE is the function's bounds when no sized symbol holds the word, and the
 // whole-function rename takes the store as it does with a symbol.
 TEST(takes_the_store_with_sp_as_base_in_a_stripped_library_whose_unwind_table_bounds_the_function) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, ret};
     CHECK(refusal_of(library(words, false, {{0x200, 12}})).empty());
 }
 
 // ...but a symbol that lies inside the FDE's range and does not hold the word makes the bounds doubtful: the symbol
 // wins and nothing bounds the function.
 TEST(refuses_the_store_when_a_sized_symbol_lies_inside_the_range_of_its_fde) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 16}}, {0x208, 4}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 // Two unwind entries that overlap are no function bounds either.
 TEST(refuses_the_store_when_two_fdes_overlap) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 16}, {0x204, 12}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 // An entry that overlaps another one is no function even when only one of them holds the word.
 TEST(refuses_the_store_when_the_fde_that_holds_it_overlaps_another_one) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 12}, {0x208, 8}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 // An entry that ends before the function's return is no whole function: the rename would leave the rest on x18.
 TEST(refuses_the_store_when_its_fde_ends_before_the_return) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 8}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 // An entry that runs past the end of the section is cut at the section's end.
 TEST(cuts_the_bounds_at_the_end_of_the_section_when_the_fde_runs_past_it) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, ret};
     CHECK(refusal_of(library(words, false, {{0x200, 0x40}})).empty());
 }
 
 // An FDE that does not hold the word gives no bounds.
 TEST(refuses_the_store_when_no_fde_holds_it) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x208, 8}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 // The rename leaves x30 pointing into a call island, so a function that calls one reading x30 as a value is
@@ -199,13 +199,13 @@ constexpr std::uint32_t bl_plus_8 = 0x9400'0002;      // bl .+8: from 0x208 to 0
 constexpr std::uint32_t mov_x9_x30 = 0xaa1e'03e9;     // mov x9, x30: reads the link register as a value
 
 TEST(refuses_the_store_when_a_callee_found_by_its_fde_reads_x30_as_a_value) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, mov_x9_x30, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, bl_plus_8, ret, mov_x9_x30, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 16}, {0x210, 8}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 TEST(takes_the_store_when_a_callee_found_by_its_fde_does_not_read_x30) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, bl_plus_8, ret, nop, ret};
     CHECK(refusal_of(library(words, false, {{0x200, 16}, {0x210, 8}})).empty());
 }
 
@@ -213,26 +213,26 @@ TEST(takes_the_store_when_a_callee_found_by_its_fde_does_not_read_x30) {
 // checked for a read of x30, and the rename never guesses: the function is refused. A call into the PLT is an import
 // call and stays allowed.
 TEST(refuses_the_store_when_a_callee_has_neither_a_symbol_nor_an_unwind_entry) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, bl_plus_8, ret, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 16}}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 TEST(refuses_the_store_when_the_caller_has_a_sized_symbol_and_the_callee_has_nothing) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, nop, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, bl_plus_8, ret, nop, ret};
     const auto text = refusal_of(library(words, false, {{0x200, 16}}, {0x200, 16}));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
 }
 
 TEST(takes_the_store_when_the_callee_is_a_plt_stub) {
-    const std::vector<std::uint32_t> words = {nop, st2_sp_x18, bl_plus_8, ret, ret};
+    const std::vector<std::uint32_t> words = {nop, pop_x18_sp, bl_plus_8, ret, ret};
     CHECK(refusal_of(library(words, false, {{0x200, 16}}, {}, 1)).empty());
 }
 
 TEST(names_only_the_store_when_both_words_are_in_a_stripped_library) {
-    const auto text = refusal_of(library({nop, st2_sp_x18, nop, caspalt_x18, ret}, false));
+    const auto text = refusal_of(library({nop, pop_x18_sp, nop, caspalt_x18, ret}, false));
     CHECK(contains(text, "x18 at 0x204 cannot run on iOS: it moves the stack pointer"));
-    CHECK(contains(text, "[word 0x0c928be6, stack pointer use]"));
+    CHECK(contains(text, "[word 0xf84107f2, stack pointer use]"));
     CHECK(!contains(text, "0x49dcdc72"));
 }
 
@@ -243,11 +243,11 @@ constexpr std::uint32_t svc_1 = 0xd400'0021;
 constexpr std::uint32_t ldr_w0_literal_8 = 0x1800'0040;  // ldr w0, pc+8: reads one word, 0x208
 
 TEST(counts_a_rename_by_symbol_and_one_by_unwind_entry_apart) {
-    const auto by_symbol = apk::container::counts(library({nop, st2_sp_x18, ret}));
+    const auto by_symbol = apk::container::counts(library({nop, pop_x18_sp, ret}));
     CHECK(by_symbol.renames_by_symbol == 1 && by_symbol.renames_by_unwind == 0);
-    const auto by_unwind = apk::container::counts(library({nop, st2_sp_x18, ret}, false, {{0x200, 12}}));
+    const auto by_unwind = apk::container::counts(library({nop, pop_x18_sp, ret}, false, {{0x200, 12}}));
     CHECK(by_unwind.renames_by_symbol == 0 && by_unwind.renames_by_unwind == 1);
-    const auto refused = apk::container::counts(library({nop, st2_sp_x18, ret}, false));
+    const auto refused = apk::container::counts(library({nop, pop_x18_sp, ret}, false));
     CHECK(refused.renames_by_symbol == 0 && refused.renames_by_unwind == 0);
 }
 

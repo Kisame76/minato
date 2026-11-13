@@ -991,6 +991,108 @@ TEST(an_unproven_load_inside_its_own_function_still_makes_the_word_it_names_a_li
     CHECK(scan.findings.data_syscalls == std::vector<std::uint64_t>{0x210});
 }
 
+// ADR-0020, amendment of 2026-11-13: a weakly reached word of the one form no compiler writes (a SIMD structure
+// access that steps SP by x18) is kept as it is and counted, not refused. f is sized: mov x8, #172; svc #0 (a barrier,
+// so what follows only reaches); the word; ret.
+constexpr std::uint32_t st2_sp_x18 = 0x0c92'8be6;      // st2 {v6.2s, v7.2s}, [sp], x18
+constexpr std::uint32_t st1_lane_sp_x18 = 0x0d92'03e0;  // st1 {v0.b}[0], [sp], x18
+constexpr std::uint32_t push_x18 = 0xf81f'0ff2;        // str x18, [sp, #-16]!
+constexpr std::uint32_t pop_x18 = 0xf841'07f2;         // ldr x18, [sp], #16
+
+// The function ends in a branch to its own first word, so option (c) cannot rename it: nothing else takes the word.
+TEST(a_weakly_reached_simd_access_that_steps_sp_by_x18_is_kept_and_counted_not_refused) {
+    for (const auto word : {st2_sp_x18, st1_lane_sp_x18}) {
+        const auto bytes = library({mov_x8_172, svc0, word, 0x17ff'fffd}, {{"f", 0x200, 16}});
+        const auto scan = apk::container::scan_code(bytes);
+        CHECK(scan.findings.x18_unsupported.empty());
+        CHECK(scan.findings.x18_kept_weak.size() == 1 && scan.findings.x18_kept_weak[0].address == 0x208);
+        CHECK(apk::container::counts(bytes).x18_kept_weak == 1);
+    }
+}
+
+TEST(the_same_word_reached_by_proven_code_is_still_refused) {
+    const auto bytes = library({st2_sp_x18, ret}, {{"f", 0x200, 8}});
+    const auto scan = apk::container::scan_code(bytes);
+    CHECK(scan.findings.x18_unsupported.size() == 1 && scan.findings.x18_kept_weak.empty());
+}
+
+TEST(a_weakly_reached_push_or_pop_of_x18_is_still_refused) {
+    for (const auto word : {push_x18, pop_x18}) {
+        const auto bytes = library({mov_x8_172, svc0, word, ret}, {{"f", 0x200, 16}});
+        const auto scan = apk::container::scan_code(bytes);
+        CHECK(scan.findings.x18_unsupported.size() == 1 && scan.findings.x18_kept_weak.empty());
+        }
+}
+
+// A stripped function that only an unwind entry bounds is renamed as a whole (x18 becomes a free register), so the
+// word is covered and must not also be kept as it is: kept, it would run with the platform's x18.
+TEST(a_weakly_reached_word_that_the_unwind_rename_covers_is_not_kept) {
+    using namespace apk::testing;
+    ElfBuilder builder;
+    builder.bytes.resize(0x400);
+    builder.put<std::uint64_t>(24, 0x4200);
+    builder.segments({{pt_load, r | x, 0, 0, 0x400, 0x400, 0x1000}});
+    const unsigned char cie[] = {0x10, 0, 0, 0, 0, 0, 0, 0, 1, 'z', 'R', 0, 0x04, 0x78, 0x1e, 0x01, 0x1b, 0, 0, 0};
+    // The FDE covers [0x200, 0x220): pc_begin 0x200 - 0x11c, pc_range 0x20.
+    const unsigned char fde[] = {0x10, 0, 0, 0, 0x18, 0, 0, 0, 0xe4, 0, 0, 0, 0x20, 0, 0, 0, 0, 0, 0, 0};
+    std::memcpy(builder.bytes.data() + 0x100, cie, sizeof cie);
+    std::memcpy(builder.bytes.data() + 0x114, fde, sizeof fde);
+    // mov x10, x18; sub sp, sp, #32; mov x9, sp; mov x18, #16; st2 {v6.2s, v7.2s}, [sp], x18; add sp, sp, #16;
+    // mov x18, x10; ret
+    const std::uint32_t words[] = {0xaa12'03ea, 0xd100'83ff, 0x9100'03e9, 0xd280'0212,
+                                   st2_sp_x18,  0x9100'43ff, 0xaa0a'03f2, ret};
+    std::memcpy(builder.bytes.data() + 0x200, words, sizeof words);
+    builder.sections({{".eh_frame", sht_progbits, shf_alloc, 0x100, 0x100, 0x28},
+                      {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof words}},
+                     {});
+    const auto scan = apk::container::scan_code(builder.bytes);
+    CHECK(scan.findings.x18_kept_weak.empty());
+    CHECK(scan.findings.x18_unsupported.size() == 1);
+    const auto plan = apk::container::c_rename_plan(builder.bytes, scan.findings.x18_unsupported);
+    CHECK(plan.covered_sites.size() == 1);
+    CHECK(apk::container::counts(builder.bytes).x18_kept_weak == 0);
+}
+
+// A rename that option (c) drops again (a thread-pointer read as the first word of the function) covers nothing: the
+// word is then kept as it is, not refused and not renamed.
+TEST(a_weakly_reached_word_in_a_function_whose_rename_is_dropped_is_kept) {
+    using namespace apk::testing;
+    ElfBuilder builder;
+    builder.bytes.resize(0x400);
+    builder.put<std::uint64_t>(24, 0x4200);
+    builder.segments({{pt_load, r | x, 0, 0, 0x400, 0x400, 0x1000}});
+    const unsigned char cie[] = {0x10, 0, 0, 0, 0, 0, 0, 0, 1, 'z', 'R', 0, 0x04, 0x78, 0x1e, 0x01, 0x1b, 0, 0, 0};
+    const unsigned char fde[] = {0x10, 0, 0, 0, 0x18, 0, 0, 0, 0xe4, 0, 0, 0, 0x24, 0, 0, 0, 0, 0, 0, 0};
+    std::memcpy(builder.bytes.data() + 0x100, cie, sizeof cie);
+    std::memcpy(builder.bytes.data() + 0x114, fde, sizeof fde);
+    // mrs x0, tpidr_el0; then the function of the test before
+    const std::uint32_t words[] = {0xd53b'd040, 0xaa12'03ea, 0xd100'83ff, 0x9100'03e9, 0xd280'0212,
+                                   st2_sp_x18,  0x9100'43ff, 0xaa0a'03f2, ret};
+    std::memcpy(builder.bytes.data() + 0x200, words, sizeof words);
+    builder.sections({{".eh_frame", sht_progbits, shf_alloc, 0x100, 0x100, 0x28},
+                      {".text", sht_progbits, shf_alloc | shf_execinstr, 0x200, 0x200, sizeof words}},
+                     {});
+    const auto scan = apk::container::scan_code(builder.bytes);
+    CHECK(scan.findings.x18_unsupported.empty());
+    CHECK(scan.findings.x18_kept_weak.size() == 1);
+}
+
+TEST(the_word_is_not_kept_when_the_scan_does_not_split) {
+    const auto bytes = library({mov_x8_172, svc0, st2_sp_x18, ret}, {{"f", 0x200, 16}});
+    const auto scan = apk::container::scan_code(bytes, false);
+    CHECK(scan.findings.x18_unsupported.size() == 1 && scan.findings.x18_kept_weak.empty());
+}
+
+TEST(the_form_test_names_the_simd_access_stepping_sp_by_x18_and_nothing_near_it) {
+    using apk::rewrite::is_simd_sp_step_by_x18;
+    CHECK(is_simd_sp_step_by_x18(st2_sp_x18) && is_simd_sp_step_by_x18(st1_lane_sp_x18));
+    CHECK(!is_simd_sp_step_by_x18(0x0c9f'8be6));   // the immediate step (Rm = 31)
+    CHECK(!is_simd_sp_step_by_x18(0x0c92'88e6));   // base x7, not SP
+    CHECK(!is_simd_sp_step_by_x18(0x0c93'8be6));   // x19 as the step
+    CHECK(!is_simd_sp_step_by_x18(0x0c12'8be6));   // no post-index
+    CHECK(!is_simd_sp_step_by_x18(push_x18) && !is_simd_sp_step_by_x18(pop_x18));
+}
+
 TEST(fcmp_ccmp_adcs_and_sbcs_set_the_flags_the_branch_reads) {
     for (const std::uint32_t word : {0x1e21'2000u /* fcmp s0, s1 */, 0x7a41'8000u /* ccmp w0, w1, #0, hi */,
                                      0x3a02'0042u /* adcs w2, w2, w2 */, 0x7a02'0042u /* sbcs w2, w2, w2 */}) {

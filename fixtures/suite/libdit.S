@@ -407,3 +407,14 @@ function F(dit_noret)
     .p2align 2
 1:  .word   0x4862fe44
 end_function F(dit_noret)
+
+// long dit_weak_x18(void): the pid; behind the svc (a barrier, so what follows is only reached) a cbz on xzr that is
+// always taken jumps over a word that decodes as `st2 {v6.2s, v7.2s}, [sp], x18`: the one form that steps sp by x18,
+// which no compiler writes. Never run, never proven: the converter keeps it as it is and does not refuse the library.
+function F(dit_weak_x18)
+    mov     x8, #172
+    svc     #0
+    cbz     xzr, 1f
+    .word   0x0c928be6
+1:  ret
+end_function F(dit_weak_x18)

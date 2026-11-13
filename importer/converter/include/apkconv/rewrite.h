@@ -55,6 +55,12 @@ struct Site {
     bool operator==(const Site &) const = default;
 };
 
+/// Whether `word` is an Advanced SIMD structure load or store (LD1 to LD4, ST1 to ST4: multiple or single structures,
+/// the replicating forms) post-indexed by a register, with base SP and the register x18 (not xzr) as the step: the one
+/// form that moves the stack pointer by a register and names x18, and one that no compiler for Android writes (x18 is
+/// reserved there, and its stack writeback has an immediate). ADR-0020, amendment of 2026-11-13.
+bool is_simd_sp_step_by_x18(std::uint32_t word);
+
 /// An instruction that uses x18 in a form no island handles (yet), and why.
 struct Unsupported {
     std::uint64_t address;
@@ -126,6 +132,9 @@ struct Findings {
     std::vector<std::uint64_t> x18_saves;
     /// Uses of x18 that no island handles; the converter refuses a file with any of them.
     std::vector<Unsupported> x18_unsupported;
+    /// Words that only look like such a use (container.cpp's scan_code moves them here from x18_unsupported): not
+    /// strongly reached, and of the one form that is_simd_sp_step_by_x18 names. They stay as they are.
+    std::vector<Unsupported> x18_kept_weak;
     /// Register branches that are no recognized jump table, each of which ended the monitor hull of a path an LL/SC window
     /// or an in-sequence x18 use was judged by (ADR-0020): the import report counts them.
     std::set<std::uint64_t> hull_ending_register_branches;

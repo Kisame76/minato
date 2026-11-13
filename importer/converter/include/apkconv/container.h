@@ -215,6 +215,7 @@ struct Counts {
     std::uint32_t svc_data = 0;
     std::uint32_t svc_in_data = 0;  // svc words in the proven data ranges: data, neither rewritten nor kept
     std::uint32_t undefined_words = 0;
+    std::uint32_t x18_kept_weak = 0;  // weakly reached SIMD accesses that step SP by x18: kept as they are
     std::uint32_t x18_islands = 0;
     std::uint32_t renames_by_symbol = 0;
     std::uint32_t renames_by_unwind = 0;

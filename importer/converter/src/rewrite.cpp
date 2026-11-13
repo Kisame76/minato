@@ -1459,6 +1459,15 @@ const char *instruction_kind(std::uint32_t word) {
     return "other";
 }
 
+bool is_simd_sp_step_by_x18(std::uint32_t word) {
+    // Multiple structures (0 Q 0011001 L 0 Rm opcode size Rn Rt) and single structures (0 Q 0011011 L R Rm ...),
+    // both with post-index by register: bit 23 set, Rm in bits 20:16.
+    const bool multiple = (word & 0xbfa0'0000) == 0x0c80'0000;
+    const bool single = (word & 0xbf80'0000) == 0x0d80'0000;
+    if (!multiple && !single) return false;
+    return ((word >> 16) & 0x1f) == 18 && rn_field(word) == sp;
+}
+
 void scan(std::span<const std::byte> code, std::uint64_t address, Findings &findings,
           const ReadOnlyData &read_only_data, bool monitor_inside) {
     if (address % 4 != 0 || code.size() % 4 != 0) {
