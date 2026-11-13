@@ -13,4 +13,11 @@ I/breadth-test: debug natives: native heap in use true, in use within size true,
 I/breadth-test: debug natives: MemoryInfo native true, Java heap true, total true, total holds the parts true, private dirty true
 I/breadth-test: debug natives: own Pss true
 I/breadth-test: debug natives: every hidden native is linked true
+I/breadth-test: network types: android.net.IpConfiguration new true
+I/breadth-test: network types: android.net.IpConfiguration builder or setters true
+I/breadth-test: network types: android.net.StaticIpConfiguration new true
+I/breadth-test: network types: android.net.StaticIpConfiguration builder or setters true
+I/breadth-test: network types: SSLCertificateSocketFactory default suites true, supported true
+I/breadth-test: network types: SSLCertificateSocketFactory insecure is one of its own class true
+I/breadth-test: network types: SensorPrivacyManager sensors microphone 1 camera 2, toggle types software 1 hardware 2
 I/breadth-test: done

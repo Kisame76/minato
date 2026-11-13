@@ -481,3 +481,9 @@ android.service.autofill.SaveRequest
 # Batch H6, part 2: the media route button and its action provider (hidden members of the legacy MediaRouter).
 android.app.MediaRouteActionProvider
 android.app.MediaRouteButton
+# The callable network and security types.
+android.net.IpConfiguration
+android.net.StaticIpConfiguration
+android.net.CaptivePortal
+android.net.SSLCertificateSocketFactory
+android.hardware.SensorPrivacyManager

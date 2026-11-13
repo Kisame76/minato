@@ -451,4 +451,9 @@ I/api-breadth-test: android.service.autofill.FillRequest: loads
 I/api-breadth-test: android.service.autofill.SaveRequest: loads
 I/api-breadth-test: android.app.MediaRouteActionProvider: loads
 I/api-breadth-test: android.app.MediaRouteButton: loads
+I/api-breadth-test: android.net.IpConfiguration: loads
+I/api-breadth-test: android.net.StaticIpConfiguration: loads
+I/api-breadth-test: android.net.CaptivePortal: loads
+I/api-breadth-test: android.net.SSLCertificateSocketFactory: loads
+I/api-breadth-test: android.hardware.SensorPrivacyManager: loads
 I/api-breadth-test: done

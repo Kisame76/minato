@@ -3334,3 +3334,17 @@ frameworks_base/core/java/com/android/internal/app/MediaRouteChooserDialogFragme
 frameworks_base/core/java/com/android/internal/app/MediaRouteControllerDialog.java
 frameworks_base/core/java/com/android/internal/app/MediaRouteControllerDialogFragment.java
 frameworks_base/core/java/com/android/internal/app/MediaRouteDialogPresenter.java
+
+# The callable network and security types: IpConfiguration, StaticIpConfiguration and the captive portal's
+# CaptivePortal with its ICaptivePortal interface, from the connectivity module's sources; SSLCertificateSocketFactory
+# with RoSystemProperties (our CryptoProperties and HdmiProperties stand in for the generated sysprop classes);
+# SensorPrivacyManager (our three stand-ins for its proto classes).
+connectivity_java/framework/src/android/net/IpConfiguration.java
+connectivity_java/framework/src/android/net/StaticIpConfiguration.java
+connectivity_java/framework/src/android/net/CaptivePortal.java
+connectivity_java/framework/src/android/net/ICaptivePortal.aidl
+frameworks_base/core/java/com/android/internal/os/RoSystemProperties.java
+frameworks_base/core/java/android/net/SSLCertificateSocketFactory.java
+frameworks_base/core/java/android/hardware/SensorPrivacyManager.java
+frameworks_base/core/java/android/hardware/ISensorPrivacyListener.aidl
+frameworks_base/core/java/android/hardware/ISensorPrivacyManager.aidl

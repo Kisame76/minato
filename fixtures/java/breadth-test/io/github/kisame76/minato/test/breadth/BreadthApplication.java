@@ -29,6 +29,9 @@ import java.util.zip.GZIPOutputStream;
  * <li>debug natives (batch 3b): Debug's public memory numbers as relations that hold on any device (an app uses some
  * heap, the heap sizes add up, a MemoryInfo has its parts and Pss), and that none of its hidden natives lacks its
  * implementation, with their values only shown.
+ * <li>network types: what an app gets from IpConfiguration, StaticIpConfiguration and CaptivePortal
+ * (system API: the answers an app gets), the hidden constructor of CaptivePortal (only shown), the answers of
+ * SSLCertificateSocketFactory, and SensorPrivacyManager's constants read at run time.
  * </ul>
  * A failing part logs "failed" and its stack under breadth-test-device, which differs by device and is only shown.
  * tools/android-reference.sh takes the log from Android 15, and tools/breadth-check.sh compares Minato's with it.
@@ -48,6 +51,7 @@ public class BreadthApplication extends Application {
         part("base64", BreadthApplication::base64);
         part("debug natives", BreadthApplication::debugNatives);
         part("hidden natives", BreadthApplication::hiddenNatives);
+        part("network types", BreadthApplication::networkTypes);
         Log.i(TAG, "done");
     }
 
@@ -210,6 +214,66 @@ public class BreadthApplication extends Application {
     }
 
     /** Encoded bytes as text, with line ends shown. */
+    /** The result of `call`, or the class of what it threw: a hidden API's refusal is part of the answer. */
+    private interface Call {
+        Object run() throws Exception;
+    }
+
+    private static String outcome(Call call) {
+        try {
+            return String.valueOf(call.run());
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            return "threw " + e.getCause().getClass().getName();
+        } catch (Throwable t) {
+            return "threw " + t.getClass().getName();
+        }
+    }
+
+    /** IpConfiguration, StaticIpConfiguration, CaptivePortal, SSLCertificateSocketFactory, SensorPrivacyManager. */
+    private static void networkTypes() throws Exception {
+        for (String name : new String[] {"android.net.IpConfiguration", "android.net.StaticIpConfiguration"}) {
+            Class<?> type = Class.forName(name);
+            Log.i(TAG, "network types: " + name + " new " + outcome(() -> type.getConstructor().newInstance() != null));
+            Log.i(TAG, "network types: " + name + " builder or setters "
+                    + outcome(() -> type.getMethod("toString") != null));
+        }
+        // CaptivePortal: public methods on a portal made over a Binder that logs what it is asked.
+        final StringBuilder asked = new StringBuilder();
+        android.os.Binder binder = new android.os.Binder() {
+            @Override
+            protected boolean onTransact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) {
+                data.enforceInterface("android.net.ICaptivePortal");
+                asked.append(" code ").append(code).append(" arg ").append(data.readInt());
+                return true;
+            }
+        };
+        // The refusal of its hidden constructor is Android 15's (NoSuchMethodException); Minato's answer is only shown.
+        Log.i(TAG + "-device", "network types: CaptivePortal new " + outcome(() -> {
+            Object portal = Class.forName("android.net.CaptivePortal").getConstructor(android.os.IBinder.class)
+                    .newInstance(binder);
+            android.net.CaptivePortal.class.getMethod("ignoreNetwork").invoke(portal);
+            android.net.CaptivePortal.class.getMethod("reportCaptivePortalDismissed").invoke(portal);
+            return "asked" + asked;
+        }));
+        // SSLCertificateSocketFactory: what is the same on every device, as relations.
+        android.net.SSLCertificateSocketFactory factory = (android.net.SSLCertificateSocketFactory)
+                android.net.SSLCertificateSocketFactory.getDefault(1000, null);
+        Log.i(TAG, "network types: SSLCertificateSocketFactory default suites "
+                + (factory.getDefaultCipherSuites().length > 0) + ", supported "
+                + (factory.getSupportedCipherSuites().length > 0));
+        Log.i(TAG, "network types: SSLCertificateSocketFactory insecure is one of its own class "
+                + (android.net.SSLCertificateSocketFactory.getInsecure(1000, null) instanceof
+                        android.net.SSLCertificateSocketFactory));
+        // SensorPrivacyManager's constants, read at run time from the class (the app's own compile inlines its stubs).
+        Class<?> sensors = Class.forName("android.hardware.SensorPrivacyManager$Sensors");
+        Class<?> manager = Class.forName("android.hardware.SensorPrivacyManager");
+        Log.i(TAG, "network types: SensorPrivacyManager sensors microphone "
+                + outcome(() -> sensors.getField("MICROPHONE").getInt(null)) + " camera "
+                + outcome(() -> sensors.getField("CAMERA").getInt(null)) + ", toggle types software "
+                + outcome(() -> manager.getField("TOGGLE_TYPE_SOFTWARE").getInt(null)) + " hardware "
+                + outcome(() -> manager.getField("TOGGLE_TYPE_HARDWARE").getInt(null)));
+    }
+
     private static String shown(byte[] encoded) {
         return new String(encoded, StandardCharsets.US_ASCII).replace("\r", "\\r").replace("\n", "\\n");
     }

@@ -127,6 +127,8 @@ for path in "${taken[@]}"; do
     # The vibrator HAL's AIDL (gap 1's batch 3) from its own root, at its VINTF stability.
     [[ "$path" == hardware_interfaces_vibrator/* ]] &&
       roots=(-I"$SOURCES/hardware_interfaces_vibrator/vibrator/aidl" --structured --stability=vintf)
+    # The connectivity module's AIDL (CaptivePortal's ICaptivePortal) under its own root.
+    [[ "$path" == connectivity_java/* ]] && roots=(-I"$SOURCES/connectivity_java/framework/src")
     # frameworks/av's media AIDL (MediaPlayer's IPlayer, ADR-0060 e2e1) under its own two roots.
     [[ "$path" == frameworks_av_media_aidl/* ]] && roots=(-I"$SOURCES/frameworks_av_media_aidl/aidl"
       -I"$SOURCES/frameworks_av_media_aidl/media/libaudioclient/aidl")
