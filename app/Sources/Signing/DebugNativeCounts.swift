@@ -23,6 +23,7 @@ enum DebugNativeCounts {
             libraries += 1
             total.svc_rewritten += found.svc_rewritten
             total.svc_data += found.svc_data
+            total.svc_in_data += found.svc_in_data
             total.undefined_words += found.undefined_words
             total.x18_islands += found.x18_islands
             total.renames_by_symbol += found.renames_by_symbol
@@ -39,7 +40,8 @@ enum DebugNativeCounts {
 
     static func text(_ total: apkconv_counts, libraries: Int) -> String {
         "\(libraries) \(libraries == 1 ? "library" : "libraries"): "
-            + "svc \(total.svc_rewritten) rewritten, \(total.svc_data) kept as data; "
+            + "svc \(total.svc_rewritten) rewritten, \(total.svc_data) kept as data, "
+            + "\(total.svc_in_data) in proven data; "
             + "FEAT_LSUI kept \(total.undefined_words); x18 islands \(total.x18_islands); "
             + "whole-function renames \(total.renames_by_symbol) by symbol, \(total.renames_by_unwind) by unwind entry"
     }
