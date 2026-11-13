@@ -1,0 +1,4 @@
+libdit-sym.so 14
+libdit-strip.so 14
+libdit-rela.so 14
+libdit-relr.so 14

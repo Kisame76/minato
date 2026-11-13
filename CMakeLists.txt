@@ -146,6 +146,9 @@ if(APK_HOST_BUILD)
   add_test(NAME tools.license_rows
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/license-check-repo-test.py")
   set_tests_properties(tools.license_rows PROPERTIES SKIP_RETURN_CODE 77)
+  # tools/converter-fixture-check.sh with a stand-in converter: equal, too few, too many, no count, not built.
+  add_test(NAME tools.converter_fixture_check
+    COMMAND "${PROJECT_SOURCE_DIR}/tools/tests/converter_fixture_check_test.sh")
   # The source archive of the parts under the GPL-2.0 with the Classpath Exception and its SOURCE.txt (ADR-0033).
   add_test(NAME release.source_archive
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/source-archive-test.py")

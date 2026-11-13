@@ -75,6 +75,16 @@ if(APK_HOST_BUILD)
   add_test(NAME converter.data_split_bytes COMMAND data_split_bytes_test "${APK_FIXTURES_DIR}")
   set_tests_properties(converter.data_split_bytes PROPERTIES SKIP_RETURN_CODE 77)
 
+  # The same four libraries converted by apk-convert itself: the syscalls it rewrote in each must be the count in
+  # fixtures/expected/data-in-text-syscalls.txt (a real svc left in place shows as one too few); skipped (77) while
+  # the fixtures are missing.
+  add_test(NAME converter.fixture_syscalls
+    COMMAND "${PROJECT_SOURCE_DIR}/tools/converter-fixture-check.sh" $<TARGET_FILE:apk-convert>
+      "${PROJECT_SOURCE_DIR}/fixtures/expected/data-in-text-syscalls.txt"
+      "${APK_FIXTURES_DIR}/libdit-sym.so" "${APK_FIXTURES_DIR}/libdit-strip.so"
+      "${APK_FIXTURES_DIR}/libdit-rela.so" "${APK_FIXTURES_DIR}/libdit-relr.so")
+  set_tests_properties(converter.fixture_syscalls PROPERTIES SKIP_RETURN_CODE 77)
+
   # The reference code is assembled by the host toolchain and serves as the oracle for the stubs.
   enable_language(ASM)
   add_executable(rewrite_test tests/rewrite_test.cpp tests/rewrite_reference.S)
