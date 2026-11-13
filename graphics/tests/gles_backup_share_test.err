@@ -1,5 +1,11 @@
 I/libEGL  : eglCreateContext: context 0x2 made while context 0x1 is backed up on this thread and its window is not open: it shares 0x1's objects
 I/libEGL  : eglCreateContext: context 0x4 made while context 0x3 is backed up on this thread and its window is not open: it shares 0x3's objects
 I/libEGL  : eglCreateContext: context 0x13 made while context 0x12 is backed up on this thread and its window is not open: it shares 0x12's objects
-I/libEGL  : deletes made with no context current: 1 names dropped (framebuffers, made current in another context of the share group), as Android drops them
 I/libEGL  : deletes made with no context current: 1 names deleted when the thread made context 0x13 current, which shares context 0x12's objects
+I/libEGL  : deletes made with no context current: 1 framebuffers deleted when the thread made context 0x12 current again, after a context sharing its objects
+I/libEGL  : eglCreateContext: context 0x15 made while context 0x14 is backed up on this thread and its window is not open: it shares 0x14's objects
+I/libEGL  : deletes made with no context current: 1 names deleted when the thread made context 0x15 current, which shares context 0x14's objects
+I/libEGL  : deletes made with no context current: 1 framebuffers deleted when the thread made context 0x14 current again, after a context sharing its objects
+I/libEGL  : eglCreateContext: context 0x17 made while context 0x16 is backed up on this thread and its window is not open: it shares 0x16's objects
+I/libEGL  : deletes made with no context current: 1 names deleted when the thread made context 0x17 current, which shares context 0x16's objects
+I/libEGL  : deletes made with no context current: 1 names dropped (framebuffers, another context made current before their own), as Android drops them

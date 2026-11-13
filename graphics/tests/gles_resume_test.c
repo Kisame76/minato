@@ -384,10 +384,12 @@ int main(void) {
         const double make_ms = now_ms() - make_at;
         create_ok[r] = surface != EGL_NO_SURFACE && make_error == EGL_SUCCESS;
         atomic_store(&egl_surface, surface);
-        printf("return %d UI: new window %s; eglCreateWindowSurface(S2): %s, error 0x%x\n", r + 1,
-               id != 0 ? "added" : "ABSENT (MINATO_TEST_ADD_WINDOW)",
-               surface != EGL_NO_SURFACE ? "a surface" : "EGL_NO_SURFACE", make_error);
+        char made[160];
+        snprintf(made, sizeof made, "return %d UI: new window %s; eglCreateWindowSurface(S2): %s, error 0x%x\n",
+                 r + 1, id != 0 ? "added" : "ABSENT (MINATO_TEST_ADD_WINDOW)",
+                 surface != EGL_NO_SURFACE ? "a surface" : "EGL_NO_SURFACE", make_error);
         await_from(r, FR_BACKED_UP);
+        fputs(made, stdout);  /* said after R's backup line, which R prints when the foreground lets it go on */
         graphics_line();  /* depth after the backup released (diag only) */
         tell(TR_RESUME);
         await_from(r, FR_RESTORED);

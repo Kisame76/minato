@@ -11,7 +11,8 @@
      SDL's surfaceDestroyed, when Minato has removed the window.
    Then Ren'Py's deletes in D reach C's objects and its load goes into the share group, as it believes, and the deletes
    libEGL keeps for C (deferred.c) are applied when D is made current: the shared kinds (textures, buffers,
-   renderbuffers); framebuffers are per context and are dropped.
+   renderbuffers). Framebuffers are C's own: they wait for C, through D, and are deleted when the thread makes C
+   current again (SDL's restore); another context made current there drops them, as Android drops them.
    Each case backs up a context C with a texture on a new window, sets up one condition and asks D, made then and
    current on a pbuffer, glIsTexture of C's texture: shared or not. */
 #include <EGL/egl.h>
@@ -219,26 +220,49 @@ int main(void) {
     expect("8. C destroyed", sees(d, b.texture), 0);
     finish(&b, d);
 
-    /* 9. The deletes kept for C are applied when D is made current: the texture's in the share group, the
-       framebuffer's dropped (a framebuffer is C's own). C current again then lacks the texture only. */
-    b = back_up();
-    glDeleteTextures(1, &b.texture);  // no context current: kept for C
-    glDeleteFramebuffers(1, &b.framebuffer);
-    window_gone();
-    d = eglCreateContext(display, config, EGL_NO_CONTEXT, version3);
-    const int kept_seen = sees(d, b.kept);  // D made current: the kept deletes run
-    EGLSurface pbuffer = eglCreatePbufferSurface(display, config, small);
-    eglMakeCurrent(display, pbuffer, pbuffer, b.context);
-    const int texture_gone = glIsTexture(b.texture) == GL_FALSE, other_kept = glIsTexture(b.kept) == GL_TRUE;
-    const int framebuffer_kept = glIsFramebuffer(b.framebuffer) == GL_TRUE;
-    eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroySurface(display, pbuffer);
-    const int applied = kept_seen == 1 && texture_gone && other_kept && framebuffer_kept;
-    failures += !applied;
-    printf("9. deletes kept for C, then D made current: texture deleted %s, the other texture kept %s, C's framebuffer "
-           "kept %s%s\n", texture_gone ? "yes" : "NO", other_kept ? "yes" : "NO", framebuffer_kept ? "yes" : "NO",
-           applied ? "" : " -- WRONG");
-    finish(&b, d);
+    /* 9-11. A texture and a framebuffer deleted with no context current, then D made current: the texture goes in
+       D (the share group's), the framebuffer (C's own) waits for C. 9: C made current straight from D, as SDL's
+       restore does; 10: D released, made current again and released first; 11: an unrelated context made current
+       between them drops it. */
+    const char *const ways[] = {"9. deletes kept for C, D made current, then C straight from D",
+                                "10. deletes kept for C, D made current, released, current again, then C",
+                                "11. deletes kept for C, D made current, then another context, then C"};
+    for (int way = 0; way < 3; way++) {
+        b = back_up();
+        glDeleteTextures(1, &b.texture);  // no context current: kept for C
+        glDeleteFramebuffers(1, &b.framebuffer);
+        window_gone();
+        d = eglCreateContext(display, config, EGL_NO_CONTEXT, version3);
+        EGLSurface in_d = eglCreatePbufferSurface(display, config, small);
+        eglMakeCurrent(display, in_d, in_d, d);  // the kept deletes of the shared kinds run here
+        const int kept_seen = glIsTexture(b.kept) == GL_TRUE;
+        EGLContext other = EGL_NO_CONTEXT;
+        if (way == 1) {  // D again keeps C's framebuffers waiting
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            eglMakeCurrent(display, in_d, in_d, d);
+            eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        } else if (way == 2) {
+            other = eglCreateContext(display, config, EGL_NO_CONTEXT, version3);
+            eglMakeCurrent(display, in_d, in_d, other);
+        }
+        EGLSurface in_c = eglCreatePbufferSurface(display, config, small);
+        eglMakeCurrent(display, in_c, in_c, b.context);
+        const int texture_gone = glIsTexture(b.texture) == GL_FALSE, other_kept = glIsTexture(b.kept) == GL_TRUE;
+        const int framebuffer_gone = glIsFramebuffer(b.framebuffer) == GL_FALSE;
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroySurface(display, in_c);
+        eglDestroySurface(display, in_d);
+        if (other != EGL_NO_CONTEXT) {
+            eglDestroyContext(display, other);
+        }
+        const int framebuffer_right = way < 2 ? framebuffer_gone : !framebuffer_gone;
+        const int applied = kept_seen && texture_gone && other_kept && framebuffer_right;
+        failures += !applied;
+        printf("%s: texture deleted %s, the other texture kept %s, C's framebuffer deleted %s%s\n", ways[way],
+               texture_gone ? "yes" : "NO", other_kept ? "yes" : "NO", framebuffer_gone ? "yes" : "no",
+               applied ? "" : " -- WRONG");
+        finish(&b, d);
+    }
 
     printf("gles backup share: %s\n", failures == 0 ? "a context made in a backup window shares C's objects, only "
                                                       "under the race's conditions"

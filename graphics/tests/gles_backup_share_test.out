@@ -6,5 +6,7 @@
 6. D with another config: a namespace of its own
 7. D with another client version: a namespace of its own
 8. C destroyed: a namespace of its own
-9. deletes kept for C, then D made current: texture deleted yes, the other texture kept yes, C's framebuffer kept yes
+9. deletes kept for C, D made current, then C straight from D: texture deleted yes, the other texture kept yes, C's framebuffer deleted yes
+10. deletes kept for C, D made current, released, current again, then C: texture deleted yes, the other texture kept yes, C's framebuffer deleted yes
+11. deletes kept for C, D made current, then another context, then C: texture deleted yes, the other texture kept yes, C's framebuffer deleted no
 gles backup share: a context made in a backup window shares C's objects, only under the race's conditions
