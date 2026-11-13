@@ -1123,6 +1123,9 @@ begin_start() {
   echo "$package" > "$CHECK/tap"
   echo yes > "$CHECK/guest-log"
   [[ "$app" != renpy-memory-test ]] || echo yes > "$CHECK/footprint-log"
+  # The keyboard post round's windows by contents in the Simulator (window-by-contents, a Debug switch), the iPhone's
+  # way: the Simulator's own way draws into a drawable, and the abort came from the contents' transaction.
+  [[ "$app" != keyboard-post-test || "$ON_DEVICE" == yes ]] || echo yes > "$CHECK/window-by-contents"
   # RENPY_WARN_AT: the session's live line, read before and after each warning.
   [[ "$app" != renpy-memory-test || -z "${RENPY_WARN_AT:-}" ]] || echo yes > "$CHECK/live-counts"
   # A save's or a folder's alert answers Allow by itself, as the user's tap does (ADR-0057 step d).
@@ -3748,12 +3751,14 @@ fi
 # for 3 s and back, the app asking for the keyboard again at each resume. A CPU-drawn window's picture that changed its
 # layers off the main thread committed a Core Animation transaction there, which laid out the keyboard's window, and
 # UIKit aborted Minato: the start then ends without the app's next line. The race is not hit every time, so
-# KEYBOARD_POST_STARTS (1) repeats the start, 10 for a red in the Simulator. The keyboard must show (in the Simulator
-# I/O > Keyboard > Connect Hardware Keyboard off). Green: every start has the keyboard after each return and reaches
-# "done".
+# KEYBOARD_POST_STARTS (1) repeats the start. The Simulator does not abort there: its UIKit logs the fault instead,
+# "Unsupported layout off the main thread", which the round reads from the Simulator's log after each start. The
+# keyboard must show (in the Simulator I/O > Keyboard > Connect Hardware Keyboard off). Green: every start has the
+# keyboard after each return and reaches "done", and in the Simulator UIKit logged no layout off the main thread.
 run_keyboard_post() {
-  local app=keyboard-post-test start trip trips=${KEYBOARD_POST_TRIPS:-4} whole
+  local app=keyboard-post-test start trip trips=${KEYBOARD_POST_TRIPS:-4} whole since faults
   for start in $(seq 1 "${KEYBOARD_POST_STARTS:-1}"); do
+    since=$(date '+%Y-%m-%d %H:%M:%S')
     if begin_start "$app" io.github.kisame76.minato.test.keyboardpost "$start"; then
       whole=no
       if ! await_line guest-log "^I/$app: keyboard shown 1$" 120; then
@@ -3778,6 +3783,16 @@ run_keyboard_post() {
             grep -E "^I/$app: done: " "$CHECK/guest-log" | tail -n 1 | sed "s#^I/$app: done: ##")"
         else
           failed_line "start $start: no last line after the trips (an abort ends Minato here)" "$app-$start"
+        fi
+      fi
+      if [[ "$ON_DEVICE" != yes ]]; then
+        faults=$(xcrun simctl spawn "$SIM_UDID" log show --start "$since" --style compact \
+          --predicate 'process == "Minato" AND eventMessage CONTAINS "layout off the main thread"' 2>/dev/null |
+          grep -c "layout off the main thread") || faults=0
+        if (( faults > 0 )); then
+          fail "  start $start: UIKit laid out views off the main thread $faults time(s) (the iPhone aborts there)"
+        else
+          ok "  start $start: UIKit laid out no view off the main thread"
         fi
       fi
     fi
