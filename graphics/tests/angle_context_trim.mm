@@ -7,7 +7,9 @@
 // current again (SDL's restore). Once another context is current, D's free list must be gone: the gl line's pool= at
 // most 1 MiB. D made current again works: its next buffers are new, and a clear in it reads back. A context released
 // at each frame's end (no context current) and made current again keeps its free list: it fills again, D goes to no
-// context and back, the free lists still hold at least 32 MiB; then no context and C: D's are gone.
+// context and back, the free lists still hold at least 32 MiB; then no context and C: D's are gone. D's own streaming
+// buffers go at that switch too: D draws from client-side arrays (its vertex array's pools, which every such draw
+// fills again), then C is made current: the MTLBuffers alive (the gl line's buf=) are back to before those draws.
 #import <Metal/Metal.h>
 
 #include <EGL/egl.h>
@@ -58,6 +60,18 @@ Pool pool() {
         fail(std::string("no pool= in the gl line: ") + line);
     }
     return read;
+}
+
+// The gl line's buf=<n>: the MTLBuffers alive, all contexts together.
+unsigned long long live_buffers() {
+    char line[512] = {0};
+    load<int (*)(char *, size_t)>("ANGLEMetalMemoryLine")(line, sizeof line);
+    unsigned long long buffers = 0;
+    const char *at = std::strstr(line, " buf=");
+    if (at == nullptr || std::sscanf(at, " buf=%llu/", &buffers) != 1) {
+        fail(std::string("no buf= in the gl line: ") + line);
+    }
+    return buffers;
 }
 
 GLuint shader(GLenum kind, const char *source) {
@@ -220,6 +234,46 @@ int main(int argc, char **argv) {
         std::printf("no context, then C: the free lists hold %llu MiB (%s)\n", after_none.mib,
                     after_none.mib <= kLeftMiB ? "at most 1" : "MORE THAN 1, D's kept");
         good = good && after_none.mib <= kLeftMiB;
+
+        // D's streaming buffers: client-side arrays drawn in D, then C current.
+        if (EGL(MakeCurrent)(display, in_d, in_d, d) != EGL_TRUE) {
+            fail("D not made current for the client-side arrays");
+        }
+        const unsigned long long before_stream = live_buffers();
+        enum : size_t { kClientBytes = 1u << 20 };
+        const std::vector<float> client(kClientBytes / sizeof(float), 0.0f);
+        GL(BindBuffer)(GL_ARRAY_BUFFER, 0);
+        for (size_t frame = 0; frame < kFrames; frame++) {
+            GL(VertexAttribPointer)(0, 4, GL_FLOAT, GL_FALSE, 0, client.data());
+            GL(DrawArrays)(GL_TRIANGLES, 0, static_cast<GLsizei>(kClientBytes / (4 * sizeof(float)) / 3 * 3));
+            GL(Flush)();
+        }
+        GL(Finish)();
+        const unsigned long long streamed = live_buffers();
+        std::printf("D drew from client-side arrays: %s MTLBuffers alive than before\n",
+                    streamed > before_stream ? "more" : "NO MORE");
+        if (streamed <= before_stream) {
+            fail("D's client-side draws made no streaming buffer: the test proves nothing");
+        }
+        if (EGL(MakeCurrent)(display, in_c, in_c, c) != EGL_TRUE) {
+            fail("C not made current after the client-side arrays");
+        }
+        const unsigned long long after_stream = live_buffers();
+        const bool streams_gone = after_stream <= before_stream;
+        std::printf("C current again: %s\n", streams_gone ? "D's streaming buffers are gone" : "MORE alive, D's kept");
+        good = good && streams_gone;
+
+        // D again: its client-side draws stream into new buffers, without an error.
+        if (EGL(MakeCurrent)(display, in_d, in_d, d) != EGL_TRUE) {
+            fail("D not made current after its streaming buffers went");
+        }
+        GL(VertexAttribPointer)(0, 4, GL_FLOAT, GL_FALSE, 0, client.data());
+        GL(DrawArrays)(GL_TRIANGLES, 0, 3);
+        GL(Finish)();
+        const bool streams_again = GL(GetError)() == GL_NO_ERROR && live_buffers() > after_stream;
+        std::printf("D current again: its client-side draw %s\n",
+                    streams_again ? "streams again" : "NO NEW BUFFER OR AN ERROR");
+        good = good && streams_again;
 
         EGL(MakeCurrent)(display, in_c, in_c, c);
         GL(DeleteProgram)(program_c);

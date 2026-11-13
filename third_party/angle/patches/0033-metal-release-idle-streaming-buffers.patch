@@ -1,0 +1,100 @@
+Release an idle Metal context's streaming buffers with its free buffers (Minato, patch 0033).
+
+Why: the context Ren'Py's display reset makes during a pause (patch 0032's Why) is never current again and never
+destroyed. Patch 0032 lets its buffer manager's free list go once another context is made current on its thread; its
+bound vertex array's streaming pools for client-side arrays and indices stayed (about 50 MTLBuffers per race in the
+Simulator, by a per-context breakdown of what each context made). Vertex arrays are a context's own, and every draw
+from client-side arrays or indices streams into them again, so letting their buffers go changes nothing the app sees.
+Now, where patch 0032 releases the noted context's free buffers, its bound vertex array's two pools let go of every
+buffer (BufferPool::releaseIdleBuffers: as destroy(), but the pool keeps its size, alignment and buffer limit).
+Buffers the GPU still uses stay alive until it is done (command buffers retain them).
+Test: graphics/tests/angle_context_trim.mm (D draws from client-side arrays: more MTLBuffers alive; C made current:
+back to before; D current again streams again without an error).
+Upstream: could go upstream with patch 0032.
+Remove: with patch 0032.
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_pool.h b/src/libANGLE/renderer/metal/mtl_buffer_pool.h
+--- a/src/libANGLE/renderer/metal/mtl_buffer_pool.h
++++ b/src/libANGLE/renderer/metal/mtl_buffer_pool.h
+@@ -73,6 +73,10 @@
+     // This releases all the buffers that have been allocated since this was last called.
+     void releaseInFlightBuffers(ContextMtl *contextMtl);
+ 
++    // Minato (patch 0033): lets go of every buffer, as destroy() does, while the pool keeps its size, alignment and
++    // buffer limit; the next allocation makes a new buffer.
++    void releaseIdleBuffers(ContextMtl *contextMtl);
++
+     // This frees resources immediately.
+     void destroy(ContextMtl *contextMtl);
+ 
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_pool.mm b/src/libANGLE/renderer/metal/mtl_buffer_pool.mm
+--- a/src/libANGLE/renderer/metal/mtl_buffer_pool.mm
++++ b/src/libANGLE/renderer/metal/mtl_buffer_pool.mm
+@@ -372,6 +372,22 @@
+         }
+     }
+     buffers->clear();
++}
++
++void BufferPool::releaseIdleBuffers(ContextMtl *contextMtl)
++{
++    destroyBufferList(contextMtl, &mInFlightBuffers, false);
++    destroyBufferList(contextMtl, &mBufferFreeList, true);
++    if (mBuffer)
++    {
++        UpdateBufferPoolMetrics(-static_cast<int64_t>(mBuffer->size()), 0, -1);
++        mBuffer->unmap(contextMtl);
++        mBuffer = nullptr;
++        ASSERT(mBuffersAllocated > 0);
++        mBuffersAllocated--;
++    }
++    mNextAllocationOffset = 0;
++    mLastFlushOffset      = 0;
+ }
+ 
+ void BufferPool::destroy(ContextMtl *contextMtl)
+diff --git a/src/libANGLE/renderer/metal/VertexArrayMtl.h b/src/libANGLE/renderer/metal/VertexArrayMtl.h
+--- a/src/libANGLE/renderer/metal/VertexArrayMtl.h
++++ b/src/libANGLE/renderer/metal/VertexArrayMtl.h
+@@ -32,6 +32,10 @@
+ 
+     void destroy(const gl::Context *context) override;
+ 
++    // Minato (patch 0033): the streaming buffers for client-side arrays and indices go; every draw that streams
++    // fills them again.
++    void releaseIdleBuffers(ContextMtl *contextMtl);
++
+     angle::Result syncState(const gl::Context *context,
+                             const gl::VertexArray::DirtyBits &dirtyBits,
+                             gl::VertexArray::DirtyAttribBitsArray *attribBits,
+diff --git a/src/libANGLE/renderer/metal/VertexArrayMtl.mm b/src/libANGLE/renderer/metal/VertexArrayMtl.mm
+--- a/src/libANGLE/renderer/metal/VertexArrayMtl.mm
++++ b/src/libANGLE/renderer/metal/VertexArrayMtl.mm
+@@ -188,6 +188,12 @@
+ 
+     mDynamicVertexData.destroy(contextMtl);
+     mDynamicIndexData.destroy(contextMtl);
++}
++
++void VertexArrayMtl::releaseIdleBuffers(ContextMtl *contextMtl)
++{
++    mDynamicVertexData.releaseIdleBuffers(contextMtl);
++    mDynamicIndexData.releaseIdleBuffers(contextMtl);
+ }
+ 
+ void VertexArrayMtl::reset(ContextMtl *context)
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -1449,6 +1449,12 @@
+             ContextMtl *released = iter->second;
+             pending.erase(iter);
+             released->mBufferManager.releaseFreeBuffers(released);
++            // Minato (patch 0033): and the streaming buffers of its bound vertex array, its own (vertex arrays
++            // are not shared); a draw in it streams into new ones.
++            if (gl::VertexArray *vertexArray = released->mState.getVertexArray())
++            {
++                mtl::GetImpl(vertexArray)->releaseIdleBuffers(released);
++            }
+         }
+     }
+     return checkCommandBufferError();
