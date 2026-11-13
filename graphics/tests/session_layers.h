@@ -1,5 +1,5 @@
-/* graphics-run's session layers (session_layers.m, ADR-0043 c4 (c) and ADR-0041 gap 4 (c)): what window_host.m and
-   session_layers_test.m share with them. Objective-C. */
+/* graphics-run's session layers (session_layers.m, ADR-0043 c4 (c) and ADR-0041's second windows (c)): what
+   window_host.m and session_layers_test.m share with them. Objective-C. */
 #ifndef MINATO_SESSION_LAYERS_H
 #define MINATO_SESSION_LAYERS_H
 

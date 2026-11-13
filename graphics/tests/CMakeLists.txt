@@ -303,13 +303,13 @@ if(TARGET minato_graphics_host)
   # nothing unless MINATO_METAL_HOOK, MINATO_WINDOW and MINATO_SESSION_LAYERS are set.
   add_executable(graphics-run "${PROJECT_SOURCE_DIR}/runtime/tools/apk_run.cpp" graphics_run.c metal_hook.m
     window_host.m session_layers.m test_control.m)
-  # apk_run_layers.h, the hooks of apk-run's --lifecycle that session_layers.m defines (ADR-0043 c4 (c), ADR-0041
-  # gap 4 (c)).
+  # apk_run_layers.h, the hooks of apk-run's --lifecycle that session_layers.m defines (ADR-0043 c4 (c), ADR-0041's
+  # second windows (c)).
   target_include_directories(graphics-run PRIVATE "${PROJECT_SOURCE_DIR}/runtime/tools")
   target_link_libraries(graphics-run PRIVATE minato_graphics_host apkrt apk_defaults
     "-framework Foundation" "-framework Metal" "-framework QuartzCore")
-  # ADR-0041 gap 4 (c): the session layers through apk_run_layers.h's hooks without a guest, in WindowOrderTests'
-  # cases (session_layers_test.m).
+  # ADR-0041's second windows (c): the session layers through apk_run_layers.h's hooks without a guest, in
+  # WindowOrderTests' cases (session_layers_test.m).
   add_executable(graphics-session-layers-test session_layers_test.m session_layers.m)
   target_include_directories(graphics-session-layers-test PRIVATE "${PROJECT_SOURCE_DIR}/runtime/tools")
   target_link_libraries(graphics-session-layers-test PRIVATE minato_graphics_host apkrt apk_defaults

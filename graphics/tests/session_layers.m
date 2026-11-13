@@ -1,7 +1,7 @@
-/* graphics-run's session layers (ADR-0043 c4 (c), ADR-0041 gap 4 (c)): with MINATO_SESSION_LAYERS=1, apk-run's
-   --lifecycle gets the layers of apk_run_layers.h, as the App's session view holds them: a root layer of the session's
-   size at scale 1, and in it, bottom to top, in Android 15's order of windows as APKSession's WindowOrder has it
-   (ADR-0041 decision 1):
+/* graphics-run's session layers (ADR-0043 c4 (c), ADR-0041's second windows (c)): with MINATO_SESSION_LAYERS=1,
+   apk-run's --lifecycle gets the layers of apk_run_layers.h, as the App's session view holds them: a root layer of the
+   session's size at scale 1, and in it, bottom to top, in Android 15's order of windows as APKSession's WindowOrder has
+   it (ADR-0041 decision 1):
    - the window's MinatoMetalLayer at the session's bounds, the same at every start and return, opaque until the
      runtime reports otherwise (APKRT_REQUEST_WINDOW_OPAQUE);
    - a MinatoMetalLayer per surface of c4, at its frame in the window's pixels and opaque as its request says, and per
