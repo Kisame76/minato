@@ -35,6 +35,19 @@ void window_created(std::uint64_t id, std::uint64_t now_ns);
 /// tracked app surface -- the decor, a dialog -- is ignored: it is not that surface's frame.
 void presented(std::uint64_t id, std::uint64_t now_ns);
 
+/// Registers the source the watchdog pulls at each tick for a surface with no first frame yet (apkrt_stall_set_work
+/// source). `source(id)` returns a cumulative, monotonically rising measure of real work done toward surface `id`'s
+/// first frame -- the host sums it from live texture/buffer bytes resident (a high-water, so a render loop that reruns
+/// the same uploads without a new result stays flat), bytes read from assets or the OBB, and shaders compiled. tick()
+/// slides the no-first-frame deadline only when the pulled value exceeds the most this surface has reported, so the
+/// B1 stall (uploads and draws that never present) does not slide it; a slow but advancing first load does. The source
+/// returns 0 for an `id` it cannot measure (a Vulkan surface, a window with no live EGL context -- the decor), which
+/// keeps the created-time deadline and the Unity 6 guard. It must be non-blocking and lock-free (an atomic read) and
+/// must not call back into the watchdog -- tick() calls it while holding the watchdog lock. `nullptr` clears it (no
+/// pull; every surface uses the created-time deadline). The hard cap (set_max_first_frame_ns) still reports a surface
+/// that has gone too long with no first frame even while its work keeps growing.
+void set_work_source(std::uint64_t (*source)(std::uint64_t id));
+
 /// The surface `id` was removed (surfaceDestroyed / apkrt_window_remove): stop watching it, so a surface torn down
 /// before its first frame is not reported. An `id` that is not tracked is ignored.
 void surface_removed(std::uint64_t id);
@@ -48,6 +61,11 @@ std::string tick(std::uint64_t now_ns);
 
 /// The no-present timeout; the default is 10 s. A test sets it small.
 void set_timeout_ns(std::uint64_t ns);
+
+/// The hard cap on time to the first frame: a surface is reported this long after it was created even while its work
+/// keeps growing, so a first load that advances forever or far too slowly cannot dodge the watchdog. Default 60 s; a
+/// test sets it small.
+void set_max_first_frame_ns(std::uint64_t ns);
 
 /// Clears every bit of state (arm, present, latch, timeout) for a test. Not used in production.
 void reset_for_test();

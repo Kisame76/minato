@@ -32,6 +32,8 @@ constexpr std::uint64_t continuous_window_ns = 2'000'000'000ull;  // 2 s
 struct Surface {
     std::uint64_t id;
     std::uint64_t created_ns;
+    std::uint64_t last_progress_ns = 0;                // when `work` last grew; 0: no growing progress reported yet
+    std::uint64_t progress_work = 0;                   // the most cumulative work reported toward the first frame
     std::uint64_t last_present_ns = 0;                 // 0: no frame presented on it yet
     std::uint64_t present_times[continuous_frames] = {};  // ring of the last `continuous_frames` present times
     std::uint64_t present_count = 0;
@@ -44,7 +46,9 @@ std::mutex &lock = *new std::mutex;
 std::vector<Surface> &surfaces = *new std::vector<Surface>;
 bool is_paused = false;
 bool has_dumped = false;
-std::uint64_t timeout_ns = 10'000'000'000ull;  // 10 s
+std::uint64_t timeout_ns = 10'000'000'000ull;           // 10 s: no first frame and no growing progress this long
+std::uint64_t max_first_frame_ns = 60'000'000'000ull;   // 60 s: hard cap, reported even while work grows
+std::uint64_t (*work_source)(std::uint64_t id) = nullptr;  // pulled per waiting surface; null: created-time deadline
 
 }  // namespace
 
@@ -92,6 +96,11 @@ void presented(std::uint64_t id, std::uint64_t now_ns) {
     // `id` is not a watched app surface (the decor, a dialog): not a surface's first frame, so it is ignored.
 }
 
+void set_work_source(std::uint64_t (*source)(std::uint64_t id)) {
+    const std::lock_guard<std::mutex> hold(lock);
+    work_source = source;
+}
+
 void surface_removed(std::uint64_t id) {
     const std::lock_guard<std::mutex> hold(lock);
     for (auto it = surfaces.begin(); it != surfaces.end(); ++it) {
@@ -105,13 +114,35 @@ void surface_removed(std::uint64_t id) {
 std::string tick(std::uint64_t now_ns) {
     const std::lock_guard<std::mutex> hold(lock);
     if (is_paused || has_dumped) return {};
-    for (const Surface &surface : surfaces) {
+    for (Surface &surface : surfaces) {
         if (surface.last_present_ns == 0) {
-            // No first frame: measured from the surface's creation, whatever any other window has drawn.
-            if (now_ns > surface.created_ns && now_ns - surface.created_ns > timeout_ns) {
+            // No first frame. Progress-aware with a hard cap. Pull the host's cumulative work toward this surface's
+            // first frame and slide the soft deadline only when it grows: a render loop that reruns the same uploads
+            // without a new result (the B1 stall) reports no growth, so its deadline does not slide and it is caught; a
+            // null source, a Vulkan surface or a window with no live EGL context (the decor) reports nothing, keeping
+            // the created-time deadline and the Unity 6 guard. The soft deadline is then measured from the later of the
+            // surface's creation and the last time its work grew, so a slow but advancing first load (a shader warm-up,
+            // asset extraction) is not taken for a stall; the hard cap bounds even a surface whose work keeps growing,
+            // so a load that advances forever or far too slowly cannot dodge the watchdog.
+            if (work_source != nullptr) {
+                const std::uint64_t work = work_source(surface.id);
+                if (work > surface.progress_work) {
+                    surface.progress_work = work;
+                    surface.last_progress_ns = now_ns;
+                }
+            }
+            const std::uint64_t since = std::max(surface.created_ns, surface.last_progress_ns);
+            const bool over_cap = now_ns > surface.created_ns && now_ns - surface.created_ns > max_first_frame_ns;
+            const bool stalled = now_ns > since && now_ns - since > timeout_ns;
+            if (over_cap || stalled) {
                 has_dumped = true;
-                return "no first frame " + std::to_string((now_ns - surface.created_ns) / 1'000'000'000ull) +
-                       "s after the app surface was created";
+                if (over_cap) {
+                    return "no first frame " + std::to_string((now_ns - surface.created_ns) / 1'000'000'000ull) +
+                           "s after the app surface was created (hard cap, despite progress)";
+                }
+                const char *mark = surface.last_progress_ns != 0 ? "s after the app surface last grew its work"
+                                                                 : "s after the app surface was created";
+                return "no first frame " + std::to_string((now_ns - since) / 1'000'000'000ull) + mark;
             }
             continue;
         }
@@ -139,12 +170,19 @@ void set_timeout_ns(std::uint64_t ns) {
     timeout_ns = ns;
 }
 
+void set_max_first_frame_ns(std::uint64_t ns) {
+    const std::lock_guard<std::mutex> hold(lock);
+    max_first_frame_ns = ns;
+}
+
 void reset_for_test() {
     const std::lock_guard<std::mutex> hold(lock);
     surfaces.clear();
     is_paused = false;
     has_dumped = false;
     timeout_ns = 10'000'000'000ull;
+    max_first_frame_ns = 60'000'000'000ull;
+    work_source = nullptr;
 }
 
 namespace {

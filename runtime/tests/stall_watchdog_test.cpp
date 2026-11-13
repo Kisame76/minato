@@ -30,11 +30,22 @@ using apkrt::stall::paused;
 using apkrt::stall::presented;
 using apkrt::stall::reset_for_test;
 using apkrt::stall::resumed;
+using apkrt::stall::set_max_first_frame_ns;
 using apkrt::stall::set_timeout_ns;
+using apkrt::stall::set_work_source;
 using apkrt::stall::surface_created;
 using apkrt::stall::surface_removed;
 using apkrt::stall::tick;
 using apkrt::stall::window_created;
+
+namespace {
+// A scripted work source for the pull model: tests set the cumulative work the host would report for one surface id
+// and bump it to simulate growth (or leave it flat to simulate a render loop that reruns the same work). Any other id
+// reads 0, as a Vulkan surface or a window with no live EGL context (the decor) would.
+std::uint64_t g_work_id = 0;
+std::uint64_t g_work = 0;
+std::uint64_t test_work_source(std::uint64_t id) { return id == g_work_id ? g_work : 0; }
+}  // namespace
 
 TEST(reports_once_when_an_app_surface_shows_no_first_frame) {
     reset_for_test();
@@ -70,6 +81,100 @@ TEST(a_native_activity_window_with_no_first_frame_is_reported) {
     surface_created(7, 1'000);  // the session window, handed to the native engine as its render surface
     CHECK(tick(1'050).empty());
     const std::string reason = tick(1'200);  // no present on it within the timeout
+    CHECK(reason.find("no first frame") != std::string::npos);
+}
+
+TEST(a_surface_growing_its_work_toward_its_first_frame_is_not_reported) {
+    // Progress-aware (pull): a slow first load that keeps doing new work toward its first frame -- a shader warm-up,
+    // asset extraction, the Ren'Py case that spends seconds reading and uploading before its first swap -- must not
+    // read as a stall. Each tick pulls the host's cumulative work; while it grows, the deadline slides, so the surface
+    // never presents here yet ticks well past the raw creation-to-now timeout stay quiet.
+    // RED before progress-awareness: tick() measured only from created_ns and would fire at tick(1'170).
+    reset_for_test();
+    set_timeout_ns(100);
+    g_work_id = 1;
+    set_work_source(test_work_source);
+    resumed(1'000);
+    surface_created(1, 1'000);
+    g_work = 100;
+    CHECK(tick(1'090).empty());  // pull 100 (grew from 0): 10 ns since growth, within the timeout
+    g_work = 200;
+    CHECK(tick(1'170).empty());  // pull 200 (grew): 170 ns past creation (old code fires here), fresh growth: quiet
+    g_work = 300;
+    CHECK(tick(1'300).empty());  // pull 300 (grew): still within the timeout of the last growth
+}
+
+TEST(a_surface_that_reruns_work_without_growing_is_still_reported) {
+    // The B1 stall: a render loop keeps issuing GL work -- uploads and draws -- but produces no new result and never
+    // presents, so the host's work measure (a high-water of live resident bytes) stays flat. The deadline slides only
+    // on growth, so the surface is still reported.
+    // RED if a flat pull slid the deadline (any-activity model): the deadline would keep resetting and never fire.
+    reset_for_test();
+    set_timeout_ns(100);
+    g_work_id = 1;
+    set_work_source(test_work_source);
+    resumed(1'000);
+    surface_created(1, 1'000);
+    g_work = 500;
+    CHECK(tick(1'050).empty());  // pull 500 (grew from 0): fresh growth at 1'050, quiet
+    // the loop reruns the same work: g_work stays 500, no growth
+    CHECK(tick(1'120).empty());  // pull 500 (flat): 70 ns since the last growth (1'050), within the timeout
+    const std::string reason = tick(1'200);  // pull 500 (flat): 150 ns since the last growth -- a stall
+    CHECK(reason.find("no first frame") != std::string::npos);
+}
+
+TEST(a_surface_that_stops_growing_its_work_before_its_first_frame_is_reported) {
+    // Growth slides the deadline but does not suspend the watchdog: once new work toward the first frame stops -- a
+    // real hang mid-load -- the surface is reported the timeout after the work last grew.
+    reset_for_test();
+    set_timeout_ns(100);
+    g_work_id = 1;
+    set_work_source(test_work_source);
+    resumed(1'000);
+    surface_created(1, 1'000);
+    g_work = 100;
+    CHECK(tick(1'100).empty());  // pull 100 (grew): fresh growth at 1'100
+    g_work = 200;
+    CHECK(tick(1'200).empty());  // pull 200 (grew): fresh growth at 1'200
+    // work frozen at 200 from here
+    CHECK(tick(1'250).empty());   // 50 ns since the last growth: within the timeout
+    const std::string reason = tick(1'400);  // 200 ns since the last growth, still no first frame
+    CHECK(reason.find("no first frame") != std::string::npos);
+}
+
+TEST(a_surface_is_reported_at_the_hard_cap_even_while_growing) {
+    // The hard upper bound: even a surface whose work keeps growing is reported once it has gone too long with no first
+    // frame, so a load that advances forever or far too slowly cannot dodge the watchdog.
+    reset_for_test();
+    set_timeout_ns(100);
+    set_max_first_frame_ns(500);
+    g_work_id = 1;
+    set_work_source(test_work_source);
+    resumed(1'000);
+    surface_created(1, 1'000);
+    g_work = 1;
+    CHECK(tick(1'100).empty());   // grew; 100 ns past creation (< 500 cap), fresh growth: quiet
+    g_work = 2;
+    CHECK(tick(1'200).empty());
+    g_work = 3;
+    CHECK(tick(1'400).empty());   // 400 ns past creation (< 500 cap), fresh growth: quiet
+    g_work = 4;
+    const std::string reason = tick(1'510);  // grew, but 510 ns past creation (> 500 cap)
+    CHECK(reason.find("no first frame") != std::string::npos);  // the hard cap fires despite fresh growth
+}
+
+TEST(a_surface_with_no_work_source_for_its_id_is_reported) {
+    // The Unity 6 shape under the pull model, and the Vulkan case: the source reports work for another id (the busy
+    // decor, or nothing for a Vulkan surface), so surface 1 reads 0, never grows, and is reported from its creation.
+    reset_for_test();
+    set_timeout_ns(100);
+    g_work_id = 2;                // the source grows for window 2 (the decor), reads 0 for surface 1
+    g_work = 999;
+    set_work_source(test_work_source);
+    resumed(1'000);
+    surface_created(1, 1'000);    // the SurfaceView surface, no EGL work of its own
+    CHECK(tick(1'050).empty());
+    const std::string reason = tick(1'200);  // surface 1 pulls 0: 200 ns past its creation
     CHECK(reason.find("no first frame") != std::string::npos);
 }
 
