@@ -3,8 +3,9 @@
 # its tmp/session-check folder), its requests at launch (MINATO_CHECK_REQUESTS) and as minato://check URLs
 # (CheckRequests), its console (MINATO_CHECK_CONSOLE, CheckConsole's line prefixes) and the Debug guest environment
 # (tmp/guest-environment, DebugGuestEnvironment), the Debug line of Get Info over the converter's counts
-# (DebugNativeCounts) and the checks' park of a full ANGLE FIFO in the background (MINATO_BACKGROUND_PARK). It reads the
-# app's executable and every framework binary in it with strings and nm.
+# (DebugNativeCounts), the checks' park of a full ANGLE FIFO in the background (MINATO_BACKGROUND_PARK) and the checks'
+# WebView switches (MINATO_WEBVIEW_HTTPS, MINATO_WEBVIEW_TRACE). It reads the app's executable and every framework
+# binary in it with strings and nm.
 # Test-only switches that no app build may carry, Debug or Release (ANGLE's MINATO_ANGLE_DROP_DISCARDS, which only the
 # Mac's graphics tests use), must be in neither.
 # With a Debug build as a second argument it checks the other direction too: each marker must be in the
@@ -17,7 +18,7 @@ set -uo pipefail
 # names of the Debug-only code, as nm and the Swift metadata spell them.
 MARKERS=(MINATO_CHECK_REQUESTS MINATO_CHECK_CONSOLE "minato-check-event " "minato-guest-log " "minato-guest-out "
   guest-environment SessionCheck CheckRequests CheckConsole CheckEventPrivacy DebugGuestEnvironment DebugNativeCounts
-  MINATO_BACKGROUND_PARK)
+  MINATO_BACKGROUND_PARK MINATO_WEBVIEW_HTTPS MINATO_WEBVIEW_TRACE)
 # Literals of the Mac's tests only, in no app build.
 TEST_ONLY_MARKERS=(MINATO_ANGLE_DROP_DISCARDS)
 

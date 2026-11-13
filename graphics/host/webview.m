@@ -433,13 +433,16 @@ static BOOL handles_url_scheme(id self, SEL command, NSString *scheme) {
 }
 
 /// Swizzles once, at the first make that asks for http(s); whether WebKit's answer is ours.
-/// MINATO_WEBVIEW_HTTPS=rewrite (checks only) leaves it, as a future iOS might, so that fallback B runs.
+/// MINATO_WEBVIEW_HTTPS=rewrite (checks only, a Debug build's switch; tools/release-debug-strings-check.sh) leaves it,
+/// as a future iOS might, so that fallback B runs.
 static BOOL route_web_schemes(void) {
     static BOOL routed;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+#ifndef NDEBUG
         const char *mode = getenv("MINATO_WEBVIEW_HTTPS");
         if (mode != NULL && strcmp(mode, "rewrite") == 0) return;
+#endif
         Method method = class_getClassMethod(WKWebView.class, @selector(handlesURLScheme:));
         if (method == NULL) return;
         webkit_handles_url_scheme = (BOOL (*)(id, SEL, NSString *))method_setImplementation(method,
@@ -1031,10 +1034,10 @@ static WKWebsiteDataStore *data_store(id identifier) {
 /// The trace (a check's guest log only: MINATO_WEBVIEW_TRACE=1, which session-check's guest-log request sets, as for
 /// the guest's provider): a line on stderr each time the view's place changes, with its frame and clip in the
 /// container's points, whether it is hidden, its index just below its window's view and how many views lie above
-/// that, and the window view's own state; never a page's content or URL.
+/// that, and the window view's own state; never a page's content or URL. A Debug build's switch: a Release build never
+/// traces (tools/release-debug-strings-check.sh).
 - (void)trace:(NSString *)place {
-    const char *asked = getenv("MINATO_WEBVIEW_TRACE");
-    if (asked == NULL || strcmp(asked, "1") != 0 || [place isEqualToString:self.traced]) return;
+    if (!navigation_trace_on() || [place isEqualToString:self.traced]) return;
     self.traced = place;
     fprintf(stderr, "I/MinatoWebView: host %llu %s\n", (unsigned long long)self.token, place.UTF8String);
 }
@@ -1047,12 +1050,16 @@ static WKWebsiteDataStore *data_store(id identifier) {
 /// by error code, and the page's first contentful paint. Never a URL, host name or page text: only classes, counts and
 /// codes.
 static BOOL navigation_trace_on(void) {
+#ifdef NDEBUG
+    return NO;
+#else
     static int on = -1;
     if (on < 0) {
         const char *asked = getenv("MINATO_WEBVIEW_TRACE");
         on = asked != NULL && strcmp(asked, "1") == 0;
     }
     return on == 1;
+#endif
 }
 
 /// A scheme's name for the trace: the known ones, else "other".
