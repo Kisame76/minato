@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- keyboard-post-test: ordinary Android views (a text field with the keyboard, a line of text and a bar that keep
+     changing, one of them from an own thread) drawn on the CPU while the keyboard is up, through trips to the
+     background and back. A picture's change committed off the platform's main thread made the keyboard's window abort
+     there (UIKit's Auto Layout check). The driver is tools/java-start-check.sh's keyboard post round. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.keyboardpost" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35"/>
+  <application android:label="Keyboard Post Test">
+    <activity android:name="io.github.kisame76.minato.test.keyboardpost.PostActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

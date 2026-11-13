@@ -279,6 +279,9 @@ APPS+=("isolated-splits-test io.github.kisame76.minato.test.isolated")
 # Minato's Ren'Py memory game (tools/renpy-memory.sh), only with ONLY=renpy-memory-test: it plays for MINUTES.
 [[ " $ONLY " != *" renpy-memory-test "* ]] ||
   APPS+=("renpy-memory-test io.github.kisame76.minato.test.renpymemory")
+# The keyboard post round (run_keyboard_post), only with ONLY=keyboard-post-test: a minute of changing views per start.
+[[ " $ONLY " != *" keyboard-post-test "* ]] ||
+  APPS+=("keyboard-post-test io.github.kisame76.minato.test.keyboardpost")
 # The SDL returns round (run_sdl_returns), only with ONLY=renpy-returns-test: Ren'Py's anim game, the memory game's
 # package (RENPY_RETURNS_APK, by default the one tools/renpy-anim.sh builds from fixtures/renpy/minato-renpy-anim).
 [[ " $ONLY " != *" renpy-returns-test "* ]] ||
@@ -3740,6 +3743,48 @@ fi
 [[ "$ON_DEVICE" == no ]] || run_one media-codec-test io.github.kisame76.minato.test.mediacodec
 [[ "$ON_DEVICE" == no ]] || ! wanted media-bench-test || run_media_bench
 [[ "$ON_DEVICE" == no ]] || run_one media-window-test io.github.kisame76.minato.test.mediawindow
+# The keyboard post round, only with ONLY=keyboard-post-test: keyboard-post-test's ordinary views keep changing, one of
+# them from an own thread, while the keyboard is up, and Minato goes to the background KEYBOARD_POST_TRIPS times (4)
+# for 3 s and back, the app asking for the keyboard again at each resume. A CPU-drawn window's picture that changed its
+# layers off the main thread committed a Core Animation transaction there, which laid out the keyboard's window, and
+# UIKit aborted Minato: the start then ends without the app's next line. The race is not hit every time, so
+# KEYBOARD_POST_STARTS (1) repeats the start, 10 for a red in the Simulator. The keyboard must show (in the Simulator
+# I/O > Keyboard > Connect Hardware Keyboard off). Green: every start has the keyboard after each return and reaches
+# "done".
+run_keyboard_post() {
+  local app=keyboard-post-test start trip trips=${KEYBOARD_POST_TRIPS:-4} whole
+  for start in $(seq 1 "${KEYBOARD_POST_STARTS:-1}"); do
+    if begin_start "$app" io.github.kisame76.minato.test.keyboardpost "$start"; then
+      whole=no
+      if ! await_line guest-log "^I/$app: keyboard shown 1$" 120; then
+        failed_line "start $start: no keyboard after the start" "$app-$start"
+      else
+        whole=yes
+        for trip in $(seq 1 "$trips"); do
+          launch "$AWAY"
+          sleep 3
+          launch
+          if ! await_line guest-log "^I/$app: keyboard shown $((trip + 1))$" 60; then
+            failed_line "start $start, trip $trip: no keyboard after the return (an abort ends Minato here)" \
+              "$app-$start"
+            whole=no
+            break
+          fi
+        done
+      fi
+      if [[ $whole == yes ]]; then
+        if await_line guest-log "^I/$app: done: " 120; then
+          ok "  start $start: $trips trips and back with the keyboard up and the views changing: $(
+            grep -E "^I/$app: done: " "$CHECK/guest-log" | tail -n 1 | sed "s#^I/$app: done: ##")"
+        else
+          failed_line "start $start: no last line after the trips (an abort ends Minato here)" "$app-$start"
+        fi
+      fi
+    fi
+    end_start "$app" "$start"
+  done
+}
+! wanted keyboard-post-test || ! listed keyboard-post-test || run_keyboard_post
 # An exception that no thread catches (ADR-0039, the main thread's uncaught exception): it leaves ActivityThread.main,
 # RuntimeInit's handlers log FATAL EXCEPTION after "Shutting down VM" and kill the process, so the program ends with
 # 137, which needs no notice (ADR-0028, decision 5), and Minato starts the library.
