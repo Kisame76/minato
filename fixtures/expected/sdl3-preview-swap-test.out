@@ -1,0 +1,5 @@
+sdl3-preview-swap-test: running, context current: flip ok
+sdl3-preview-swap-test: running, no context current: flip failed (The specified window has not been made current)
+sdl3-preview-swap-test: paused, context current, surface lost: flip failed (unable to show color buffer in an OS-native window)
+sdl3-preview-swap-test: paused, no context current: flip failed (The specified window has not been made current)
+sdl3-preview-swap-test: paused, context current: flip ok

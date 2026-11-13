@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """The SDL swap override (runtime/android/sdl.c): the loader preloads libminato-sdl.so, and SDL_GL_SwapWindow of a
-library that also defines SDL_GL_GetCurrentContext (SDL 2) becomes the wrapper, by import and by dlsym alike. A swap
-that fails while no context is current and the activity is paused (SDL's context backup at a pause, before the app has
-seen the background events) answers 0, a dropped frame, instead of -1, which an app such as Ren'Py takes for a lost
-display. apk-run runs the fixture sdl-swap-test, which flips through libfake-sdl2.so (imported, or opened with the
-argument "dlsym") in five states, with libfake-activity-paused.so standing in for the runtime's minato_activity_paused:
+library that also defines SDL_GL_GetCurrentContext (SDL 2) becomes the wrapper, by import and by dlsym alike. While
+no context is current and the activity is paused (SDL's context backup at a pause, before the app has seen the
+background events) the wrapper drops the frame without calling SDL, so SDL sets no error text, which an app such as
+Ren'Py (pygame_sdl2's flip) takes for a lost display. apk-run runs the fixture sdl-swap-test, which flips as
+pygame_sdl2 does (SDL_ClearError, the swap, SDL_GetError) through libfake-sdl2.so (imported, or opened with the argument
+"dlsym") in five states, with libfake-activity-paused.so standing in for the runtime's minato_activity_paused:
   - without libminato-sdl.so in /system/lib64: fixtures/expected/sdl-swap-test.out, as Android prints it;
-  - with it: only "paused, no context current" answers 0; a swap that fails with a context current, or while the
-    activity runs, keeps SDL's -1.
+  - with it: only "paused, no context current" flips ok; a flip that fails with a context current, or while the
+    activity runs, keeps SDL's error.
 The same five flips by sdl-static-swap-test, whose library has SDL 2 linked in and calls the swap's dynamic API stub
 directly, as Ren'Py's librenpython.so does (fixtures/expected/sdl-static-swap-test.out): no import reaches that call,
 so the runtime names libminato-sdl.so in SDL_DYNAMIC_API, SDL's own way to fill its table from another library. With
-"import" the program calls the same stub through its import: both ways meet, and the swap still answers 0 once.
+"import" the program calls the same stub through its import: both ways meet, and the flip is still dropped.
 sdl-odd-swap-test's library has a swap stub of another shape: its table stays as SDL fills it, as on Android.
+sdl3-swap-test flips through libfake-sdl3.so, an SDL 3 by its names (a bool swap, SDL_GL_DestroyContext): the override
+leaves SDL 3 alone, by import and by dlsym, so its output is Android's with the library too; sdl3-preview-swap-test
+the same through libfake-sdl3-preview.so, an early SDL 3 preview told by SDL_CreateWindowWithProperties.
 Prints "skipped: ..." while the fixture or the library is not built.
 
 Usage: sdl_swap_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work> <expected>
@@ -23,8 +27,11 @@ import subprocess
 import sys
 
 FIXTURES = ["sdl-swap-test", "libfake-sdl2.so", "libfake-activity-paused.so", "sdl-static-swap-test",
-            "libfake-sdl2-static.so", "sdl-odd-swap-test", "libfake-sdl2-odd.so"]
-PROGRAMS = ["sdl-swap-test", "sdl-static-swap-test", "sdl-odd-swap-test"]
+            "libfake-sdl2-static.so", "sdl-odd-swap-test", "libfake-sdl2-odd.so", "sdl3-swap-test", "libfake-sdl3.so",
+            "sdl3-preview-swap-test", "libfake-sdl3-preview.so"]
+PROGRAMS = ["sdl-swap-test", "sdl-static-swap-test", "sdl-odd-swap-test", "sdl3-swap-test", "sdl3-preview-swap-test"]
+# Programs whose output the override must not change.
+UNCHANGED = ["sdl-odd-swap-test", "sdl3-swap-test", "sdl3-preview-swap-test"]
 # What the runtime sets in the guest's environment for SDL 2's dynamic API.
 DYNAMIC_API = "SDL_DYNAMIC_API=libminato-sdl.so"
 LIBRARY = "libminato-sdl.so"
@@ -56,7 +63,7 @@ def main():
         if len(paused_none) != 1:
             raise SystemExit(f"{path} lacks the one line of the paused flip without a context")
         overridden = list(android)
-        overridden[paused_none[0]] = f"{program}: paused, no context current: swap 0"
+        overridden[paused_none[0]] = f"{program}: paused, no context current: flip ok"
         outputs[program] = (android, overridden)
 
     system = os.path.join(work, "system-lib64")
@@ -93,17 +100,19 @@ def main():
 
     failures = []
     cases = (("sdl-swap-test", []), ("sdl-swap-test", ["dlsym"]), ("sdl-static-swap-test", []),
-             ("sdl-static-swap-test", ["import"]), ("sdl-odd-swap-test", []))
+             ("sdl-static-swap-test", ["import"]), ("sdl-odd-swap-test", []), ("sdl3-swap-test", []),
+             ("sdl3-swap-test", ["dlsym"]), ("sdl3-preview-swap-test", []))
     for program, arguments in cases:
         android, overridden = outputs[program]
-        if program == "sdl-odd-swap-test":
+        if program in UNCHANGED:
             overridden = android
         for libraries, environment, lines, label in (
                 (without, [], android, "without the library"),
                 (system, ["--env", DYNAMIC_API], overridden if has_library else android, "with the library")):
             result = run(program, arguments, libraries, environment)
             if result.returncode != 0 or result.stdout.splitlines() != lines:
-                way = ' '.join(arguments) or ('import' if program == "sdl-swap-test" else 'direct call')
+                imports = program in ("sdl-swap-test", "sdl3-swap-test", "sdl3-preview-swap-test")
+                way = ' '.join(arguments) or ('import' if imports else 'direct call')
                 failures.append(f"{program} {way} {label}: exit status "
                                 f"{result.returncode}, stdout "
                                 f"{result.stdout.splitlines()}, expected {lines}, stderr's end "
@@ -114,9 +123,9 @@ def main():
         print(f"FAIL: {failure}")
     if failures:
         sys.exit(1)
-    print("sdl swap override: a swap that fails while paused with no context current answers 0, by import, by dlsym "
-          "and through SDL's dynamic API, once where both meet; a stub of another shape and every other answer are "
-          "SDL's")
+    print("sdl swap override: a flip while paused with no context current is dropped without SDL's error, by import, "
+          "by dlsym and through SDL's dynamic API, also where both meet; a stub of another shape, SDL 3 and every "
+          "other flip are SDL's")
 
 
 if __name__ == "__main__":

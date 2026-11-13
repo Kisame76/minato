@@ -189,6 +189,18 @@ target_link_options(fake-sdl2-odd PRIVATE -Wl,-Bsymbolic)
 add_executable(sdl-odd-swap-test suite/sdl-static-swap-test.c)
 target_compile_definitions(sdl-odd-swap-test PRIVATE PROGRAM="sdl-odd-swap-test")
 target_link_libraries(sdl-odd-swap-test PRIVATE fake-sdl2-odd fake-activity-paused)
+# The same app against SDL 3 (FAKE_SDL3: a bool swap and SDL_GL_DestroyContext), which the override leaves alone.
+add_library(fake-sdl3 SHARED suite/libfake-sdl2.c)
+target_compile_definitions(fake-sdl3 PRIVATE FAKE_SDL3)
+add_executable(sdl3-swap-test suite/sdl-swap-test.c)
+target_compile_definitions(sdl3-swap-test PRIVATE FAKE_SDL3)
+target_link_libraries(sdl3-swap-test PRIVATE fake-sdl3 fake-activity-paused dl)
+# And an early SDL 3 preview (FAKE_SDL3_PREVIEW: SDL 2's SDL_GL_DeleteContext, SDL 3's SDL_CreateWindowWithProperties).
+add_library(fake-sdl3-preview SHARED suite/libfake-sdl2.c)
+target_compile_definitions(fake-sdl3-preview PRIVATE FAKE_SDL3 FAKE_SDL3_PREVIEW)
+add_executable(sdl3-preview-swap-test suite/sdl-swap-test.c)
+target_compile_definitions(sdl3-preview-swap-test PRIVATE FAKE_SDL3 FAKE_SDL3_PREVIEW)
+target_link_libraries(sdl3-preview-swap-test PRIVATE fake-sdl3-preview fake-activity-paused dl)
 # mono-switch-test and the two libraries that stand in for Mono and for a library that only borrows its mode name (the
 # Mono switch, runtime/tests/mono_switch_run.py): the app imports the names, or looks them up with dlsym.
 add_library(fake-mono SHARED suite/libfake-mono.c)

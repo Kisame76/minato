@@ -5,7 +5,7 @@
 // app's code in the same library calls the stubs directly, never through an import (fake_app_flip in
 // libfake-sdl2-static-app.c, another file as pygame_sdl2's display.flip is; the library links with -Bsymbolic, so the
 // call is a plain branch to the stub, as in Ren'Py's). The _REAL functions answer as libfake-sdl2.so's do (a
-// shorter message for EGL's failure).
+// shorter message for EGL's failure): the swap returns nothing and sets the error text when it fails, as SDL 2's.
 #include <dlfcn.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -16,7 +16,7 @@
 #define SDL_DYNAPI_VERSION 1
 
 typedef void *(*GetCurrentContextFn)(void);
-typedef int (*SwapWindowFn)(void *window);
+typedef void (*SwapWindowFn)(void *window);
 typedef const char *(*GetErrorFn)(void);
 typedef int32_t (*EntryFn)(uint32_t apiver, void *table, uint32_t tablesize);
 
@@ -30,30 +30,34 @@ static int window_object, context_object;
 static void *current_window, *current_context;
 static int surface_lost;
 static char error[160];
+static int has_error;
 
-static int set_error(const char *message) {
+static void set_error(const char *message) {
     snprintf(error, sizeof error, "%s", message);
-    return -1;
+    has_error = 1;
 }
 
 static const char *SDL_GetError_REAL(void) {
-    return error;
+    return has_error ? error : "";
 }
 
 static void *SDL_GL_GetCurrentContext_REAL(void) {
     return current_context;
 }
 
-static int SDL_GL_SwapWindow_REAL(void *window) {
-    if (window != &window_object) return set_error("Invalid window");
-    if (current_window != window) return set_error("The specified window has not been made current");
-    if (surface_lost) return set_error("unable to show color buffer");
-    return 0;
+static void SDL_GL_SwapWindow_REAL(void *window) {
+    if (window != &window_object) {
+        set_error("Invalid window");
+    } else if (current_window != window) {
+        set_error("The specified window has not been made current");
+    } else if (surface_lost) {
+        set_error("unable to show color buffer");
+    }
 }
 
 static const char *SDL_GetError_DEFAULT(void);
 static void *SDL_GL_GetCurrentContext_DEFAULT(void);
-static int SDL_GL_SwapWindow_DEFAULT(void *window);
+static void SDL_GL_SwapWindow_DEFAULT(void *window);
 
 // Named for the odd stub's assembly below; hidden like SDL's own static table.
 __attribute__((visibility("hidden"))) JumpTable fake_sdl_jump_table = {
@@ -98,9 +102,9 @@ static void *SDL_GL_GetCurrentContext_DEFAULT(void) {
     return fake_sdl_jump_table.SDL_GL_GetCurrentContext();
 }
 
-static int SDL_GL_SwapWindow_DEFAULT(void *window) {
+static void SDL_GL_SwapWindow_DEFAULT(void *window) {
     init_dynamic_api();
-    return fake_sdl_jump_table.SDL_GL_SwapWindow(window);
+    fake_sdl_jump_table.SDL_GL_SwapWindow(window);
 }
 
 // The public stubs: one load and one jump each, as SDL's own.
@@ -112,10 +116,15 @@ void *SDL_GL_GetCurrentContext(void) {
     return fake_sdl_jump_table.SDL_GL_GetCurrentContext();
 }
 
+// Not through the table: the override never touches it.
+void SDL_ClearError(void) {
+    has_error = 0;
+}
+
 #ifdef FAKE_ODD_STUB
 // libfake-sdl2-odd.so: a swap stub of another shape, its target loaded from the table's entry as SDL's stub loads it,
 // but called with a frame (BLR) instead of jumped to (BR). The override leaves such a table as SDL fills it.
-__attribute__((naked)) int SDL_GL_SwapWindow(void *window __attribute__((unused))) {
+__attribute__((naked)) void SDL_GL_SwapWindow(void *window __attribute__((unused))) {
     __asm__("adrp x8, fake_sdl_jump_table\n"
             "ldr x9, [x8, #:lo12:fake_sdl_jump_table + 16]\n"
             "stp x29, x30, [sp, #-16]!\n"
@@ -125,8 +134,8 @@ __attribute__((naked)) int SDL_GL_SwapWindow(void *window __attribute__((unused)
             "ret\n");
 }
 #else
-int SDL_GL_SwapWindow(void *window) {
-    return fake_sdl_jump_table.SDL_GL_SwapWindow(window);
+void SDL_GL_SwapWindow(void *window) {
+    fake_sdl_jump_table.SDL_GL_SwapWindow(window);
 }
 #endif
 

@@ -11,18 +11,30 @@
 //   defines it also defines SDL_GL_GetCurrentContext, writing the function it stands for into minato_sdl_swap_original
 //   and SDL_GL_GetCurrentContext into minato_sdl_current_context.
 // SDL 2 on Android backs its context up at a pause one event pump after it queues the background events
-// (SDL_androidevents.c, Android_PumpEvents_NonBlocking: SDL_GL_MakeCurrent(window, NULL)). An app that draws in
-// between gets -1 from SDL_GL_SwapWindow, from SDL's own check before EGL ("The specified window has not been made
-// current"), and may take it for a lost display: Ren'Py then makes a new context without a surface and loads its whole
-// scene into it in the background, and Android's onStop waits for it. In that window alone, a swap that failed while
-// no context is current and the activity is paused answers 0, a dropped frame; the frame is not shown either way.
-// Every other answer is SDL's. Where both ways meet (an import of an SDL whose stub goes through the replaced entry),
-// the outer wrapper gets the inner one's 0 and passes it on. SDL 3 reads SDL3_DYNAMIC_API, and its bool answers are
-// not touched by name either: no context current means it failed there too, and 0 is its false.
+// (SDL_androidevents.c, Android_PumpEvents_NonBlocking: SDL_GL_MakeCurrent(window, NULL), which leaves no window
+// current either). An app that draws in between fails SDL's own check before EGL: SDL_GL_SwapWindow, which returns
+// nothing in SDL 2, sets the thread's error to "The specified window has not been made current" (SDL's tag
+// release-2.0.20, the SDL that Ren'Py 8.5.3 builds, renpy-build's tasks/sdl2.py: src/video/SDL_video.c
+// SDL_GL_SwapWindow; src/SDL_error.c SDL_SetError into SDL_GetErrBuf, a buffer per thread, src/thread/SDL_thread.c).
+// pygame_sdl2 reads that text, not a return value (display.pyx Window.flip at its tag renpy-8.5.3.26051504:
+// SDL_ClearError, SDL_GL_SwapWindow, raise if SDL_GetError is not empty), and Ren'Py takes the raise for a lost display
+// ("Flip failed"): it makes a new context without a surface and loads its whole scene into it in the background, and
+// Android's onStop waits for it. In that window alone, while no context is current and the activity is paused, the
+// wrapper does not call SDL: the swap that would fail is a dropped frame, the thread's error stays as it was before the
+// call, and the wrapper answers 0. The frame is not shown either way. Every other swap is SDL's, with SDL's answer.
+// Where both ways meet (an import of an SDL whose stub goes through the replaced entry), the outer wrapper sees the
+// same state and drops the frame itself. SDL 3 is left alone: it reads SDL3_DYNAMIC_API, and by name an SDL that
+// defines SDL_GL_DestroyContext or SDL_CreateWindowWithProperties keeps every swap (SDL 3's names, both in
+// SDL_dynapi_procs.h from SDL's tag preview-3.1.3 on; neither in SDL 2 up to release-2.32.0, which has
+// SDL_GL_DeleteContext; an early SDL 3 preview may lack the first), as its bool answer and error text are its app's to
+// read.
 #include <dlfcn.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
 
+// SDL 2's swap returns nothing and SDL 3's a bool: the wrapper passes on whatever the function left in the return
+// register, which only SDL 3's callers read.
 typedef int (*SwapWindow)(void *window);
 typedef void *(*CurrentContext)(void);
 typedef int32_t (*DynapiEntry)(uint32_t apiver, void *table, uint32_t tablesize);
@@ -40,19 +52,41 @@ CurrentContext minato_sdl_current_context;
 static SwapWindow dynapi_original;
 static CurrentContext dynapi_current_context;
 
-static int dropped_frame(int answer, CurrentContext current_context) {
-    return answer < 0 && current_context != NULL && current_context() == NULL && minato_activity_paused != NULL &&
+static int dropped_frame(CurrentContext current_context) {
+    return current_context != NULL && current_context() == NULL && minato_activity_paused != NULL &&
            minato_activity_paused() != 0;
 }
 
+// Whether the SDL behind `sdl` has one of SDL 3's own names.
+static int has_sdl3_names(void *sdl) {
+    return dlsym(sdl, "SDL_GL_DestroyContext") != NULL || dlsym(sdl, "SDL_CreateWindowWithProperties") != NULL;
+}
+
+// Whether the SDL behind `function` is SDL 3; an SDL it cannot tell counts as SDL 3, which is left alone.
+static int is_sdl3(void *function) {
+    Dl_info info;
+    if (dladdr(function, &info) == 0 || info.dli_fname == NULL) return 1;
+    void *sdl = dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD);
+    return sdl == NULL || has_sdl3_names(sdl);  // the handle stays open, as SDL is loaded
+}
+
+// The by-name SDL's version, asked at its first frame that would be dropped: -1 not yet, 0 SDL 2, 1 SDL 3.
+static atomic_int by_name_sdl3 = -1;
+
 int minato_sdl_swap_window(void *window) {
-    int answer = minato_sdl_swap_original(window);
-    return dropped_frame(answer, minato_sdl_current_context) ? 0 : answer;
+    if (dropped_frame(minato_sdl_current_context)) {
+        int sdl3 = atomic_load_explicit(&by_name_sdl3, memory_order_relaxed);
+        if (sdl3 < 0) {
+            sdl3 = is_sdl3((void *)minato_sdl_swap_original);
+            atomic_store_explicit(&by_name_sdl3, sdl3, memory_order_relaxed);
+        }
+        if (sdl3 == 0) return 0;
+    }
+    return minato_sdl_swap_original(window);
 }
 
 static int dynapi_swap_window(void *window) {
-    int answer = dynapi_original(window);
-    return dropped_frame(answer, dynapi_current_context) ? 0 : answer;
+    return dropped_frame(dynapi_current_context) ? 0 : dynapi_original(window);
 }
 
 // The table entry that the dynamic API stub at `code` jumps through: ADRP xA, page; LDR xB, [xA, #offset]; BR xB, with
@@ -78,7 +112,8 @@ static void replace_swap(void *sdl, void *table, uint32_t tablesize) {
     // function, the stub, into minato_sdl_swap_original.
     if (stub == (void *)minato_sdl_swap_window) stub = (void *)minato_sdl_swap_original;
     CurrentContext current_context = (CurrentContext)dlsym(sdl, "SDL_GL_GetCurrentContext");
-    if (stub == NULL || current_context == NULL) return;
+    // SDL 3 is left alone (it reads SDL3_DYNAMIC_API, so it should never ask).
+    if (stub == NULL || current_context == NULL || has_sdl3_names(sdl)) return;
     const uintptr_t slot = stub_slot((const uint32_t *)stub);
     const uintptr_t start = (uintptr_t)table;
     if (tablesize < sizeof(SwapWindow) || slot < start || slot - start > tablesize - sizeof(SwapWindow) ||
