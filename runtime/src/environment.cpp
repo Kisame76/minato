@@ -63,6 +63,15 @@ constexpr std::pair<std::string_view, std::string_view> init_environment[] = {
      "/apex/com.android.wifi/javalib/service-wifi.jar"},
 };
 
+/// Minato adds SDL_DYNAMIC_API to every program's environment, after init's variables and before the caller's.
+/// SDL 2, linked into an app as its own library, reads it at its first call and dispatches through the named
+/// library instead of its built-in functions; libminato-sdl.so forwards every function but redirects the buffer
+/// swap, so a paused app's failed swap no longer resets its display. Android 15 sets no such variable; an app may
+/// override it. The bare library name, not a path: SDL dlopens it against the program's library search path.
+constexpr std::pair<std::string_view, std::string_view> minato_defaults[] = {
+    {"SDL_DYNAMIC_API", "libminato-sdl.so"},
+};
+
 std::string_view name_of(std::string_view entry) {
     return entry.substr(0, entry.find('='));
 }
@@ -71,15 +80,22 @@ std::string_view name_of(std::string_view entry) {
 
 std::vector<std::string> at_start(const std::vector<std::string> &caller) {
     std::vector<std::string> result;
-    for (const auto &[name, value] : init_environment) {
-        const auto given = std::find_if(caller.begin(), caller.end(),
-                                        [&](const std::string &entry) { return name_of(entry) == name; });
-        result.push_back(given != caller.end() ? *given : std::string(name) + "=" + std::string(value));
-    }
+    const auto emit = [&](const auto &defaults) {
+        for (const auto &[name, value] : defaults) {
+            const auto given = std::find_if(caller.begin(), caller.end(),
+                                            [&](const std::string &entry) { return name_of(entry) == name; });
+            result.push_back(given != caller.end() ? *given : std::string(name) + "=" + std::string(value));
+        }
+    };
+    emit(init_environment);
+    emit(minato_defaults);
+    const auto predefined = [](std::string_view name) {
+        const auto named = [&](const auto &pair) { return pair.first == name; };
+        return std::any_of(std::begin(init_environment), std::end(init_environment), named) ||
+               std::any_of(std::begin(minato_defaults), std::end(minato_defaults), named);
+    };
     for (const auto &entry : caller) {
-        const bool of_init = std::any_of(std::begin(init_environment), std::end(init_environment),
-                                         [&](const auto &pair) { return pair.first == name_of(entry); });
-        if (!of_init) result.push_back(entry);
+        if (!predefined(name_of(entry))) result.push_back(entry);
     }
     return result;
 }

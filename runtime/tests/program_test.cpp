@@ -766,8 +766,9 @@ TEST(a_session_needs_an_end_handler_and_begins_once) {
 }
 
 // ADR-0039, decision 2: every program starts with init's environment, and the caller's entries on top. The
-// names, values and order are an app's on Android 15 in the emulator, except our boot class path and zygote's
-// socket numbers.
+// names, values and order are an app's on Android 15 in the emulator, except our boot class path, zygote's
+// socket numbers, and Minato's SDL_DYNAMIC_API (set after init's variables so SDL 2 dispatches through
+// libminato-sdl.so; Android 15 sets no such variable, and the caller may override it).
 TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
     const std::string dex2oat_boot_class_path =
         "/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:"
@@ -807,6 +808,8 @@ TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
         "/apex/com.android.scheduling/javalib/service-scheduling.jar:"
         "/apex/com.android.tethering/javalib/service-connectivity.jar:/apex/com.android.uwb/javalib/service-uwb.jar:"
         "/apex/com.android.wifi/javalib/service-wifi.jar",
+        // Minato's own default, after init's variables (ADR-0039 departure); Android 15 sets no such variable.
+        "SDL_DYNAMIC_API=libminato-sdl.so",
     };
     CHECK(apkrt::environment::at_start({}) == init);
     // A name of init's keeps its place with the caller's value; the caller's others follow in order.
@@ -816,6 +819,10 @@ TEST(a_program_starts_with_init_s_environment_and_the_caller_s_on_top) {
     expected.push_back("OWN=1");
     CHECK(apkrt::environment::at_start({"LD_LIBRARY_PATH=/data/local/tmp", "ANDROID_DATA=/elsewhere", "OWN=1"}) ==
           expected);
+    // SDL_DYNAMIC_API is Minato's default, but an app that sets its own value keeps it, in the same place.
+    auto own_sdl = init;
+    own_sdl.back() = "SDL_DYNAMIC_API=libother.so";
+    CHECK(apkrt::environment::at_start({"SDL_DYNAMIC_API=libother.so"}) == own_sdl);
 }
 
 // Decision 5: what keeps a program from starting comes back to the caller, which keeps its thread.
