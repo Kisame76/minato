@@ -1,6 +1,7 @@
 // File syscalls of the Linux syscall layer (ADR-0009, ARCHITECTURE.md 4.5): Linux paths, flags and
 // structures on Darwin's file descriptors. Every path goes through the path table (vfs.h), every
 // descriptor through the guest's descriptor table (descriptors.h, ADR-0027).
+#include "APKRuntime/apkrt.h"
 #include "channels.h"
 #include "descriptors.h"
 #include "identity.h"
@@ -80,6 +81,55 @@ long with_file(int fd, HostCall host_call) {
     return host_call(description->host());
 }
 
+// The stall watchdog's asset/OBB progress (apkrt_stall_asset_work): the process-wide sum of each regular file's
+// highest read offset -- its distinct bytes read -- so a re-read of the same range does not grow it, but reading
+// further, or another file, does. The graphics work source adds this to the live texture/buffer high-water. Hot-path
+// cost: one relaxed fetch_add, only on growth; nothing for a descriptor that is not a regular file.
+std::atomic<std::uint64_t> asset_work_bytes{0};
+
+// A regular file (or a non-blocking device): not a socket, pipe, FIFO or tty (those can block), and not an
+// eventfd/timerfd/epoll/channel (not Kind::file). A device's reads return 0 or do not advance an offset, so they add
+// nothing of their own.
+bool counts_as_file(const Description &description) {
+    return description.kind() == Description::Kind::file && !description.can_block();
+}
+
+// Raises this file's highest read offset to `end` and adds only the growth to the process-wide total. A relaxed load
+// and, on growth, a relaxed store plus one relaxed fetch_add (plain loads/stores on arm64, so the fetch_add is the
+// only read-modify-write); never a lock. A rare concurrent-growth race only over-counts, which the hard cap tolerates.
+void note_high_water(Description &description, std::uint64_t end) {
+    const std::uint64_t prev = description.read_high_water.load(std::memory_order_relaxed);
+    if (end > prev) {
+        description.read_high_water.store(end, std::memory_order_relaxed);
+        asset_work_bytes.fetch_add(end - prev, std::memory_order_relaxed);
+    }
+}
+
+// A completed stream read of `bytes` on a regular file: advances the tracked position (so the end offset is known
+// without an lseek) and notes it. Non-files cost only the counts_as_file branch, no atomic.
+void note_stream_read(Description &description, std::uint64_t bytes) {
+    if (!counts_as_file(description)) return;
+    const std::uint64_t end = description.file_pos.load(std::memory_order_relaxed) + bytes;
+    description.file_pos.store(end, std::memory_order_relaxed);
+    note_high_water(description, end);
+}
+
+// A completed positional read (pread/preadv) ending at `end` on a regular file: notes it; the stream position is
+// unchanged, as pread leaves it.
+void note_positional_read(Description &description, std::uint64_t end) {
+    if (!counts_as_file(description)) return;
+    note_high_water(description, end);
+}
+
+/// with_host, but the call gets the Description itself, so pread/preadv note read progress on it without a second
+/// descriptor-table lookup (the lookup here is the same one with_host would do).
+template <typename Call>
+long with_description(int fd, Call call) {
+    const auto description = descriptors::get(fd);
+    if (!description) return -linux_errno::ebadf;
+    return call(*description);
+}
+
 /// File status flags of an open file, Darwin to Linux (for F_GETFL).
 int to_linux_status_flags(int flags) {
     int result = flags & O_ACCMODE;  // O_RDONLY, O_WRONLY, O_RDWR agree
@@ -157,6 +207,12 @@ long record_lock(int fd, int command, std::uint64_t argument) {
 }
 
 }  // namespace
+
+// The stall watchdog's asset/OBB progress for the graphics work source (apkrt.h): process-wide, monotone, grows only
+// when a regular file's highest read offset rises, so a re-read does not grow it.
+extern "C" std::uint64_t apkrt_stall_asset_work(void) {
+    return asset_work_bytes.load(std::memory_order_relaxed);
+}
 
 long sys_fcntl(int fd, int command, std::uint64_t argument) {
     switch (command) {
@@ -1290,7 +1346,12 @@ long sys_lseek(int fd, std::int64_t offset, int whence) {
         case linux_seek_hole: host_whence = SEEK_HOLE; break;
         default: return -linux_errno::einval;
     }
-    return result_or_error(::lseek(description->host(), offset, host_whence));
+    const long result = result_or_error(::lseek(description->host(), offset, host_whence));
+    // Keep the asset-work position in step with a seek, so the next stream read's end offset is right (relaxed store).
+    if (result >= 0 && counts_as_file(*description)) {
+        description->file_pos.store(static_cast<std::uint64_t>(result), std::memory_order_relaxed);
+    }
+    return result;
 }
 
 long sys_getdents64(int fd, std::uint64_t buffer, std::uint64_t size) {
@@ -1486,7 +1547,11 @@ long read_or_write(int fd, bool writing, const iovec *vectors, int count, Plain 
     if (description->kind() == Description::Kind::eventfd || description->kind() == Description::Kind::timerfd) {
         return transfer_count(*description, writing, vectors, count);
     }
-    if (!description->can_block()) return result_or_error(plain(description->host()));
+    if (!description->can_block()) {
+        const long moved = result_or_error(plain(description->host()));
+        if (!writing && moved > 0) note_stream_read(*description, static_cast<std::uint64_t>(moved));
+        return moved;
+    }
     if (sockets::takes_messages(*description)) return sockets::transfer_message(*description, writing, vectors, count);
     return transfer(*description, writing, Buffers(vectors, count), sockets::deadline_of(*description, writing));
 }
@@ -1525,8 +1590,12 @@ long sys_writev(int fd, std::uint64_t vectors, int count) {
 }
 
 long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t offset) {
-    return with_host(fd, [&](int host) {
-        return result_or_error(::pread(host, as_pointer<void>(buffer), size, offset));
+    return with_description(fd, [&](Description &description) {
+        const long moved = result_or_error(::pread(description.host(), as_pointer<void>(buffer), size, offset));
+        if (moved > 0 && offset >= 0) {
+            note_positional_read(description, static_cast<std::uint64_t>(offset) + static_cast<std::uint64_t>(moved));
+        }
+        return moved;
     });
 }
 
@@ -1539,8 +1608,13 @@ long sys_pwrite64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t
 }
 
 long sys_preadv(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
-    return with_host(fd, [&](int host) {
-        return result_or_error(::preadv(host, as_pointer<const iovec>(vectors), count, offset));
+    return with_description(fd, [&](Description &description) {
+        const long moved =
+            result_or_error(::preadv(description.host(), as_pointer<const iovec>(vectors), count, offset));
+        if (moved > 0 && offset >= 0) {
+            note_positional_read(description, static_cast<std::uint64_t>(offset) + static_cast<std::uint64_t>(moved));
+        }
+        return moved;
     });
 }
 

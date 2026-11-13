@@ -3,6 +3,7 @@
 // are guest numbers (ADR-0027); host_of() shows the host descriptor behind one.
 #include "descriptors.h"
 #include "hwcap.h"
+#include "stall_watchdog.h"
 #include "proc.h"
 #include "sockets.h"
 #include "sys_cpu.h"
@@ -936,6 +937,97 @@ TEST(files_under_a_mount_are_host_files) {
     CHECK(read_text(again, 16).empty());  // end of file
     CHECK(call(nr_close, {unsigned_of(again)}) == 0);
     CHECK(call(nr_close, {unsigned_of(again)}) == -ebadf);
+}
+
+// A stall-watchdog work source backed by the runtime's asset/OBB progress, for one GL surface id (1); 0 for any other
+// id, as a Vulkan surface or the decor (no live EGL work) would read.
+std::uint64_t asset_work_source(std::uint64_t id) { return id == 1 ? apkrt_stall_asset_work() : 0; }
+
+TEST(reading_a_file_grows_the_stall_asset_work_by_its_highest_offset) {
+    // The stall watchdog's asset and OBB progress: a read of a regular file raises its highest offset and so the
+    // process-wide total by the growth; a re-read of the same range does not; reading further does. Writes do not
+    // count.
+    Scratch scratch;
+    static char data[4096];
+    for (std::size_t i = 0; i < sizeof data; ++i) data[i] = static_cast<char>(i);
+    const auto w = open_guest(at_fdcwd, "/data/local/tmp/asset.bin", o_creat | o_rdwr | o_trunc, 0600);
+    CHECK(w >= 0);
+    CHECK(call(nr_write, {unsigned_of(w), address(data), sizeof data}) == static_cast<std::int64_t>(sizeof data));
+    CHECK(call(nr_close, {unsigned_of(w)}) == 0);
+
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/asset.bin", o_rdonly);
+    CHECK(fd >= 0);
+    const std::uint64_t before = apkrt_stall_asset_work();
+    CHECK(read_text(fd, 1000).size() == 1000);                 // read [0, 1000)
+    CHECK(apkrt_stall_asset_work() - before == 1000);          // grew by the highest offset reached
+    const std::uint64_t at1000 = apkrt_stall_asset_work();
+
+    CHECK(call(nr_lseek, {unsigned_of(fd), 0, 0 /* SEEK_SET */}) == 0);
+    CHECK(read_text(fd, 1000).size() == 1000);                 // re-read [0, 1000)
+    CHECK(apkrt_stall_asset_work() == at1000);                 // a re-read does not grow it
+
+    CHECK(call(nr_lseek, {unsigned_of(fd), 1000, 0}) == 1000);
+    CHECK(read_text(fd, 500).size() == 500);                   // read [1000, 1500): further
+    CHECK(apkrt_stall_asset_work() - at1000 == 500);           // grew by the new 500
+    CHECK(call(nr_close, {unsigned_of(fd)}) == 0);
+}
+
+TEST(a_pipe_read_does_not_grow_the_stall_asset_work) {
+    // Only regular files count: a pipe can block, so it is not a file for this measure and socket/pipe traffic is
+    // never read as a load.
+    int fds[2];
+    CHECK(::pipe(fds) == 0);
+    const auto rd = apkrt::descriptors::add(fds[0], false);
+    const auto wr = apkrt::descriptors::add(fds[1], false);
+    CHECK(rd >= 0 && wr >= 0);
+    static const char msg[] = "payload";
+    CHECK(call(nr_write, {unsigned_of(wr), address(msg), sizeof msg}) == static_cast<std::int64_t>(sizeof msg));
+    const std::uint64_t before = apkrt_stall_asset_work();
+    CHECK(read_text(rd, sizeof msg).size() == sizeof msg);
+    CHECK(apkrt_stall_asset_work() == before);                 // a pipe is not a file: no growth
+    call(nr_close, {unsigned_of(rd)});
+    call(nr_close, {unsigned_of(wr)});
+}
+
+TEST(a_surface_reading_assets_is_not_reported_before_the_cap) {
+    // A surface whose load really reads assets keeps the watchdog's work growing, so it is not reported before the
+    // hard cap, even past the soft no-first-frame timeout.
+    Scratch scratch;
+    static char data[8192];
+    const auto w = open_guest(at_fdcwd, "/data/local/tmp/load.bin", o_creat | o_rdwr | o_trunc, 0600);
+    CHECK(w >= 0);
+    CHECK(call(nr_write, {unsigned_of(w), address(data), sizeof data}) == static_cast<std::int64_t>(sizeof data));
+    CHECK(call(nr_close, {unsigned_of(w)}) == 0);
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/load.bin", o_rdonly);
+    CHECK(fd >= 0);
+
+    apkrt::stall::reset_for_test();
+    apkrt::stall::set_timeout_ns(100);
+    apkrt::stall::set_max_first_frame_ns(1'000'000);           // a high cap: the soft (progress) deadline governs here
+    apkrt::stall::set_work_source(asset_work_source);
+    apkrt::stall::resumed(1'000);
+    apkrt::stall::surface_created(1, 1'000);                   // the GL surface, fed by asset reads
+    std::uint64_t now = 1'000;
+    for (int i = 0; i < 5; ++i) {
+        CHECK(read_text(fd, 1000).size() == 1000);             // a real asset read -> work grows
+        now += 90;                                             // < the 100 ns soft timeout since that growth
+        CHECK(apkrt::stall::tick(now).empty());                // kept sliding by the reads: not reported
+    }
+    apkrt::stall::set_work_source(nullptr);                    // leave no dangling source for later tests
+    CHECK(call(nr_close, {unsigned_of(fd)}) == 0);
+}
+
+TEST(a_surface_with_no_asset_reads_is_reported_unchanged) {
+    // A Vulkan surface or the decor reports 0 work (source id != 1): it is reported at the created-time deadline,
+    // exactly as without a work source.
+    apkrt::stall::reset_for_test();
+    apkrt::stall::set_timeout_ns(100);
+    apkrt::stall::set_work_source(asset_work_source);
+    apkrt::stall::resumed(1'000);
+    apkrt::stall::surface_created(2, 1'000);                   // id 2 -> source returns 0
+    CHECK(apkrt::stall::tick(1'050).empty());
+    CHECK(apkrt::stall::tick(1'200).find("no first frame") != std::string::npos);
+    apkrt::stall::set_work_source(nullptr);
 }
 
 // ADR-0039 decision 3: every app runs as one app uid, 10100 (u0_a100), with the same number as its gid.

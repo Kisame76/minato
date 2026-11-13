@@ -430,6 +430,12 @@ void apkrt_stall_window_created(uint64_t id);
 /// register it once.
 void apkrt_stall_set_work_source(uint64_t (*source)(uint64_t id));
 
+/// The runtime's contribution to that work (for the graphics work source to add to its live texture/buffer
+/// high-water): a process-wide, monotonically rising sum of the distinct bytes read from regular files -- each file's
+/// highest read offset -- so a load that reads assets and the OBB grows it, while a loop that re-reads the same range
+/// does not. Read it from the registered source; it is a relaxed atomic load.
+uint64_t apkrt_stall_asset_work(void);
+
 /// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
 int apkrt_is_background(void);
 

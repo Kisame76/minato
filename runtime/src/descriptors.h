@@ -61,6 +61,15 @@ public:
     DIR *stream = nullptr;     // guarded by stream_mutex
     long stream_position = 0;  // guarded by stream_mutex
 
+    // Byte accounting for the stall watchdog's asset/OBB progress (apkrt_stall_asset_work), meaningful only for a
+    // regular file. `file_pos` follows the host read offset -- read/readv advance it, lseek sets it -- so a stream
+    // read's end offset is known without an extra lseek; `read_high_water` is the highest end offset any read reached,
+    // and only its growth adds to the process-wide total. Relaxed atomics, updated with plain load/store so the hot
+    // read path costs no atomic read-modify-write except the one fetch_add on growth, and never a lock; a rare
+    // concurrent-read race only under-counts a progress heuristic.
+    std::atomic<std::uint64_t> file_pos{0};
+    std::atomic<std::uint64_t> read_high_water{0};
+
     /// Whether getdents64 leaves out the entry ".minato", the runtime's own folder (picks, shares, the media library)
     /// in an app's data folder, which Android's listing of it never has. Set by sys_openat, before the number is out.
     bool hides_runtime_folder = false;
