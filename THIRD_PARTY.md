@@ -86,8 +86,8 @@ that says why, whether it could go upstream and when it goes.
 The BSD licenses ask for their notices with every binary: the app embeds the framework since 2026-09-27 and carries
 ANGLE's texts in `Licenses/`, with the holders of `src/common/base` (The Chromium Authors, the V8 project authors) from
 [`third_party/angle/licenses/`](third_party/angle/licenses/). Used only to build, not in the app: depot_tools'
-`gclient.py` (BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception), and the Khronos
-registries `gl.xml` and `egl.xml` (Apache-2.0).
+`gclient.py` (commit `08c69adf`, BSD-3-Clause), GN (BSD-3-Clause), Chromium's clang (Apache-2.0 WITH LLVM-exception),
+and the Khronos registries `gl.xml` and `egl.xml` (Apache-2.0).
 
 ## Graphics: MoltenVK (ADR-0030, ADR-0044 b))
 
