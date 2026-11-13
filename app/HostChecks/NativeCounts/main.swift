@@ -42,12 +42,13 @@ let one = DebugNativeCounts.line(libraries: folder, count: { $0.lastPathComponen
 check(one?.hasPrefix("1 library: ") == true, "one library says library")
 
 // Every number of apkconv_counts is added and shown, each in its place: a distinct value per field, two libraries.
-let each = apkconv_counts(svc_rewritten: 1, svc_data: 2, svc_in_data: 3, undefined_words: 4, x18_islands: 5,
-                          renames_by_symbol: 6, renames_by_unwind: 7)
+let each = apkconv_counts(svc_rewritten: 1, svc_data: 2, svc_in_data: 3, undefined_words: 4, x18_kept_weak: 5,
+                          x18_islands: 6, renames_by_symbol: 7, renames_by_unwind: 8)
 let pair: Set = ["libfirst.so", "libsecond.so"]
 let summed = DebugNativeCounts.line(libraries: folder, count: { pair.contains($0.lastPathComponent) ? each : nil })
-check(summed == "2 libraries: svc 2 rewritten, 4 kept as data, 6 in proven data; FEAT_LSUI kept 8; x18 islands 10; "
-      + "whole-function renames 12 by symbol, 14 by unwind entry", "every count is added and shown, svc_in_data too")
+check(summed == "2 libraries: svc 2 rewritten, 4 kept as data, 6 in proven data; FEAT_LSUI kept 8; "
+      + "x18 weak SIMD kept 10; x18 islands 12; whole-function renames 14 by symbol, 16 by unwind entry",
+      "every count is added and shown, svc_in_data and x18_kept_weak too")
 
 let off = await DebugNativeCounts.lineOffMain(libraries: folder)
 check(off == line, "counted off the main thread it is the same line")
@@ -65,6 +66,7 @@ func doubled(_ counts: apkconv_counts) -> apkconv_counts {
     twice.svc_data *= 2
     twice.svc_in_data *= 2
     twice.undefined_words *= 2
+    twice.x18_kept_weak *= 2
     twice.x18_islands *= 2
     twice.renames_by_symbol *= 2
     twice.renames_by_unwind *= 2

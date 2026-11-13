@@ -5,14 +5,20 @@
 
 #include "apkconv/container.h"
 
+#include "APKConvert/apkconv.h"
+
 #include "check.h"
 #include "elf_builder.h"
+
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
 namespace {
@@ -1008,6 +1014,25 @@ TEST(a_weakly_reached_simd_access_that_steps_sp_by_x18_is_kept_and_counted_not_r
         CHECK(scan.findings.x18_kept_weak.size() == 1 && scan.findings.x18_kept_weak[0].address == 0x208);
         CHECK(apk::container::counts(bytes).x18_kept_weak == 1);
     }
+}
+
+// The C API carries the number, so a Debug build's Get Info can show it.
+TEST(the_c_api_counts_the_kept_weak_words) {
+    const auto bytes = library({mov_x8_172, svc0, st2_sp_x18, 0x17ff'fffd}, {{"f", 0x200, 16}});
+    const auto path =
+        std::filesystem::temp_directory_path() / ("data_ranges_capi_" + std::to_string(::getpid()) + ".so");
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    apkconv_counts counts{};
+    counts.x18_kept_weak = 0xffff;
+    char error[256] = {};
+    const int got = apkconv_counts_of(path.string().c_str(), &counts, error, sizeof error);
+    std::filesystem::remove(path);
+    CHECK(got == 0);
+    CHECK(counts.x18_kept_weak == 1);
+    CHECK(counts.x18_kept_weak == apk::container::counts(bytes).x18_kept_weak);
 }
 
 TEST(the_same_word_reached_by_proven_code_is_still_refused) {

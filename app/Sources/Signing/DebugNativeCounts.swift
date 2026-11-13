@@ -25,6 +25,7 @@ enum DebugNativeCounts {
             total.svc_data += found.svc_data
             total.svc_in_data += found.svc_in_data
             total.undefined_words += found.undefined_words
+            total.x18_kept_weak += found.x18_kept_weak
             total.x18_islands += found.x18_islands
             total.renames_by_symbol += found.renames_by_symbol
             total.renames_by_unwind += found.renames_by_unwind
@@ -42,7 +43,8 @@ enum DebugNativeCounts {
         "\(libraries) \(libraries == 1 ? "library" : "libraries"): "
             + "svc \(total.svc_rewritten) rewritten, \(total.svc_data) kept as data, "
             + "\(total.svc_in_data) in proven data; "
-            + "FEAT_LSUI kept \(total.undefined_words); x18 islands \(total.x18_islands); "
+            + "FEAT_LSUI kept \(total.undefined_words); "
+            + "x18 weak SIMD kept \(total.x18_kept_weak); x18 islands \(total.x18_islands); "
             + "whole-function renames \(total.renames_by_symbol) by symbol, \(total.renames_by_unwind) by unwind entry"
     }
 

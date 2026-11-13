@@ -381,6 +381,7 @@ extern "C" int apkconv_counts_of(const char *elf_path, apkconv_counts *counts, c
                    .svc_data = found.svc_data,
                    .svc_in_data = found.svc_in_data,
                    .undefined_words = found.undefined_words,
+                   .x18_kept_weak = found.x18_kept_weak,
                    .x18_islands = found.x18_islands,
                    .renames_by_symbol = found.renames_by_symbol,
                    .renames_by_unwind = found.renames_by_unwind};

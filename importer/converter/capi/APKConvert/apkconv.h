@@ -72,6 +72,7 @@ typedef struct {
     uint32_t svc_data;          // svc words kept as data, because a PC-relative load reads them
     uint32_t svc_in_data;       // svc words inside the data ranges the split proves: data, neither rewritten nor kept
     uint32_t undefined_words;   // FEAT_LSUI words kept as they are
+    uint32_t x18_kept_weak;     // weakly reached SIMD accesses that step SP by x18: kept as they are
     uint32_t x18_islands;       // x18 sites, relocated windows and jump tables
     uint32_t renames_by_symbol; // whole-function renames of x18 with the bounds of a sized symbol
     uint32_t renames_by_unwind; // ... with the bounds of an unwind entry, in a library without such a symbol
