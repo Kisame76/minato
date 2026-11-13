@@ -306,6 +306,7 @@ signatures. A crash names its cause when the app returns to the library.
 which counts the rest as "unexplained missing"): `telephony` (calls, SMS, SIM, SIP, RTP, carrier and IMS services),
 `system-service` (base classes an app implements for the system to bind: accessibility, input methods, dreams,
 wallpapers, notification listeners), `device-admin`, `print-hardware`, `wifi-hardware` (Wi-Fi Aware, ranging,
-Passpoint, Wi-Fi Direct discovery), `carrier-network` (VCN), `gnss-raw`, `secure-hardware` (trusted UI, the secure
+Passpoint, Wi-Fi Direct discovery), `chromium-stack` (`HttpEngine`, `UrlRequest` and `BidirectionalStream`, which run
+over Chromium's network stack), `carrier-network` (VCN), `gnss-raw`, `secure-hardware` (trusted UI, the secure
 element, identity credentials), `tv-platform`, `test-only` (UiAutomation), `usb-host` (MTP over USB), `vpn-role` (a
 VPN app's profile) and `apache-http` (the legacy HTTP client). Every other missing type is a task, not a limit.

@@ -3,6 +3,7 @@
 # The reasons are repeated in docs/COMPATIBILITY.md, "Limits that stay".
 
 # reason apache-http: the legacy Apache HTTP client's classes, removed from Android's API in 6.0: not a goal
+# reason chromium-stack: HttpEngine, UrlRequest and BidirectionalStream run over Chromium's network stack: not carried
 # reason carrier-network: the virtual carrier network (VCN): a carrier- and system-only API
 # reason device-admin: device administration, enterprise and recovery: only a device owner or the system uses it
 # reason gnss-raw: raw GNSS measurements and location setting injection: iOS gives apps no raw satellite data
@@ -150,6 +151,9 @@ android.media.tv.interactive.TvInteractiveAppService service tv-platform
 android.media.tv.interactive.TvInteractiveAppView service tv-platform
 android.mtp.MtpDevice native usb-host
 android.net.Ikev2VpnProfile module vpn-role
+android.net.http.BidirectionalStream module chromium-stack
+android.net.http.HttpEngine module chromium-stack
+android.net.http.UrlRequest module chromium-stack
 android.net.wifi.EasyConnectStatusCallback module api wifi-hardware
 android.net.wifi.MloLink module api wifi-hardware
 android.net.wifi.WifiAvailableChannel module api wifi-hardware
