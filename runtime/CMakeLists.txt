@@ -267,6 +267,13 @@ if(APK_HOST_BUILD)
   target_link_libraries(exit_test PRIVATE apkrt apk_defaults apk_testing)
   add_test(NAME runtime.exit COMMAND exit_test)
 
+  # run()'s fatal guard when a guest thread cannot get an alternate signal stack (threads.cpp).
+  add_executable(altstack_test tests/altstack_test.cpp)
+  target_include_directories(altstack_test PRIVATE src)
+  target_link_libraries(altstack_test PRIVATE apkrt apk_defaults apk_testing)
+  add_test(NAME runtime.altstack COMMAND altstack_test)
+  set_tests_properties(runtime.altstack PROPERTIES TIMEOUT 60)
+
   add_executable(syscalls_test tests/syscalls_test.cpp)
   target_include_directories(syscalls_test PRIVATE src)
   target_link_libraries(syscalls_test PRIVATE apkrt apk_defaults apk_testing)

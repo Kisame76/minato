@@ -65,4 +65,8 @@ void for_each(const std::function<void(GuestThread &)> &visit);
 /// Ends the calling guest thread (SYS_exit): back to run(), off the guest's stack. Never returns.
 [[noreturn]] void exit_current(int code);
 
+/// Test seam (altstack_test): when true, run() behaves as if installing a guest thread's alternate signal stack
+/// failed, so the fatal guard can be exercised. Never set in production, like apkrt::sys::memory::test_pause.
+extern std::atomic<bool> test_force_altstack_failure;
+
 }  // namespace apkrt::threads

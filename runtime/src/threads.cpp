@@ -111,6 +111,8 @@ void forget(GuestThread &thread) {
     --living;
 }
 
+std::atomic<bool> test_force_altstack_failure{false};
+
 void run(GuestThread &thread, void (*enter)(void *), void *argument) {
     std::call_once(key_created, create_key);
     signals::install();
@@ -122,16 +124,27 @@ void run(GuestThread &thread, void (*enter)(void *), void *argument) {
     stack_t present{};
     ::sigaltstack(nullptr, &present);
     if ((present.ss_flags & SS_DISABLE) != 0) {
+        bool installed = false;
         void *memory = ::mmap(nullptr, host_signal_stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
         if (memory != MAP_FAILED) {
             stack_t stack{};
             stack.ss_sp = memory;
             stack.ss_size = host_signal_stack_size;
-            if (::sigaltstack(&stack, nullptr) == 0) {
+            const bool forced = test_force_altstack_failure.load(std::memory_order_relaxed);
+            if (!forced && ::sigaltstack(&stack, nullptr) == 0) {
                 thread.host_signal_stack = memory;
+                installed = true;
             } else {
                 ::munmap(memory, host_signal_stack_size);
             }
+        }
+        if (!installed) {
+            // Fatal: the handlers use SA_ONSTACK (signals.cpp) because a fault may have used up the guest thread's
+            // own stack, and the runtime returns into islands without a settle, so a handler on that stack would
+            // corrupt it. A thread that cannot fault safely must not run; end loudly instead of silently.
+            static const char message[] = "apkrt: could not install an alternate signal stack for a guest thread\n";
+            static_cast<void>(::write(STDERR_FILENO, message, sizeof message - 1));
+            process::exit(127);
         }
     }
     apkrt_set_guest_tls(reinterpret_cast<void *>(thread.thread_pointer));
