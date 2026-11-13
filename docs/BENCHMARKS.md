@@ -113,7 +113,7 @@ build, and the runs' `run.csv` files name both commits with -dirty (the switch, 
   - Against the series' Vulkan build, these are byte-identical: the bench APKs, `MinatoBench`, MoltenVK, ANGLE,
     `activity-host`, `libGLESv2` and `libGLESv3`.
   - `libEGL` differs only in its build ID, and `libvulkan` has the switch.
-  - `libaaudio`, `libOpenSLES` and Minato's binary carry the commits since the series (ADR-0036 c2 and App's), and
+  - `libaaudio`, `libOpenSLES` and Minato's binary carry the audio and app commits since the series, and
     the switch's launch argument.
 - *Second, 20:23:* 8109689, the fix below. Only `libc.so` differs from the first build. Minato's binary and
   `MinatoBench` are byte-identical, so native-50 is the control for both builds.
@@ -153,7 +153,7 @@ The rule compares the arms within one build and one sitting, so the verdict stan
 **The rest: two suspects.** About 0.48 ms a frame remains, and so do the late frames: 1.4 and 2.7 % of B's intervals
 are at 16.67 ms or more, against none of N's. The late frames fit either suspect.
 
-- *`libvulkan`'s queue path* (ADR-0030, V4a2).
+- *`libvulkan`'s queue path* (ADR-0030).
   - Every submit signals the queue's timeline semaphore, and waits go in slices of 10 ms.
   - `graphics/host` counts and flags every submit, acquire and present.
   - The GLES APK has none of this.
@@ -198,8 +198,8 @@ frame and draws no late frame.
 - *Tests,* red first: `graphics.recorder` runs the GLES host build with `-benchmarkRenderQoS default` and checks that
   the recording notes QoS default. Another value fails the start with its reason. Graphics CTest 28 of 28 in debug
   and release; `MinatoBench` builds for iphoneos and iphonesimulator.
-- *How it ran:* `build/v5-qos/scripts/qos.sh` (not in git), as the copy series' driver: a pause of 10 min with Minato
-  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-qos/` only. It stops if
+- *How it ran:* a driver script (not in git), like the copy series': a pause of 10 min with Minato
+  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into a folder of its own only. It stops if
   `run.csv`'s `qos` does not match the arm. Both runs were valid at the first attempt, in portrait, nominal from start
   to end, and charging at 80 %. The setup was the series'.
 
@@ -231,7 +231,7 @@ made the next refresh at 120 Hz now miss it.
   The scene's frames stay the same. At the end the run logs its submits and the timeline's value: 4400 submits with the
   timeline at 4400 (nq-63), 4384 at 4384 (nq-64). Its waits took 8822 slices for 8798 waits and 8789 for 8766: two
   waits a frame, of which about 24 a run took more than one slice.
-- *The rule* (`build/v5-queue/RULE.md`): P is the period, L the share of late intervals.
+- *The rule:* P is the period, L the share of late intervals.
   1. P_NQ − P_NU at least 0.24 ms (half of the rest) and L_NQ at least 0.5 %: the queue path explains the rest.
   2. P_NQ − P_NU at most 0.05 ms and L_NQ at most 0.1 %: the queue path is ruled out.
   3. In between: the queue path's share of the rest is (P_NQ − P_NU) / 0.48 ms. Two more runs, nq-64 and nu-65, follow,
@@ -247,13 +247,13 @@ made the next refresh at 120 Hz now miss it.
   frame), and take a slice or more for each fence wait and acquire (at least two per frame). The run without the
   argument logs no queue path, and another value is refused. Graphics CTest 28 of 28 in debug and release; `MinatoBench`
   builds for iphoneos and iphonesimulator.
-- *How it ran:* `build/v5-queue/scripts/queue.sh` (not in git), as the QoS A/B's driver: a pause of 10 min with Minato
-  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into `build/v5-queue/` only. It stops if
+- *How it ran:* a driver script (not in git), like the QoS A/B's: a pause of 10 min with Minato
+  closed before each run, then `tools/benchmark.sh`'s own launch and fetch, into a folder of its own only. It stops if
   `run.csv`'s `qos` is not user-interactive, if NQ's console lacks the queue path's line with the timeline at its
   submits, or if NU's console names one.
   - nu-62 ran at 11:23. nq-63's first attempt at 11:34 ended 9 s after its launch with the exit code 0. It left an
     empty folder on the iPhone: no scene end, no crash or Jetsam log. Its second attempt, on the same build at 14:00,
-    passed, so the first counts as a dropped launch [inferred], not as the queue path's fault. Since then `queue.sh`
+    passed, so the first counts as a dropped launch [inferred], not as the queue path's fault. Since then the driver
     counts such an attempt (the exit code 0 before the scene's end, nothing fetched) as empty. It moves the attempt to
     `failed/` and runs it again after the pause, as it does with an invalid run.
   - nq-64 ran at 14:14. The Mac then slept: its lid closed at 14:19 and it ran on battery from 14:21, so nu-65's pause
@@ -279,7 +279,7 @@ The runs are `vulkan-120-heavy-<run>`, cut as above. To screen is the p50 of the
 to its present. Earliest is the p10 of when a frame took its drawable, counted from frame k−2's present; negative is
 before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms.
 
-- *The data check, before any code* (`build/v5-late/data-check.txt`, not in git), on the copy series' and the queue
+- *The data check, before any code* (not in git), on the copy series' and the queue
   A/B's `frames.csv`:
   - The APK asks in time. Frame k takes its drawable 0.62 to 0.75 ms (p50) after frame k−2's present in every run,
     native and APK, the earliest it can with 3 drawables. The thunks, the vsync channel and glue, and the gates act
@@ -307,7 +307,7 @@ before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms
 - *BO:* B with `MINATO_VULKAN_OPAQUE=1` as well. `libvulkan` then hands MoltenVK OPAQUE in place of the app's INHERIT
   (`graphics/vulkan/swapchain.c`), so MoltenVK makes the layer opaque. Nothing else changes. Each run's console names
   the layer's opacity at the first drawable, which `graphics/host`'s recorder logs once.
-- *The rule* (`build/v5-late/RULE.md`): P is the period, L the share of late intervals, Δq = 0.164 ms the queue
+- *The rule:* P is the period, L the share of late intervals, Δq = 0.164 ms the queue
   path's cost.
   1. P_BO − P_N at most Δq + 0.05 ms and L_BO at most 0.1 %: the layer's opacity is the rest.
   2. P_B − P_BO at most 0.05 ms and L_BO at least half of L_B: opacity is ruled out.
@@ -317,16 +317,16 @@ before it. B's period is 12.003 ms and BO's 11.771 ms, each pair within 0.026 ms
   22.86 ms, as NQ's do, and take their earliest drawables as native's do.
 - *The build:* `tools/benchmark.sh --api vulkan` at 17:34, 6db31f7 with the switch and the recorder's note
   (uncommitted). Against the queue A/B's build, `MinatoBench`, MoltenVK and the bench APKs are byte-identical.
-  `libvulkan` has the switch, the guest's `liblog` and new `libdl_android` carry Runtime's work, and Minato's binary
+  `libvulkan` has the switch, the guest's `liblog` and new `libdl_android` carry other runtime work, and Minato's binary
   the recorder's note and the tree's other work.
 - *Tests,* red first: `graphics.vulkan_window`, where the fake logs alpha 0x1 for the app's INHERIT with
   `MINATO_VULKAN_OPAQUE=1` and 0x8 without. `graphics.recorder`: each recording notes the layer's opacity and the
   console names it once, 0 for the GLES host build and APK, 1 for the Vulkan host build and 0 for the Vulkan APK. The
   tests' layers start non-opaque, as the session's. Graphics CTest 30 of 30 in debug and release, `present_gles`
   skipped.
-- *How it ran:* `build/v5-late/scripts/late.sh` (not in git), as the queue A/B's driver, under `caffeinate -i` with
+- *How it ran:* a driver script (not in git), like the queue A/B's, under `caffeinate -i` with
   the Mac on power: a pause of 10 min with Minato closed before each run, then `tools/benchmark.sh`'s own launch and
-  fetch, into `build/v5-late/` only. It stops if B's or BO's console lacks format 44 or names another opacity than
+  fetch, into a folder of its own only. It stops if B's or BO's console lacks format 44 or names another opacity than
   the arm's (N 1, B 0, BO 1). A B with 1 would have left the A/B without a question. The order was N B BO BO B. All
   five runs were valid at their first attempt, in portrait, nominal from start to end, and charging at 80 %.
 - *Next* (the rule's case 1): its own step, Minato's window layer opaque by default, as Android 15 makes a
@@ -399,7 +399,7 @@ Each half ran Release benchmark builds that `tools/benchmark.sh` made from the w
     compiled path.
   - The only dirty compiled path was `runtime/include/APKRuntime/apkrt.h`, a comment.
 - **Vulkan:** 2026-09-30 15:55, one build, section 7.
-  - The build is ffed77d with Runtime's uncommitted work on ADR-0036 c2 (32 runs, ffed77d-dirty).
+  - The build is ffed77d with uncommitted audio work (32 runs, ffed77d-dirty).
   - Section 7 also has the SHA-256 of what `tools/embed-guest-system.sh` embeds without building it: `build/bionic`
     and the front libs.
   - A byte-identity check against the last GLES build compared every Mach-O without its signature, and the APKs'
@@ -639,9 +639,9 @@ translation, comes as soon as on ANGLE-Metal: within 13 ms of bench-gles's at ea
   `bgra8Unorm` with 3 drawables, the battery charging at 80 %. The thermal state at the end: for gles nominal ×21,
   fair ×11 and serious ×2 (the two invalid runs), for gles31 nominal ×7 and fair ×9. No pauses besides the app's own
   wait for nominal before each run, and no fan.
-- *An interruption:* about 10:00 the phone was in use for another app while gles-120-heavy-native-06 waited to draw.
-  The run stayed open in the background until `devicectl`'s 900 s timeout ended it at 10:12 without a result. On the
-  user's word the series went on at 10:15 where it had stopped; the run was made again and was valid.
+- *An interruption:* about 10:00 the phone was busy while gles-120-heavy-native-06 waited to draw. The run stayed
+  open in the background until `devicectl`'s 900 s timeout ended it at 10:12 without a result. The series went on at
+  10:15 where it had stopped; the run was made again and was valid.
 - *Order:* the gles31 runs came after the whole gles series, on a phone that had just run the heavy load; each began
   nominal.
 

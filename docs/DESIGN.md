@@ -244,7 +244,7 @@ with native libraries, DEX files and assets, and signs it with signature scheme 
 Accepted; its decision 5 (orientation) is changed by ADR-0038. A launch request is read once, so a crash never
 leads back into the app. The restart tries `LSApplicationWorkspace` with this install's bundle ID, then
 `minato://open`, each with 3 s for an answer, and otherwise asks the user to open Minato again. The app runs full
-screen with Android's lifecycle order, and a swipe down from the top edge opens Minato's menu (Quit, FPS display).
+screen with Android's lifecycle order, and a swipe down with three fingers opens Minato's menu (Quit, FPS display).
 
 ### ADR-0033: ART on our loader
 
@@ -300,7 +300,7 @@ Accepted. The loader implements bionic's linker namespaces, ported from `linker.
 
 ### ADR-0041: Views, surfaces, input and NativeActivity on the Java path
 
-Accepted; decision 2 (one window per activity) is changed by the second-windows step of the compatibility plan.
+Accepted; decision 2 (one window per activity) no longer holds: dialogs, popups and toasts are windows of their own.
 AOSP's `View` classes run under Minato's window classes with AOSP's names (`PhoneWindow`, `WindowManagerImpl`,
 `ViewRootImpl`). A `SurfaceView` gets a layer of its own; GLES from Java uses AOSP's `android.opengl`; input arrives
 through an input channel; insets come from iOS's safe area. Dialogs, toasts, popups and translucent activities are
@@ -380,8 +380,8 @@ Part 2, Linux's own link semantics across mounts, comes when an app needs it.
 Accepted; in progress. Register `x20`, ART's marking register, which a build without read barriers does not use,
 holds the heap window's base; compiled code, nterp and the stubs decode 32-bit references against it, and implicit
 null checks stay through the window's unmapped first page. Compiled code comes from Minato's own dex2oat and goes
-through the same convert, sign and `dlopen` path as native libraries. nterp, a verify-only dex2oat and compiled
-code that decodes references run in tests; apps still start in the switch interpreter.
+through the same convert, sign and `dlopen` path as native libraries. nterp is the default interpreter, and an app
+is compiled once after its first close.
 
 ### ADR-0054: Networking: sockets and DNS
 
@@ -397,13 +397,13 @@ Accepted; its library half is implemented. The import runs every check over the 
 the first problem: each native library through the converter's check mode, its NEEDED names and undefined symbols
 against the guest's export table, and the libraries the Java code loads by name. Each finding blocks, degrades or
 informs and names its cause; Get Info lists them. The DEX and manifest half and the re-check after a Minato update
-are planned steps [their state not verified for this page].
+are planned steps.
 
 ### ADR-0056: WebView on WKWebView
 
-Accepted; not built yet. AOSP's `android.webkit` classes over a provider of Minato's whose WebView is a WKWebView
+Accepted; implemented. AOSP's `android.webkit` classes over a provider of Minato's whose WebView is a WKWebView
 placed in the session at the view's frame, with Android 15's WebView user agent and app-local pages through a
-`minato-asset://` scheme. Today no provider exists, so creating a WebView fails.
+`minato-asset://` scheme.
 
 ### ADR-0057: Files, pickers and shared media
 
@@ -429,7 +429,7 @@ such as `KeyGenParameterSpec` are in `framework.jar`.
 
 Accepted; in progress. Each video `MediaCodec` is a VideoToolbox decompression session (H.264, then HEVC) behind one
 codec core that audio backends will share; frames reach a `Surface` with one GPU copy. `MediaExtractor` is Minato's
-own MP4 (ISO BMFF) reader, and `MediaPlayer` plays through `AVPlayer`. Audio codecs come in a later step.
+own MP4 (ISO BMFF) reader, and `MediaPlayer` plays through `AVPlayer`. AAC, MP3, FLAC and Opus decode too.
 
 ### ADR-0061: Sensors on CoreMotion
 
@@ -451,7 +451,7 @@ data.
 
 ### ADR-0064: Microphone input on AVAudioSession
 
-Accepted; the guest side is implemented, the iPhone side (the input engine and the prompt) is the App's. Recording
+Accepted; implemented. Recording
 comes through `AudioRecord`, AAudio input streams and OpenSL ES recorders over one input path in the runtime
 (`audio_open` with direction 1, `audio_read`, a ring the host's capture fills with `apkrt_audio_input_write`), with
 `RECORD_AUDIO` decided by iOS's prompt as for location. An input open without the stored grant answers `-EACCES`
@@ -479,19 +479,18 @@ upscaler and no frame interpolation.
 
 ### ADR-0068: Text input, hardware keys and controllers
 
-Accepted; partly implemented. Records on the input channel carry a kind: motion, key, text or device. Hardware keys
+Accepted; implemented. Records on the input channel carry a kind: motion, key, text or device. Hardware keys
 reach windows as key events. The soft keyboard is a bridge in Minato's `InputMethodManager` to a hidden UIKit text
-input, whose callbacks drive the focused view's `InputConnection`. Still open: the keyboard's inset (resize and pan)
-and game controllers through `GCController` as input devices.
+input, whose callbacks drive the focused view's `InputConnection`, and the keyboard's inset resizes or pans the
+window. Game controllers come through `GCController` as Android input devices; rumble is not passed on.
 
 ### ADR-0069: NativeActivity apps on the Java path
 
-Accepted; its plan's steps 1 to 3 are implemented, the switch in the library is not. An app whose launcher activity
-is `NativeActivity` or a subclass starts through
-`app_process` with AOSP's `NativeActivity.java`, so its JNI calls reach a real framework. `activity-host` stays for
-the Mac harness, the graphics tests and the parity benchmark; the library moves its start path once the benchmark
-has run again on the Java path. Measured on the Mac: about 0.5 s more per warm start and about 98 MB more peak
-memory.
+Accepted; partly implemented. An app whose launcher activity subclasses `NativeActivity`, or is `NativeActivity`
+itself in an app with Java code of its own, starts through `app_process` with AOSP's `NativeActivity.java`, so its
+JNI calls reach a real framework. One without Java code still starts in `activity-host`, which also serves the Mac
+harness, the graphics tests and the parity benchmark; it moves to the Java path once the benchmark has run again
+there. Measured on the Mac: about 0.5 s more per warm start and about 98 MB more peak memory.
 
 ### ADR-0070: Public beta releases, changelog and app reports
 

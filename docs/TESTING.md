@@ -104,7 +104,7 @@ account.
 
 These checks of the notification, storage and window work have a device form. Each one is the same script as in the
 Simulator with `--device`, on a Debug build of Minato, with the iPhone paired and unlocked. Only the project's own
-test apps run: never an app of a user, with the trace or without it. After a sitting, the result goes on the line
+test apps run: never an app of a user, with the trace or without it. After a device run, the result goes on the line
 "Measured on the iPhone" of its check (the date, the iOS version and what the run showed); until then the line says so.
 
 - **Free space and storage** (`storage-space-test`): `StatFs`, `File.getUsableSpace`, `StorageManager` and

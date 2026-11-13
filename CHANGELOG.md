@@ -47,8 +47,7 @@ All notable changes to Minato are documented in this file. The format follows
   as Android's Clear storage does, and keeps the app and its OBB files
 - Settings › Storage lists each app's space, the app and its data apart, largest first
 - Report a Problem in Get Info, in an app's menu and in the alerts when an app cannot open or quit unexpectedly: a
-  report of the app and its last session, with that session's log, to read and trim first, then a prefilled GitHub
-  issue or Share; nothing leaves the iPhone without your tap
+  report to read and trim first, then a prefilled GitHub issue or Share; nothing leaves the iPhone without your tap
 - Report a Problem lists an app's compatibility points under "Compatibility:", the word Get Info shows them under, so a
   plain note does not read like an error
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements

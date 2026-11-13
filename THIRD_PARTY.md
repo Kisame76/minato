@@ -56,7 +56,7 @@ AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `t
 | compiler-rt builtins | Apache-2.0 WITH LLVM-exception | Runtime helpers of the compiler (e.g. 128-bit floating point) |
 | `crtbegin_so.o`, `crtend_so.o` | BSD (Bionic) | Start and end of `libm.so`, `libdl.so`, `ld-android.so` |
 | `android/log.h` | Apache-2.0 | Header for the libc (liblog) |
-| zlib (`libz.a`) | Zlib | `libz.so` (ADR-0028): zlib `1.3.2.1-motley` as AOSP ships it, linked whole |
+| zlib (`libz.a`) | Zlib | `libz.so` (ADR-0028): zlib `1.3.2.1-motley` as the NDK r30 ships it, linked whole |
 | LLVM libc++ (`libc++_shared.so`) | Apache-2.0 WITH LLVM-exception | ART's C++ library, which `runtime/art/CMakeLists.txt` copies into `build/art/lib` (ADR-0033 decision 2); in `com.android.art`'s lib64 since ADR-0033 d2 |
 
 ## Graphics: ANGLE (ADR-0029)
@@ -156,7 +156,7 @@ framework/tests/app_process_run.py name the pin to make when bionic's tzdata is 
 
 AOSP sources at the tag `android-15.0.0_r1`, from `android.googlesource.com`. `tools/fetch-sources.py --set art`
 downloads them to `build/sources/` (not in the repo) and checks them against the checksums in the list `art` of
-[`third_party/sources.json`](third_party/sources.json). Step a) builds guest code from them with the NDK. Since step d2
+[`third_party/sources.json`](third_party/sources.json). They are built into guest code with the NDK. Since step d2
 every app build embeds that build's release flavor (`tools/embed-guest-system.sh`): the jars, ICU's data and the time
 zone files in `Guest/apex`, the libraries as signed containers in `Guest/apex-lib64`. The debug flavor (`libartd`,
 `libartbased`, `libdexfiled`, `libopenjdkd`, `libopenjdkjvmd`, `libprofiled`) and ART's tests go only into fixture
@@ -181,7 +181,7 @@ builds (`APK_EMBED_FIXTURES=YES`, `tools/embed-fixtures.sh`).
 | `platform/external/libcap` | `c2c4eed91fe3` | BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause | for ART |
 | `platform/external/tinyxml2` | `d3f5ba7b82e0` | Zlib | XML for ART |
 | `platform/external/cpu_features` | `eca53ba6d2e9` | Apache-2.0 | CPU features for ART |
-| `platform/external/vixl` | `b2b1ebaac771` | BSD-3-Clause | `src/` (aarch32 and aarch64 assemblers and decoders) and `Android.bp`, `LICENCE`: ART's compiler backend, for our own dex2oat (M6 c); `test/`, `examples/`, `tools/` and `benchmarks/` are not fetched |
+| `platform/external/vixl` | `b2b1ebaac771` | BSD-3-Clause | `src/` (aarch32 and aarch64 assemblers and decoders) and `Android.bp`, `LICENCE`: ART's compiler backend, for our own dex2oat (M6); `test/`, `examples/`, `tools/` and `benchmarks/` are not fetched |
 | `platform/external/fmtlib` | `360e74bb8ec7` | MIT | formatting, which `libbase` links |
 | `platform/system/libbase` | `68f963c62f7f` | Apache-2.0 | `libbase` |
 | `platform/system/libziparchive` | `13b815f48578` | Apache-2.0 | `libziparchive` (APKs and jars) |
@@ -202,7 +202,7 @@ key of Minato's. Each of the three components' `Licenses/` folders has a `SOURCE
 the archive's SHA-256. ADR-0033 also
 names libcore's OpenSSL parts: at this commit, OpenSSL's text in libcore is only in a test resource
 (`support/src/test/java/tests/resources/x509/default.cnf`), which is not built; the OpenSSL license that ships is
-BoringSSL's. Step a)'s build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
+BoringSSL's. The ART build (`tools/art-plan.py`) puts code under this license only into core-oj.jar (`ojluni/`'s
 Java), `libopenjdk` and `libopenjdkd` (its natives), and `libopenjdkjvm` and `libopenjdkjvmd` (`openjdkjvm/`).
 
 **Ours in ART's module** (`Guest/apex-lib64`, ADR-0033): `libartpalette-system.so`
@@ -264,9 +264,9 @@ protobuf and Soong's libbuildversion stay build tools and do not ship.
 | `platform/build/release` | `e1dfb3dc7831` | Apache-2.0 | only `aconfig/ap3a`: Android 15's flag values, read by our flag generator |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `graphics/java` and `ravenwood/annotations-src` (3.0 MB): the graphics and annotation classes that framework.jar's taken files name, as compile-only stubs or taken files (ADR-0039 b3) |
 | `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | the types' set (`build/sources/frameworks_base_types`: `media/java`, `telephony/java`, `apex/jobscheduler/framework/java` and others, as `third_party/sources.json` lists them): the files `framework/sources.txt` takes from it, AudioFormat, AudioRouting and VolumeAutomation among them; and `media/java/android/media/AudioTrack.java`'s checks, states and messages, adapted into our written AudioTrack with its notice (`framework/managers/android/media/AudioTrack.java`) |
-| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java`'s player (its IRingtonePlayer), adapted into `framework/java/android/media/LocalRingtonePlayer.java` with its notice, and `media/java/android/media/AudioManager.java`'s hasHapticChannelsImpl in our written AudioManager (ADR-0060 e2e1's RingtoneManager step) |
+| `platform/frameworks/base` | `4e43ad12e1b2` | Apache-2.0 | `packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java`'s player (its IRingtonePlayer), adapted into `framework/java/android/media/LocalRingtonePlayer.java` with its notice, and `media/java/android/media/AudioManager.java`'s hasHapticChannelsImpl in our written AudioManager (ADR-0060's RingtoneManager step) |
 | `platform/system/media` | `0287f16fc74c` | Apache-2.0 (`NOTICE`) | `camera/include`, `camera/src/camera_metadata.c` and `camera_metadata_tag_info.c` (`build/sources/system_media_camera`): libcamera_metadata, under our natives of camera2's CameraMetadataNative (ADR-0073 step a1) |
-| `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | only `apex/framework/java/android/media/ApplicationMediaCapabilities.java` and `MediaFeature.java` (0.04 MB, `build/sources/media_module`): what an app declares it can play, taken as they are by `framework/sources.txt` (the Unity test APK gap sort, category 1) |
+| `platform/packages/modules/Media` | `579b22cdf08d` | Apache-2.0 | only `apex/framework/java/android/media/ApplicationMediaCapabilities.java` and `MediaFeature.java` (0.04 MB, `build/sources/media_module`): what an app declares it can play, taken as they are by `framework/sources.txt` |
 | `platform/external/libphonenumber` | `5096f2238258` | Apache-2.0 | `repackaged/libphonenumber` (2.6 MB, `build/sources/libphonenumber`): Android's copy of Google's libphonenumber as `com.android.i18n.phonenumbers`, 35 Java files taken by `framework/sources.txt` and 541 metadata files that `tools/build-framework.sh` packs into framework.jar as resources: Linkify's phone numbers |
 | `platform/packages/providers/MediaProvider` | `8a53c6d378a9` | Apache-2.0 | `apex/framework/java/android/provider/MediaStore.java` with `Column.java` and `CloudMediaProviderContract.java`, which it names (0.34 MB, `build/sources/media_provider_module`): the contract apps use to query and insert photos and videos, taken as it is by `framework/sources.txt` (ADR-0057 step e) |
 | `platform/frameworks/libs/modules-utils` | `810bd8c57bb3` | Apache-2.0 | only `java/` (0.5 MB): `Preconditions`, the typed XML parsers and annotations that framework.jar's taken files use (ADR-0039 b3) |
@@ -335,7 +335,7 @@ Mac's harness mounts it, and every app build ships it in its guest system since 
 
 The virtual keyboard's key character map (ADR-0045 step 7c1), fetched by `tools/fetch-sources.py --set framework`
 (`build/sources/frameworks_base_keyboards`, digest `bfebf0c1…b11a` since ADR-0068 step 7c2,
-which added Generic.kcm, the map of a hardware keyboard, on the same standing rule for AOSP sources).
+which added Generic.kcm, the map of a hardware keyboard).
 framework/CMakeLists.txt builds both into libandroid_runtime as C arrays, which the input service
 parses under Android's paths /system/usr/keychars/Virtual.kcm and Generic.kcm; nothing ships them as files.
 
@@ -354,8 +354,7 @@ IVibrator's capabilities and Braking, as Android's framework.jar has them.
 |---|---|---|---|---|
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 | `vibrator/aidl/android` and `vibrator/aidl/Android.bp` | the vibrator HAL's types for framework.jar |
 
-The media server's player AIDL (ADR-0060 e2e1), fetched by `tools/fetch-sources.py --set framework` under your standing
-rule of 2026-10-11 for AOSP sources, on 2026-10-29
+The media server's player AIDL (ADR-0060), fetched by `tools/fetch-sources.py --set framework` on 2026-10-29
 (`build/sources/frameworks_av_media_aidl`, the entry `frameworks_av_media_aidl`, digest `bfa32365…6283`; 10 files,
 26,040 bytes). tools/build-framework.sh compiles IPlayer and the VolumeShaper and Interpolator types of `android.media`
 with aidl into framework.jar, whose AOSP PlayerBase and MediaPlayer take them as Android's framework.jar has them;
@@ -398,8 +397,8 @@ unchanged.
 The fetch also takes `LICENSE`, `dist/NOTICE`, `android/NOTICE` and the two `Android.bp` files, which are read, not
 built.
 
-The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName` (framework breadth
-batch B1), fetched by `tools/fetch-sources.py --set framework` (2026-10-10;
+The default MIME map behind `android.webkit.MimeTypeMap` and `URLConnection.guessContentTypeFromName`,
+fetched by `tools/fetch-sources.py --set framework` (2026-10-10;
 `build/sources/mime_map` and `build/sources/mime_support`, the entries `mime_map` and `mime_support`, digests
 `ea842014…d16d` and `a08dd24e…907b3d7c`). 86 KB; `DefaultMimeMapFactory` reads the three tables, which
 `tools/build-framework.sh` puts into framework.jar as `res/…` as Android's `mimemap-res.jar` does.
@@ -420,7 +419,7 @@ public-domain`, `License: ad-hoc`, and "It contains public information compiled 
 tables into framework.jar after the same minimizing step as Android's `debian.mime.types.minimized` genrule (comments
 stripped, whitespace normalized, lines without an extension dropped).
 
-TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml` (framework breadth, step (a) after batch B4), fetched
+TagSoup 1.2.1, the HTML parser behind `android.text.Html.fromHtml`, fetched
 by `tools/fetch-sources.py --set framework` (2026-10-11; `build/sources/tagsoup`, the entry
 `tagsoup`, digest `0b418969…e428`). 0.37 MB, 15 source files of `platform/external/tagsoup` at android-15.0.0_r1
 (commit `5c387116e235`) and its `LICENSE`; the tests, the `jaxp` folder and the command line tools' extras are left out.
@@ -474,7 +473,7 @@ stand in their components' license lines.
 | `platform/external/libultrahdr` | `448f96ed8315` | Apache-2.0 | JPEG gain maps |
 | `platform/external/image_io` | `37e2347000d7` | Apache-2.0 | XMP and container parsing for libultrahdr |
 | `platform/external/modp_b64` | `d88d4daed951` | BSD-style (`LICENSE`) | base64 for image_io |
-| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, fetched 2026-10-13) for ETC1's natives in libandroid_runtime (the graphics breadth's G1) |
+| `platform/frameworks/native` | `f7274fca5e36` | Apache-2.0; in `opengl/include` the Khronos headers MIT (`MODULE_LICENSE_MIT`), ANGLE's `EGL/eglext_angle.h` and `EGL/Platform.h` BSD-3-Clause (as ANGLE above), `GLES3/gl3ext.h` SGI Free Software License B 2.0 | headers (`include/private`, `include/android`, `opengl/include`, libgui's `TraceUtils.h`, nativebase, nativedisplay, nativewindow, binder NDK, math), `libs/ui`'s types, `libs/arect`; `libs/permission`'s `AttributionSourceState.aidl` as the Java aidl writes from it (framework/java, ADR-0045; read at android-15.0.0_r1, not fetched); libinput's `libs/input/Input.cpp` and `VelocityTracker.cpp` with their headers and ftl's, 12 files (`build/sources/frameworks_native_input`, digest `914d91f6…136d`) for MotionEvent's and VelocityTracker's natives (ADR-0041 decision 5 as changed, ADR-0045 step 7b1); libinput's `libs/input/KeyCharacterMap.cpp` and `include/input/KeyCharacterMap.h` (`build/sources/frameworks_native_keys`, digest `5401db5a…1c18`) for KeyCharacterMap's natives, and `libs/input/Keyboard.cpp`'s meta-state functions as an excerpt with its notice (`framework/native/android_runtime/keyboard_meta_state.cpp`; read at android-15.0.0_r1, not fetched) (ADR-0045 step 7c1); libETC1's `opengl/libs/ETC1/etc1.cpp` (`build/sources/frameworks_native_etc1`, digest `e281b9c2…eef2`, fetched 2026-10-13) for ETC1's natives in libandroid_runtime |
 | `platform/external/vulkan-headers` | `d3602c8e1b0b` | Apache-2.0 or MIT (`LICENSE.md`) | the 12 C headers hwui includes |
 | `platform/frameworks/av` | `1863cb0ea5a9` | Apache-2.0 | `media/ndk/include` |
 | `platform/hardware/interfaces` | `488942f82bd1` | Apache-2.0 (`NOTICE`) | the AIDL of graphics common and composer3, for their enum headers |
@@ -532,9 +531,9 @@ Mac tools for M5's test cases and its `.aab` tool, in `build/tools/`, not in the
 | Tool | Version | License |
 |---|---|---|
 | bundletool (`bundletool-all-1.18.3.jar`) in `build/tools/bundletool/`, run with the JDK above and our aapt2 (`--aapt2 build/aapt2/aapt2`); the aapt2 binaries inside the jar are never run | `1.18.3` (`586a43a45071`), SHA-256 `a099cfa1543f` | Apache-2.0 |
-| Google's Play libraries for pad-test (ADR-0050 test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with core-common 2.0.3, play-services-basement 18.3.0 and play-services-tasks 18.1.0, and for pad-test-core the monolithic play:core 1.10.3 that older apps ship (its own set `core`), as AARs in `~/.android/minato-play-libraries/` (`tools/fetch-play-libraries.py`), outside the repository and never in the app; only pad-test's and pad-test-core's APKs, built on this Mac, carry their code, which nothing here reads | pinned in `third_party/sources.json` (`play-libraries`), each AAR by its SHA-256 | Play Core Software Development Kit Terms of Service with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common, play:core); Android Software Development Kit License (play-services-basement, play-services-tasks); accepted on 2026-10-07, and for play:core 1.10.3 on 2026-11-10 |
-| androidx.work:work-runtime 2.12.0 with its runtime closure for the WorkManager test app (31 files, 7,768,707 bytes: Kotlin's standard library 2.1.20 and coroutines 1.9.0, androidx.core, lifecycle, room, sqlite, startup and others; the code-less -jvm and -android redirect artifacts left out), as AARs and JARs in `~/.android/minato-workmanager-libraries/` (`tools/fetch-workmanager-libraries.py`), outside the repository and never in the app; only workmanager-test's APK, built on this Mac, carries their code, which nothing here reads | pinned in `third_party/sources.json` (`workmanager-libraries`), each file by its SHA-256 (Google's Maven states it beside each file; Maven Central states none, so those files were checked against Central's `.sha1` once and pinned by SHA-256) | Apache-2.0 (`com.google.guava:listenablefuture` 1.0 names none in its POM; it is an empty marker artifact of Guava, which is Apache-2.0); accepted on 2026-11-10 |
-| The hidden API lists of Android 15 (`hiddenapi-flags.csv`, 71,184,887 bytes, 655,911 lines), generated from AOSP and published by Google, in `~/.android/minato-hiddenapi/`, outside the repository: a build input only, which `tools/hiddenapi-encode.py` reads to write each member's flag into the dex files of framework.jar and the boot jars; the file itself is never in the app | pinned in `third_party/sources.json` (`hiddenapi-flags`) by size and SHA-256, which the build checks, the SHA-256 Google's page states | Apache-2.0 (generated from AOSP); accepted on 2026-11-10 |
+| Google's Play libraries for pad-test (ADR-0050 test 3): asset-delivery 2.2.2 and feature-delivery 2.1.0 with core-common 2.0.3, play-services-basement 18.3.0 and play-services-tasks 18.1.0, and for pad-test-core the monolithic play:core 1.10.3 that older apps ship (its own set `core`), as AARs in the folder of `tools/fetch-play-libraries.py`, outside the repository and never in the app; only pad-test's and pad-test-core's APKs, built locally, carry their code, which nothing here reads | pinned in `third_party/sources.json` (`play-libraries`), each AAR by its SHA-256 | Play Core Software Development Kit Terms of Service with Google's APIs Terms of Service (asset-delivery, feature-delivery, core-common, play:core); Android Software Development Kit License (play-services-basement, play-services-tasks); accepted on 2026-10-07, and for play:core 1.10.3 on 2026-11-10 |
+| androidx.work:work-runtime 2.12.0 with its runtime closure for the WorkManager test app (31 files, 7,768,707 bytes: Kotlin's standard library 2.1.20 and coroutines 1.9.0, androidx.core, lifecycle, room, sqlite, startup and others; the code-less -jvm and -android redirect artifacts left out), as AARs and JARs in the folder of `tools/fetch-workmanager-libraries.py`, outside the repository and never in the app; only workmanager-test's APK, built locally, carries their code, which nothing here reads | pinned in `third_party/sources.json` (`workmanager-libraries`), each file by its SHA-256 (Google's Maven states it beside each file; Maven Central states none, so those files were checked against Central's `.sha1` once and pinned by SHA-256) | Apache-2.0 (`com.google.guava:listenablefuture` 1.0 names none in its POM; it is an empty marker artifact of Guava, which is Apache-2.0); accepted on 2026-11-10 |
+| The hidden API lists of Android 15 (`hiddenapi-flags.csv`, 71,184,887 bytes, 655,911 lines), generated from AOSP and published by Google, in the folder of `tools/fetch-hiddenapi-flags.py`, outside the repository: a build input only, which `tools/hiddenapi-encode.py` reads to write each member's flag into the dex files of framework.jar and the boot jars; the file itself is never in the app | pinned in `third_party/sources.json` (`hiddenapi-flags`) by size and SHA-256, which the build checks, the SHA-256 Google's page states | Apache-2.0 (generated from AOSP); accepted on 2026-11-10 |
 
 ## References without adopted code
 

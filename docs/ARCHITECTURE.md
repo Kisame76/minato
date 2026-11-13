@@ -140,7 +140,7 @@ Converter (APKConvert):                     NDK libraries: libandroid, liblog, l
 ### 4.1 App (`app/`)
 
 - **Library** (`app/Sources/Library`, `app/Sources/Views`): a grid of installed apps with their status ("Ready",
-  "Needs split APKs", "Incompatible: <reason>" and others), "+" for imports, Get Info with the full report and the
+  "Needs Split APKs", "Incompatible: <reason>" and others), "+" for imports, Get Info with the full report and the
   per-app profile (device profile, frame rate), and the signing certificate view.
 - **Session** (`app/Sources/Session`): `GameSession` runs one app; `GameModeView` holds the app's layers and
   Minato's menu; around them `FrameClock` (CADisplayLink), `AudioHost`, `MotionHost`, `BatteryHost`, the presenters
@@ -301,10 +301,11 @@ syscalls (`runtime/src/channels.cpp`).
   Android's pointer IDs; `AInputQueue` and Java's `InputEventReceiver` read them.
 - **Keys and text:** each channel record has a kind: motion, key, text or device. Hardware keyboard keys become key
   events; the soft keyboard is a hidden UIKit text input whose commits, deletions and editor actions reach the
-  focused view's `InputConnection`. Game controllers are not mapped yet.
+  focused view's `InputConnection`. Game controllers reach apps as Android 15's standard pad (ADR-0068).
 - **Audio:** Minato's `libaaudio` keeps each output stream's ring of float32 frames in runtime memory
   (`runtime/src/audio.cpp`), and `AVAudioEngine` plays every stream through a source node that reads the ring
-  without a lock. `libOpenSLES` and Java's `AudioTrack` run on `libaaudio` streams. Recording is not available yet.
+  without a lock. `libOpenSLES` and Java's `AudioTrack` run on `libaaudio` streams. Recording comes through
+  `AudioRecord`, AAudio input streams and OpenSL ES recorders from the iPhone's microphone (ADR-0064).
 
 ### 4.9 ART and the framework (`runtime/art/`, `framework/`, ADR-0033, ADR-0039, ADR-0045, ADR-0053)
 
@@ -313,9 +314,9 @@ syscalls (`runtime/src/channels.cpp`).
   one ABI and ART sees the same Linux personality as the rest.
 - **The heap window:** 4 GiB aligned to 4 GiB (2 GiB without `increased-memory-limit`), its first page never mapped;
   32-bit references are offsets from the window's base (F6). Apps run with the CMS collector.
-- **Execution:** apps start without a boot image in ART's switch interpreter (`-Xint`). nterp, and code compiled by
-  Minato's own dex2oat, both decoding references against the window's base in `x20`, pass their tests but are not
-  the default yet (ADR-0053).
+- **Execution:** apps start without a boot image in nterp, ART's fast interpreter. After an app's first close Minato
+  compiles it once with its own dex2oat; the code decodes references against the window's base in `x20` and goes
+  through the same convert, sign and `dlopen` path as native libraries (ADR-0053).
 - **Framework:** `framework.jar` is compiled from a bounded list of AOSP sources (`framework/sources.txt`), Minato's
   own classes under AOSP's names (`framework/java`, among them `ActivityThread`, `PhoneWindow`, `ViewRootImpl` and
   `ServiceManager`), generated managers (`framework/managers`) and patches to AOSP files (`framework/patches`).
@@ -343,7 +344,7 @@ syscalls (`runtime/src/channels.cpp`).
   session's tree, in Android's z order, with focus and touches on the top one (`APKSession/WindowOrder.swift`).
 - **Orientation:** the library is portrait only. A session takes the app's `screenOrientation` and turns while it
   runs if the activity declares `configChanges` for it (ADR-0038).
-- **Menu:** a swipe down from the top edge opens Minato's menu with Quit and the FPS display; Android's back gesture
+- **Menu:** a swipe down with three fingers opens Minato's menu with Quit and the FPS display; Android's back gesture
   reaches the app.
 
 ### 4.11 System integration
@@ -398,8 +399,8 @@ Everything adopted is listed with its version and license in [THIRD_PARTY.md](..
   imported certificate.
 - **R3.** Memory with a free account (F12, F13). *Medium.* `increased-memory-limit` where the installer grants it,
   and the budgets of ADR-0012 and ADR-0035.
-- **R4.** ART's heap above 4 GiB (F6), and the interpreter's speed. *Medium.* The heap window is done; compiled code
-  (ADR-0053) is in progress.
+- **R4.** ART's heap above 4 GiB (F6), and the interpreter's speed. *Medium.* The heap window is done; nterp is the
+  default and apps are compiled after their first close (ADR-0053).
 - **R5.** OpenGL ES 3.1 and later (F14). *Medium.* ES 3.1 runs on ANGLE's Vulkan backend, slower under heavy load;
   ES 3.2 is not offered.
 - **R6.** No Android device. *Low.* Speed is compared with the native iOS version, output with the emulator.
@@ -424,10 +425,10 @@ Everything adopted is listed with its version and license in [THIRD_PARTY.md](..
 
 ## 8. Open questions
 
-- Compiled Java code as the default (ADR-0053), with its start time and memory cost.
+- The start time and memory cost of compiled Java code (ADR-0053).
 - The remaining `x18` forms in old Unity builds (ADR-0020).
 - NativeActivity apps on the Java path, after a parity rerun (ADR-0069).
-- WebView on WKWebView (ADR-0056), microphone recording (ADR-0064), the camera, and controllers (ADR-0068).
+- Camera2 and the NDK camera (ADR-0073).
 - MetalFX upscaling (the draft ADR-0067).
 - KosmicKrisp in place of MoltenVK once it supports iOS.
 - An optional JIT path through StikDebug for apps that need one (ADR-0002).

@@ -83,7 +83,7 @@ after its first close, as compiled code, so apps that do much work in Java may s
 | APKs with only 32-bit ARM or x86 code | Refused: "Incompatible" |
 
 Splits are chosen as bundletool chooses them for the iPhone: arm64-v8a, the screen's density and the preferred
-languages. An APK that needs splits it was not imported with shows "Needs split APKs". An update is an import of a
+languages. An APK that needs splits it was not imported with shows "Needs Split APKs". An update is an import of a
 newer version with the same signer (ADR-0034).
 
 ## Engines
@@ -132,8 +132,8 @@ Only what the project has evidence for is stated as working; "untested" means th
   Capacitor app that asked for Android's SDK extension versions no longer stops at that question. An app that serves
   its pages itself under `https://localhost` or `https://appassets.androidplatform.net` (Capacitor's default, and
   Cordova's since version 10) gets those requests as on Android now; this works on the Mac, in the Simulator and on
-  the iPhone, where all eight WebView test pages behaved as they do on Android 15 and an app built this way reached its
-  first screen.
+  the iPhone, where all eight WebView test pages and our own test app that serves its pages this way behaved as they
+  do on Android 15.
 
 ## The gaps, counted
 
@@ -264,9 +264,9 @@ After an import each app shows one status:
 
 - **Ready:** it can start. "Ready, without libX.so" means a library that the app may need could not be prepared;
   Get Info says why.
-- **Needs split APKs:** import the missing splits with the base, or as a set.
+- **Needs Split APKs:** import the missing splits with the base, or as a set.
 - **Incompatible: <reason>:** it cannot run, and Get Info lists every reason the import found.
-- **Not a valid APK: <reason>:** the file is damaged or not an APK.
+- **Invalid APK: <reason>:** the file is damaged or not an APK.
 
 Get Info shows the full report: the libraries and their findings, the engine, SDK levels, graphics requirements and
 signatures. A crash names its cause when the app returns to the library.
