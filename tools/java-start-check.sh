@@ -1883,10 +1883,26 @@ PY
 # 0032) a race cost about +17 MiB in the Simulator, and a device round (4 returns, a race each) went +77 MiB at its
 # second return and then below its first return's; without the release a race kept about +65 MiB in the Simulator,
 # which this makes red by the second race, while one spike of the device's size stays within RETURNS_GROWTH and
-# RETURNS_RACE_SPIKE. The judge's own test: tools/tests/returns_judge_test.py.
+# RETURNS_RACE_SPIKE. And each return's first swap, the seconds from the scene's willEnterForeground to the first pong
+# whose surface has a frame (pongs come every 2 to 3 s, so it is at most that much late), is shown, and one later than
+# RETURNS_FIRST_SWAP s (8) is red: Ren'Py reloads its scene after a return (about 4 s in the Simulator), and a raced
+# return loaded it twice (9.5 s and more in the Simulator, 19 to 29 s on the iPhone before the SDL swap fix). The
+# judge's own test: tools/tests/returns_judge_test.py.
 # Waits until the anim game's last gate line is "preload done" after its "start" line and at least $2 "display reset"
 # lines; label $1. Sets RESETS to the resets seen. False, after its FAIL line, when the line did not come in time.
 RESETS=0
+# The seconds from the last "scene willEnterForeground" in the session's events to the first pong after it whose
+# surface had a frame, to a tenth; "-" when there is none.
+first_swap() {
+  fetch_events
+  awk '$3 == "scene" && $4 == "willEnterForeground" && NF == 4 { since = $1; seen = "" }
+    since != "" && seen == "" && $3 == "pong" && match($0, / surface frames [0-9]+/) {
+      split(substr($0, RSTART + 1, RLENGTH - 1), field, " ")
+      if (field[3] + 0 > 0) seen = $1
+    }
+    END { if (since != "" && seen != "") printf "%.1f\n", seen - since; else print "-" }' "$EVENTS" 2>/dev/null ||
+    echo "-"
+}
 renpy_preloaded() {
   local label=$1 resets=$2 from=$SECONDS gate
   while (( SECONDS - from <= ${RETURNS_PRELOAD:-240} )); do
@@ -1906,7 +1922,8 @@ renpy_preloaded() {
 }
 run_sdl_returns() {
   local app=renpy-returns-test package=io.github.kisame76.minato.test.renpymemory round line gl park returned
-  local lines=() gls=() races=(0) trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10} gated=no resets away
+  local lines=() gls=() races=(0) swaps=() trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10} gated=no resets
+  local away
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   if ! await_first_frame "$app" 8; then end_start "$app" 1; return; fi
   fetch_log || true
@@ -1938,6 +1955,7 @@ run_sdl_returns() {
         failures=$((failures + 1))
         break
       fi
+      swaps+=("$(first_swap)")
       if [[ "$gated" == yes ]] && ! renpy_preloaded "after return $round" $((resets + 1)); then break; fi
     fi
     sleep "$settle"
@@ -1963,14 +1981,16 @@ run_sdl_returns() {
   cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
   end_start "$app" 1
   if python3 - "${RETURNS_GROWTH:-32}" "$trips" "${RETURNS_RACE_DEPTH:-4}" "${RETURNS_RACE_GROWTH:-96}" \
-      "${RETURNS_RACE_FOOT:-20}" "${RETURNS_RACE_SPIKE:-48}" "${races[@]}" -- "${lines[@]}" -- "${gls[@]}" <<'PY'; then
+      "${RETURNS_RACE_FOOT:-20}" "${RETURNS_RACE_SPIKE:-48}" "${RETURNS_FIRST_SWAP:-8}" "${races[@]}" -- \
+      "${lines[@]}" -- "${gls[@]}" -- "${swaps[@]}" <<'PY'; then
 import re
 import sys
 growth, trips, race_depth, race_growth = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-race_foot, race_spike = float(sys.argv[5]), float(sys.argv[6])
-rest = sys.argv[7:]
+race_foot, race_spike, first_swap = float(sys.argv[5]), float(sys.argv[6]), float(sys.argv[7])
+rest = sys.argv[8:]
 races, rest = [int(n) for n in rest[:rest.index("--")]], rest[rest.index("--") + 1:]
-lines, gls = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+lines, rest = rest[:rest.index("--")], rest[rest.index("--") + 1:]
+gls, swaps = rest[:rest.index("--")], rest[rest.index("--") + 1:]
 races += [0] * (trips + 1 - len(races))
 if len(lines) != trips + 1:
     print(f"FAIL    {len(lines) - 1} of {trips} returns read")
@@ -2028,8 +2048,19 @@ for n, (m, g) in enumerate(zip(read, held)):
     print(f"note      {label:9} live {m[1]} {m[2]} {m[3]}  color {g['color'][0]}/{g['color'][1]}  "
           f"depth {g['depth'][0]}/{g['depth'][1]}  msaa {g['msaa'][0]}/{g['msaa'][1]}  mtl {g['mtl']}  "
           f"ctx {g['ctx'] if g['ctx'] is not None else 'n/a'}  foot {m[6]}  races {races[n]}")
+# Each return's first swap: seconds after the return, "-" when none was measured.
+print("note    each return's first swap after the scene came to the foreground (a pong every 2 to 3 s):")
+late = []
+for n, swap in enumerate(swaps, 1):
+    seconds = None if swap == "-" else float(swap)
+    print(f"note      {'return ' + str(n):9} first swap " + ("n/a" if seconds is None else f"{seconds:.1f} s"))
+    if seconds is not None and seconds > first_swap:
+        late.append(f"return {n}: first swap {seconds:.1f} s after the return, over {first_swap:g} s")
+if late:
+    print("FAIL    a return's first swap came late: " + "; ".join(late))
 if bad:
     print("FAIL    a return's texture sets grew: " + "; ".join(bad))
+if bad or late:
     sys.exit(1)
 print(f"ok      after {trips} returns the texture sets alive are the first return's: no window, surface, layer, depth "
       "or multisample texture more, no EGL context more than at the start, and color, Metal bytes and footprint "
