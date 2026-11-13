@@ -49,6 +49,8 @@ All notable changes to Minato are documented in this file. The format follows
 - Report a Problem in Get Info, in an app's menu and in the alerts when an app cannot open or quit unexpectedly: a
   report of the app and its last session, with that session's log, to read and trim first, then a prefilled GitHub
   issue or Share; nothing leaves the iPhone without your tap
+- Report a Problem lists an app's compatibility points under "Compatibility:", the word Get Info shows them under, so a
+  plain note does not read like an error
 - Settings, with the signing certificate, a switch for the FPS display, the version and the acknowledgements
 - A welcome screen at the first launch shows how to add and start apps and how to get back to Minato from an app;
   Settings › How to Use Minato shows it again
@@ -56,6 +58,12 @@ All notable changes to Minato are documented in this file. The format follows
   library says so the next time Minato opens
 - Apps are told when they leave the screen, as Android tells them, so apps that free memory then do so in Minato too,
   and the memory of their windows' images is given back then, as on Android
+- Textures and other graphics objects an app deletes on the way to the background, with no graphics context current,
+  are freed when its context is current again, instead of staying until the app quits. Android drops such deletes;
+  iOS limits an app's memory, so Minato runs them. Tested on the Mac; the memory across many returns is not yet
+  checked on the iPhone
+- An app that draws its window on the CPU, as ordinary Android views do, no longer makes Minato quit when its picture
+  updates while the on-screen keyboard is up; tested on the Mac, not yet checked on the iPhone
 - Apps written in Java or Kotlin are optimized once, right after you close them the first time ("Optimizing", which
   you can cancel), and their code runs compiled from then on
 - Settings › Acknowledgements says where the source code of Minato's GPL-licensed parts is: on each release's page,
@@ -165,6 +173,10 @@ All notable changes to Minato are documented in this file. The format follows
   library's own code reads as data stays as it is; an unprivileged load or store of Armv9.6 stays as it is and is
   counted; and x18 in a library without symbols is renamed within its unwind entry. A library that still cannot import
   is refused with every reason at once, and the report says where each refused word lies
+- Native libraries with constant data inside their code import when the import can tell the data from instructions: it
+  reads a literal load, or a table whose bound it can prove, and leaves that data as it is, so a data word that looks
+  like a system call is no longer rewritten. A library whose data it cannot classify and that decodes as an instruction
+  Minato cannot rewrite is refused, and the refusal counts what it could not classify
 - 119 more public types of Android 15 (the device policy types, the autofill service's types, the identity credential
   store, the credential provider service's types, the quick access wallet's, the companion device filters, the UI
   translation types and others): an app that names one no longer stops with NoClassDefFoundError
