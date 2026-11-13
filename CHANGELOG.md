@@ -60,11 +60,14 @@ All notable changes to Minato are documented in this file. The format follows
   and the memory of their windows' images is given back then, as on Android
 - Textures and other graphics objects an app deletes on the way to the background, with no graphics context current,
   are freed when its context is current again, instead of staying until the app quits. Android drops such deletes;
-  iOS limits an app's memory, so Minato runs them. Tested on the Mac and on the iPhone, where a Ren'Py game's memory
-  stays flat after its first return
+  iOS limits an app's memory, so Minato runs them. Tested on the Mac, in the Simulator and on the iPhone, where a Ren'Py
+  game's memory stays flat after its first return
 - An app that makes a new graphics context while it pauses and then goes back to its old one no longer leaves the new
   context's memory behind: its free buffers, up to 64 MiB, are given back once another context is current, so the
-  memory after a return is lower. Measured on the Mac, in the Simulator and on the iPhone
+  memory after a return is lower. Measured on the Mac and in the Simulator. Its vertex streaming buffers are given back
+  with them, tested on the Mac
+- A Ren'Py game that was in the background shows its picture again within a few seconds of the return; tested with our
+  Ren'Py 8.5.3 test game in the Simulator and on the iPhone
 - An app that draws its window on the CPU, as ordinary Android views do, no longer makes Minato quit when its picture
   updates while the on-screen keyboard is up; tested on the Mac, not yet checked on the iPhone
 - Apps written in Java or Kotlin are optimized once, right after you close them the first time ("Optimizing", which
@@ -175,7 +178,9 @@ All notable changes to Minato are documented in this file. The format follows
 - More libraries import: an svc instruction is a system call whatever its immediate, as on Android; an svc word that the
   library's own code reads as data stays as it is; an unprivileged load or store of Armv9.6 stays as it is and is
   counted; a word that no proven code reaches and that steps the stack pointer by x18 through a vector store, a form no
-  compiler writes, stays as it is; and x18 in a library without symbols is renamed within its unwind entry. A library
+  compiler writes, stays as it is; a word that sets the stack pointer from x18 with an add, sub, and, orr or eor of a
+  constant, as old compilers write it, runs instead of refusing the library, except inside an exclusive load; and x18
+  in a library without symbols is renamed within its unwind entry. A library
   that still cannot import is refused with every reason at once, and the report says where each refused word lies
 - Native libraries with constant data inside their code import when the import can tell the data from instructions: it
   reads a literal load, or a table whose bound it can prove, and leaves that data as it is, so a data word that looks
@@ -190,6 +195,8 @@ All notable changes to Minato are documented in this file. The format follows
 - More public types of Android 15: SliceMetrics, ApplicationStartInfo, VisualVoicemailService, the assist structure, the
   autofill service's fill and save requests, MediaRouteButton and its action provider; an app that names one no longer
   stops with NoClassDefFoundError
+- Network and security types of Android 15: IpConfiguration, StaticIpConfiguration, CaptivePortal,
+  SSLCertificateSocketFactory and SensorPrivacyManager; an app that names one no longer stops with NoClassDefFoundError
 - Apps that serve their pages themselves under `https://localhost` or `https://appassets.androidplatform.net`, as
   Capacitor and Cordova apps do, load them: when the app's WebViewClient answers requests itself, every request of its
   WebView reaches it as on Android, and what it does not answer comes from the network with the WebView's cookies and
