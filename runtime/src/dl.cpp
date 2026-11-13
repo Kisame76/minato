@@ -360,11 +360,15 @@ std::uint32_t scudo_region_log2() {
         const bool log_choice = ::getenv("MINATO_LOADER_LOG") != nullptr;
         constexpr std::uint64_t gib = std::uint64_t{1} << 30;
         constexpr std::uint64_t needed = std::uint64_t{33} * (std::uint64_t{256} << 20) + 2 * gib;  // 10.25 GiB
+#ifndef NDEBUG
+        // MINATO_SCUDO_REGIONS (apk-run's --scudo-regions) forces the choice for the checks; a test-only switch,
+        // compiled out of a Release build so its string cannot exist there (release-debug-strings-check.sh).
         if (const char *forced = ::getenv("MINATO_SCUDO_REGIONS")) {
             const std::uint32_t log2 = std::string_view(forced) == "28" ? 28 : 27;
             if (log_choice) log_line('I', std::format("scudo regions {} MiB (forced)", log2 == 28 ? 256 : 128));
             return log2;
         }
+#endif
         // The largest contiguous reservation available now (spike S2): step down from 16 GiB. A PROT_NONE,
         // MAP_NORESERVE mapping commits nothing, so this only probes the address space.
         std::uint64_t largest = 0;

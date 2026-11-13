@@ -7,7 +7,8 @@
 # WebView switches (MINATO_WEBVIEW_HTTPS, MINATO_WEBVIEW_TRACE). It reads the app's executable and every framework
 # binary in it with strings and nm.
 # Test-only switches that no app build may carry, Debug or Release (ANGLE's MINATO_ANGLE_DROP_DISCARDS, which only the
-# Mac's graphics tests use), must be in neither.
+# Mac's graphics tests use, and the framework's Mac-harness switches MINATO_GAPSCAN and MINATO_TEST_GRANTS, which only a
+# Debug build's guest environment file or the Mac harness sets), must be in neither.
 # With a Debug build as a second argument it checks the other direction too: each marker must be in the
 # Debug build, so a marker that no build carries (renamed code, or a short literal the compiler keeps inside the
 # instructions) shows up instead of passing unseen.
@@ -18,9 +19,17 @@ set -uo pipefail
 # names of the Debug-only code, as nm and the Swift metadata spell them.
 MARKERS=(MINATO_CHECK_REQUESTS MINATO_CHECK_CONSOLE "minato-check-event " "minato-guest-log " "minato-guest-out "
   guest-environment SessionCheck CheckRequests CheckConsole CheckEventPrivacy DebugGuestEnvironment DebugNativeCounts
-  MINATO_BACKGROUND_PARK MINATO_WEBVIEW_HTTPS MINATO_WEBVIEW_TRACE)
-# Literals of the Mac's tests only, in no app build.
-TEST_ONLY_MARKERS=(MINATO_ANGLE_DROP_DISCARDS)
+  MINATO_BACKGROUND_PARK MINATO_WEBVIEW_HTTPS MINATO_WEBVIEW_TRACE
+  # Compile-time-locked switches: each is gated out of a Release build (#ifndef NDEBUG at its read), so its string
+  # must be absent there too. MINATO_FAKE_NETWORK (session.cpp, the Mac fake path monitor) and MINATO_SCUDO_REGIONS
+  # (dl.cpp, the scudo-region choice forced for the checks).
+  MINATO_FAKE_NETWORK
+  MINATO_SCUDO_REGIONS)
+# Literals of the Mac's tests only, in no app build. The framework reads MINATO_GAPSCAN and MINATO_TEST_GRANTS from the
+# guest's environment in every build (framework.jar is one build), so no app binary may name them: a Release host then
+# has no way to set them (its guest environment is the bars and MINATO_START_INTENT, GameSession). MINATO_GAPSCAN is
+# shorter than 16 bytes, which Swift keeps inside the code: tools/test-grants-check.sh pins both names in the sources.
+TEST_ONLY_MARKERS=(MINATO_ANGLE_DROP_DISCARDS MINATO_GAPSCAN MINATO_TEST_GRANTS)
 
 # Every Mach-O file of app $1: its executable and the frameworks' and dylibs' binaries.
 binaries() {

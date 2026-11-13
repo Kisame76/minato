@@ -1413,9 +1413,13 @@ extern "C" int apkrt_session_begin(const struct apkrt_session *session) {
     // The network probe: one counts-only line of what the sandbox lets the runtime read for LinkProperties.
     // Under MINATO_NET_PROBE, and under MINATO_LOADER_LOG too, so any instrumented run's kept guest log carries it.
     if (::getenv("MINATO_NET_PROBE") != nullptr || ::getenv("MINATO_LOADER_LOG") != nullptr) apkrt_network_probe();
-    // The Mac session's fake path monitor: a fixed host network where there is no NWPathMonitor, so
-    // net-link-test runs end to end on the Mac. Never set on the device. Set before the guest reads getifaddrs.
+    // The Mac session's fake path monitor: a fixed host network where there is no NWPathMonitor, so a Mac
+    // guest run (apk_run) can fake one. Never set on the device, and compiled out of a Release build so the switch
+    // cannot exist there at all (the unit test calls start_fake_path_monitor directly). Set before the guest reads
+    // getifaddrs.
+#ifndef NDEBUG
     if (::getenv("MINATO_FAKE_NETWORK") != nullptr) apkrt::network::start_fake_path_monitor();
+#endif
     begun.store(true, std::memory_order_release);
     return 0;
 }
