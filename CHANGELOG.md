@@ -171,8 +171,9 @@ All notable changes to Minato are documented in this file. The format follows
   library offers for telling code from data
 - More libraries import: an svc instruction is a system call whatever its immediate, as on Android; an svc word that the
   library's own code reads as data stays as it is; an unprivileged load or store of Armv9.6 stays as it is and is
-  counted; and x18 in a library without symbols is renamed within its unwind entry. A library that still cannot import
-  is refused with every reason at once, and the report says where each refused word lies
+  counted; a word that no proven code reaches and that steps the stack pointer by x18 through a vector store, a form no
+  compiler writes, stays as it is; and x18 in a library without symbols is renamed within its unwind entry. A library
+  that still cannot import is refused with every reason at once, and the report says where each refused word lies
 - Native libraries with constant data inside their code import when the import can tell the data from instructions: it
   reads a literal load, or a table whose bound it can prove, and leaves that data as it is, so a data word that looks
   like a system call is no longer rewritten. A library whose data it cannot classify and that decodes as an instruction
