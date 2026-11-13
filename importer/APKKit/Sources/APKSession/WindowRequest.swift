@@ -1,4 +1,4 @@
-/// A window of the guest's own (ADR-0041, gap 4): a dialog's, a popup's or a toast's, apkrt_window_request as the
+/// A window of the guest's own (ADR-0041): a dialog's, a popup's or a toast's, apkrt_window_request as the
 /// runtime checked it (apkrt.h's window handler): per token a make, places and a remove, in that order.
 public struct WindowRequest: Sendable, Equatable {
     public enum Operation: Sendable, Equatable {

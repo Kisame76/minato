@@ -1,4 +1,4 @@
-/// The iOS host's tree of the session's layers besides its window (ADR-0041 gap 4, plan step 6 (c)): c4's surfaces
+/// The iOS host's tree of the session's layers besides its window (ADR-0041, plan step 6 (c)): c4's surfaces
 /// and the requested windows as they are made, placed and removed, each with the number of its make among all of
 /// them, in WindowOrder's order (decision 1). The session's view keeps the layers below the session's window in one
 /// container and those above it in another (SessionWindow.swift's SurfaceLayers), so the order comes split there, the

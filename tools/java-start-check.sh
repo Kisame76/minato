@@ -41,9 +41,9 @@
 # launch-mode-test (step b3.5b2-2b's) is one too: its starts follow the launch modes and the task's flags.
 # crash-test (ADR-0039, the main thread's uncaught exception) is one too: Android's handlers end it after its "done",
 # and the program must end with 137, the kill of itself, and Minato go back to the library without a notice.
-# sqlite-test (the compatibility plan's gap 7) is one too: its own SQLite databases, whose files take the runtime's
+# sqlite-test is one too: its own SQLite databases, whose files take the runtime's
 # locks inside the app's sandbox on the iPhone.
-# timezone-test (the compatibility plan's gap 21) is one too: the tzdata module's files in the app's /apex, and the
+# timezone-test is one too: the tzdata module's files in the app's /apex, and the
 # zones that libcore, java.time and ICU read from them.
 # package-installer-test (the Unity test APK resolve list, batch E) is one too: the package installer's sessions and the
 # refusal of a new one, and the exit reasons.
@@ -2343,9 +2343,9 @@ run_pixels() {
           pixels_checkpoint "$app" return
         fi
       else
-        # Without the session's window handler (RuntimeSession.swift, ADR-0041 gap 4) a dialog's window request
+        # Without the session's window handler (RuntimeSession.swift, ADR-0041) a dialog's window request
         # answers -EOPNOTSUPP, which ViewRootImpl takes in silence, and the dialog never shows.
-        failed_line "no \"ready: dialog 1\": the dialog's window never came (the session's window handler, gap 4)" \
+        failed_line "no \"ready: dialog 1\": the dialog's window never came (the session's window handler)" \
           "$app-start"
       fi
     elif await_line guest-log "^I/$app: done$" 300; then
@@ -3620,9 +3620,9 @@ run_one result-flow-test io.github.kisame76.minato.test.resultflow
 # Launch modes and the task's flags (step b3.5b2-2b): singleTop, CLEAR_TOP, REORDER_TO_FRONT, singleTask, noHistory,
 # navigateUpTo and CLEAR_TASK.
 run_one launch-mode-test io.github.kisame76.minato.test.launchmode
-# SQLite databases (the compatibility plan's gap 7): SQLiteOpenHelper on the main thread, cursors, WAL and the files.
+# SQLite databases: SQLiteOpenHelper on the main thread, cursors, WAL and the files.
 run_one sqlite-test io.github.kisame76.minato.test.sqlite
-# Time zones (the compatibility plan's gap 21): the tzdata module's files, and libcore's, java.time's and ICU's zones;
+# Time zones: the tzdata module's files, and libcore's, java.time's and ICU's zones;
 # the device's zone is only shown.
 run_one timezone-test io.github.kisame76.minato.test.timezone
 # The network the host reports (ADR-0054 step d): the Mac's or the iPhone's path, Wi-Fi up and mobile data off as on

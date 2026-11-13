@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the test of the windows at the background and the return, windows-return-test, on the Mac
-# (framework/tests/java_app_run.py; ADR-0041 gap 4 (b5a)): builds graphics-run (apk-run with graphics/host's providers)
+# (framework/tests/java_app_run.py; ADR-0041): builds graphics-run (apk-run with graphics/host's providers)
 # and apk-convert for macOS into build/native/macos-app, and app_process with libandroid_runtime.so (incremental),
 # framework.jar (about 10 s) and windows-return-test (seconds) every time, so it never tests an old binary; then starts
 # windows-return-test through app_process in a session on the M4 plan's display, whose host plays the start, three taps
@@ -9,7 +9,7 @@
 # from tools/android-reference.sh --app windows-return-test, HOME after "ready"): a dialog with a popup on its button
 # and a translucent activity with a SurfaceView above them, their lifecycle, focus and SurfaceView callbacks around
 # HOME and the return. The windows have graphics-run's layers in decision 1's order (MINATO_SESSION_LAYERS=1,
-# MINATO_WINDOW_WATCH=hidden, gap 4 (c)), whose lines it checks among the app's in order: each requested window gone
+# MINATO_WINDOW_WATCH=hidden), whose lines it checks among the app's in order: each requested window gone
 # at the background and made again at the return (decision 6).
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.
 # Usage: tools/windows-return-check.sh

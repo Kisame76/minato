@@ -24,14 +24,14 @@ struct NativeFindingsTests {
         let found = NativeFindings.failing(
             [Facts(name: "libgame.so", refusals: [], needed: ["libamidi.so"])], publicLibraries: Self.publicLibraries)
 
-        #expect(found["libgame.so"] == ["it needs libamidi.so, an NDK library Minato does not have yet (gap 14)"])
+        #expect(found["libgame.so"] == ["it needs libamidi.so, an NDK library Minato does not have yet"])
     }
 
     @Test func libstdcxxIsOneOfThem() {
         let found = NativeFindings.failing(
             [Facts(name: "libgame.so", refusals: [], needed: ["libstdc++.so"])], publicLibraries: Self.publicLibraries)
 
-        #expect(found["libgame.so"] == ["it needs libstdc++.so, an NDK library Minato does not have yet (gap 14)"])
+        #expect(found["libgame.so"] == ["it needs libstdc++.so, an NDK library Minato does not have yet"])
     }
 
     @Test func aLibraryOfTheAppOrAPublicOneIsFound() {

@@ -1,4 +1,4 @@
-/// UIDevice's battery as the runtime takes it (the battery, gap 1 of the compatibility plan): `apkrt_battery_set`'s
+/// UIDevice's battery as the runtime takes it (the battery): `apkrt_battery_set`'s
 /// level in whole percent, -1 when UIKit does not know it (its -1, as on the Simulator), and its state, UIDevice's
 /// `BatteryState` raw value (APKRT_BATTERY_STATE_* in guest_interface.h), unknown for any other.
 public struct BatteryReading: Sendable, Equatable {

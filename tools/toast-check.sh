@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the test of toasts, toast-test, on the Mac (framework/tests/java_app_run.py; ADR-0041 gap 4 (b4)): builds
+# Runs the test of toasts, toast-test, on the Mac (framework/tests/java_app_run.py; ADR-0041): builds
 # graphics-run (apk-run with graphics/host's providers) and apk-convert for macOS into build/native/macos-app, and
 # app_process with libandroid_runtime.so (incremental), framework.jar (about 10 s) and toast-test (seconds) every time,
 # so it never tests an old binary; then starts toast-test through app_process in a session on the M4 plan's display and
@@ -7,7 +7,7 @@
 # tools/android-reference.sh --app toast-test): text toasts and their callbacks, how long they show, their queue, a
 # cancel and the package's limit, a toast with a view of its own, and what a toast window without the system's token
 # and a toast on a thread without a looper meet. The windows have graphics-run's layers in decision 1's order
-# (MINATO_SESSION_LAYERS=1, MINATO_WINDOW_WATCH=hidden, gap 4 (c)), whose lines it checks among the app's in order:
+# (MINATO_SESSION_LAYERS=1, MINATO_WINDOW_WATCH=hidden), whose lines it checks among the app's in order:
 # each toast a window of type 2005, a text toast at the default gravity and offset at the display's bottom, one at a
 # time, and the toast with a view of its own above a dialog shown after it, as toasts lie above every group.
 # Needs tools/build-art.sh, tools/build-bionic.sh, tools/build-hwui.sh and tools/build-framework-res.sh first.

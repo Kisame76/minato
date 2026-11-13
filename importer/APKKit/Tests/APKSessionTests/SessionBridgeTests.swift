@@ -1209,7 +1209,7 @@ struct SessionBridgeTests {
         #expect(bridge.isBroken)
     }
 
-    // MARK: ADR-0041 gap 4: the guest's own windows (dialogs, popups, toasts), as apk-run's headless host answers them
+    // MARK: ADR-0041: the guest's own windows (dialogs, popups, toasts), as apk-run's headless host answers them
 
     static let dialogFrame = PixelRect(left: 100, top: 900, right: 1190, bottom: 1900)
     static let dialogSize = PixelSize(width: 1090, height: 1000)

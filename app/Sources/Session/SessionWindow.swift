@@ -417,7 +417,7 @@ final class SessionLayersView: UIView {
     #endif
 }
 
-/// The SurfaceViews' layers (ADR-0043 c4 (d)) and the requested windows' (ADR-0041 gap 4: dialogs, popups, toasts,
+/// The SurfaceViews' layers (ADR-0043 c4 (d)) and the requested windows' (ADR-0041: dialogs, popups, toasts,
 /// translucent activities and sub-windows, plan step 6 (c)): each a MinatoMetalLayer, whose presents are paced as the
 /// window's (graphics/host's layer.m), in one of two containers beside the window's layer, below it or above it, in
 /// Android 15's order of windows (WindowTree on WindowOrder, decision 1), with one black dim below the topmost window
@@ -425,7 +425,7 @@ final class SessionLayersView: UIView {
 /// opacity. The containers go in with the first layer. While a layer lies below the window, the window's layer has
 /// no background of its own, which would cover that layer wherever the window is transparent (its SurfaceView's
 /// hole), and the black is behind them instead. Touches stay the session view's: WindowManagerGlobal routes them to
-/// the windows, and gives them the focus (gap 4 b2). Used on the main thread, for the bridge.
+/// the windows, and gives them the focus. Used on the main thread, for the bridge.
 final class SurfaceLayers {
     /// The session view's layer, which holds the window's layer and the containers.
     private let backdrop: CALayer

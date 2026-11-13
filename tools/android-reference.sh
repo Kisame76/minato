@@ -47,10 +47,10 @@
 # binder-test (ADR-0043 step d2b)), whose binders and ResultReceivers are the app's own, is one of those Java apps
 # too.
 # strictmode-test (ADR-0039 step c2d3) is one too.
-# api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test (gap 5), whose widgets are
+# api-breadth-test (the compatibility plan's entry 22) is one too, and so is widgets-test, whose widgets are
 # laid out in px on the M4 plan's display.
 # breadth-test (the framework breadth's behavior test) is one too.
-# services-b-test (the compatibility plan's gap 1, services batch B) is one too, on apk-runner-35-bare: no modem, so
+# services-b-test (services batch B) is one too, on apk-runner-35-bare: no modem, so
 # the subscription and telephony answers are those of a device without a SIM like Minato.
 # webview-camera-test (the Unity test APK probe's batch C) is one too, on apk-runner-35-bare, a device without cameras like
 # Minato; its lines of webview-camera-test-device, which the AVD's WebView answers, are only shown.
@@ -61,9 +61,9 @@
 # broadcast-test (ADR-0045 decision 5), whose activity sends its own broadcasts to its own receivers, is one too.
 # crash-test (ADR-0039, the main thread's uncaught exception), whose own handler logs the exception that ends it, is
 # one too.
-# sqlite-test (the compatibility plan's gap 7), whose activity makes, changes and deletes its own SQLite database, is
+# sqlite-test, whose activity makes, changes and deletes its own SQLite database, is
 # one too.
-# timezone-test (the compatibility plan's gap 21), whose activity reads the time zone data, is one too.
+# timezone-test, whose activity reads the time zone data, is one too.
 # package-installer-test (the Unity test APK resolve list, batch E), whose activity asks the package installer for sessions
 # and a new one, and reads the exit reasons, is one too.
 # media-absent-test (the Unity test APK gap sort, category 2), whose activity asks android.media's DRM, codec, retriever and
@@ -73,7 +73,7 @@
 # pointer-insets-test (ADR-0042 b, gaps 6 and 9) is one too, on that display, as its loaded icon's hotspot is in dp.
 # palette-test (ADR-0043 step f)) is one too, on apk-runner-35: its system colors are those of the overlays that
 # SystemUI makes from the image's default wallpaper (Monet).
-# settings-test (ADR-0045, gap 13) is such an app too, whose values are the image's while no test writes settings:
+# settings-test (ADR-0045) is such an app too, whose values are the image's while no test writes settings:
 # its reference is taken on apk-runner-35 wiped first. touch-test (ADR-0045 step 7b) is one too, whose events are made
 # up, so that its lines do not depend on the device; since step 7b2 it has its own activity, on the display below.
 # key-test (ADR-0045 step 7c) is one too, whose keys it injects into its own window, on that display.
@@ -223,8 +223,8 @@ fi
 # (step b3.5b2-1b), whose swipe and tap the script plays as touch-test's, and result-flow-test (step b3.5b2-2a)
 # and launch-mode-test (step b3.5b2-2b), whose steps wait for their windows' focus as activity-flow-test's.
 # texture-view-test (ADR-0058 d)) runs there too: its two TextureViews' bounds in the window are Minato's there, and so
-# does second-windows-test (ADR-0041 gap 4 (b)), whose dialogs' and popups' sizes in px are Minato's at that density,
-# and toast-test (gap 4 (b4)), whose toast's size and place are, windows-return-test (gap 4 (b5a)), whose dialog's
+# does second-windows-test (ADR-0041), whose dialogs' and popups' sizes in px are Minato's at that density,
+# and toast-test, whose toast's size and place are, windows-return-test, whose dialog's
 # size is, and title-test, whose dialogs' sizes are.
 if [[ "$app" == activity-start-test || "$app" == start-stops-test || "$app" == java-test ||
   "$app" == views-test* || "$app" == text-test || "$app" == surface-test || "$app" == touch-test ||
@@ -781,7 +781,7 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
       limit=120
       ;;
-    # net-link-test (gap 3 of the networking plan): the Application reads getLinkProperties of the active network and
+    # net-link-test: the Application reads getLinkProperties of the active network and
     # logs its structure, and ends with "done".
     net-link-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=android.app.Activity
@@ -852,7 +852,7 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.DialogActivity
       limit=90
       ;;
-    # second-windows-test (ADR-0041 gap 4 (b)): its activity runs when the window has the focus and ends with "done".
+    # second-windows-test (ADR-0041): its activity runs when the window has the focus and ends with "done".
     second-windows-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SecondWindowsActivity
       limit=150
@@ -884,12 +884,12 @@ run_app() {
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.FrameActivity
       limit=120
       ;;
-    # windows-return-test (ADR-0041 gap 4 (b5a)): HOME and the return drive it (below), and it ends with "done".
+    # windows-return-test (ADR-0041): HOME and the return drive it (below), and it ends with "done".
     windows-return-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ReturnActivity
       limit=120
       ;;
-    # toast-test (ADR-0041 gap 4 (b4)): its activity runs when the window has the focus and ends with "done".
+    # toast-test (ADR-0041): its activity runs when the window has the focus and ends with "done".
     toast-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.ToastActivity
       limit=120
@@ -962,7 +962,7 @@ run_app() {
       activity_class=.EditActivity
       limit=90
       ;;
-    # system-services-test (gap 1's batch 3 of the compatibility plan): its activity asks the services that answered
+    # system-services-test (the system services' batch 3): its activity asks the services that answered
     # null in Minato as the libraries do and ends with "done"; nothing to push or tap.
     # system-services-test-unpermitted is its twin without the VIBRATE permission, from the same sources.
     system-services-test | system-services-test-unpermitted)
@@ -970,7 +970,7 @@ run_app() {
       activity_class=io.github.kisame76.minato.test.systemservices.ServicesActivity
       limit=90
       ;;
-    # battery-test (gap 1 of the compatibility plan): its activity reads the sticky ACTION_BATTERY_CHANGED and
+    # battery-test: its activity reads the sticky ACTION_BATTERY_CHANGED and
     # BatteryManager, logs "ready" and then the battery's broadcasts while the script changes the battery in steps,
     # and ends with "done".
     battery-test)
@@ -1034,11 +1034,11 @@ run_app() {
     alert-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.AlertActivity limit=90
       ;;
-    # sqlite-test (the compatibility plan's gap 7): its activity's parts end with "done".
+    # sqlite-test: its activity's parts end with "done".
     sqlite-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SqliteActivity
       ;;
-    # timezone-test (the compatibility plan's gap 21): its activity's parts end with "done".
+    # timezone-test: its activity's parts end with "done".
     timezone-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.TimezoneActivity
       ;;
@@ -1390,7 +1390,7 @@ run_app() {
     insertion-mode-test)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.InsertActivity
       ;;
-    # action-bar-test (the platform action bar, compatibility plan gap 5): a default-theme activity that uses
+    # action-bar-test (the platform action bar): a default-theme activity that uses
     # getActionBar(), an options menu with an overflow, hide and show, and an action mode; ends with "done".
     action-bar-test | action-bar-test-34)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BarActivity
@@ -1612,7 +1612,7 @@ run_app() {
     sleep 1
   fi
   if [[ "$app" == services-test ]]; then
-    # Gap 1's batch 2: the notification service keeps an uninstalled app's channels in its policy file when the
+    # Services batch 2: the notification service keeps an uninstalled app's channels in its policy file when the
     # emulator stops before it writes the removal, and gives them back at the next install, which gets the same uid;
     # the package's data cleared drops them, so that each run starts as a first install does.
     run pm clear "${package:?}" >/dev/null
@@ -2016,7 +2016,7 @@ PY
     fi
   fi
   if [[ "$app" == second-windows-test ]]; then
-    # ADR-0041 gap 4 (b2): a tap a second after each of the touches part's ready lines, at the place each names, as
+    # ADR-0041: a tap a second after each of the touches part's ready lines, at the place each names, as
     # tools/second-windows-check.sh's lifecycle taps: the dialog's OK, outside the next dialog, the target under a
     # popup that watches outside touches, in a focusable popup and on the target again.
     tap_when_ready() {
@@ -2159,7 +2159,7 @@ PY
     run am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$activity" >/dev/null
   fi
   if [[ "$app" == windows-return-test ]]; then
-    # ADR-0041 gap 4 (b5a): HOME a second after the translucent activity's "ready", and the return a second after the
+    # ADR-0041: HOME a second after the translucent activity's "ready", and the return a second after the
     # launcher activity's stop, as apk-run's background and foreground follow the start in
     # tools/windows-return-check.sh.
     wait_for "$app" "I/$app: ready" || return 1

@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSession
 
-/// The iOS host's tree of the session's layers (ADR-0041 gap 4, plan step 6 (c)): c4's surfaces and the requested
+/// The iOS host's tree of the session's layers (ADR-0041, plan step 6 (c)): c4's surfaces and the requested
 /// windows as they come and go, in WindowOrder's order split at the session's window, and the dim's amount.
 @Suite("WindowTree")
 struct WindowTreeTests {

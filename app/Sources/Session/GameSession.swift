@@ -121,7 +121,7 @@ final class GameSession {
     @ObservationIgnored private let frameClockSlot = FrameClockSlot()
     /// The guest's audio output (ADR-0036, decision 4).
     @ObservationIgnored let audio = AudioHost(sink: RuntimeAudioSink())
-    /// The iPhone's battery for the guest (the battery, gap 1).
+    /// The iPhone's battery for the guest (the battery).
     @ObservationIgnored private let battery = BatteryHost()
     #if BENCHMARK
     /// A benchmark run's hooks (ADR-0037, decision 3): no menu, FPS label or hint, and the end goes to the run.
@@ -1247,7 +1247,7 @@ final class GameSession {
         if !wasBroken, bridge.isBroken { report(handled) }
     }
 
-    /// A window request of the guest's (ADR-0041, gap 4), on the main thread, in the order the runtime took them.
+    /// A window request of the guest's (ADR-0041), on the main thread, in the order the runtime took them.
     func windowRequested(_ request: WindowRequest) {
         #if DEBUG
         SessionCheck.event("window \(request.operation) token \(request.token) type \(request.type)")

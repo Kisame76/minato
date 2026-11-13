@@ -2,7 +2,7 @@ import APKRuntime
 import APKSession
 import UIKit
 
-/// The host's battery for the guest (the battery, gap 1 of the compatibility plan): while a session is open, UIDevice
+/// The host's battery for the guest (the battery): while a session is open, UIDevice
 /// reports the battery, and each level and state it has reaches the runtime (`apkrt_battery_set`), which keeps it for
 /// the guest's first look (APKRT_NR_BATTERY) and announces each change (APKRT_EVENT_BATTERY); the framework makes
 /// Android's sticky ACTION_BATTERY_CHANGED of it. On the main thread, as UIDevice's notifications come.

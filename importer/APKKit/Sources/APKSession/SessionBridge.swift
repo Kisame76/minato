@@ -41,7 +41,7 @@ public enum SessionEvent: Sendable, Equatable {
     case surfaceCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case surfaceDestroyed(token: UInt64, window: UInt64)
-    /// A window of the guest's own (ADR-0041, gap 4): the answer to a make, with its window and the buffer's size, and
+    /// A window of the guest's own (ADR-0041): the answer to a make, with its window and the buffer's size, and
     /// to a place with another size; WINDOW_DESTROYED when the host took it away at the background or the end.
     case windowCreated(token: UInt64, window: UInt64, width: Int32, height: Int32)
     case windowResized(token: UInt64, window: UInt64, width: Int32, height: Int32)
@@ -210,7 +210,7 @@ public protocol SessionHost: AnyObject {
     func placeSurface(_ window: UInt64, frame: PixelRect, z: Int32)
     /// `apkrt_window_remove` for a surface's window, whose layer goes with it; the window's frame rate stays.
     func removeSurface(_ window: UInt64)
-    /// A window of the guest's own (ADR-0041, gap 4): `apkrt_window_add` of the request's buffer size on a layer at its
+    /// A window of the guest's own (ADR-0041): `apkrt_window_add` of the request's buffer size on a layer at its
     /// frame, in ADR-0041's order of windows; its gate starts closed. Its ID, or 0 when the host has none for it.
     func addRequestedWindow(_ request: WindowRequest) -> UInt64
     /// The requested window's layer takes the place's frame, alpha and dim.
@@ -371,7 +371,7 @@ public struct SessionBridge: Sendable {
     /// The surfaces in the order they were made, until the guest removes them.
     private var surfaces: [Surface] = []
 
-    /// A window of the guest's own (ADR-0041, gap 4), kept as apk-run's headless host keeps one.
+    /// A window of the guest's own (ADR-0041), kept as apk-run's headless host keeps one.
     private struct RequestedWindow: Sendable, Equatable {
         var token: UInt64
         var window: UInt64
@@ -514,7 +514,7 @@ public struct SessionBridge: Sendable {
         return Handled()
     }
 
-    /// A window request as the runtime checked it (ADR-0041, gap 4), answered as apk-run's headless host answers it:
+    /// A window request as the runtime checked it (ADR-0041), answered as apk-run's headless host answers it:
     /// a make gets a window and WINDOW_CREATED, its gate open while the window's is; a place moves its layer, and
     /// another size gives its window that size, then WINDOW_RESIZED; a remove takes the window away without an event.
     /// A place or remove of a window the host took away does nothing, but the remove forgets it. After the end every
@@ -787,7 +787,7 @@ public struct SessionBridge: Sendable {
             }
             surfaces[index].taken = true
         }
-        // The requested windows after them, as apk-run takes its windows away (ADR-0041, gap 4).
+        // The requested windows after them, as apk-run takes its windows away (ADR-0041).
         for index in requestedWindows.indices where !requestedWindows[index].taken {
             host.removeRequestedWindow(requestedWindows[index].window, token: requestedWindows[index].token)
             requestedWindows[index].taken = true

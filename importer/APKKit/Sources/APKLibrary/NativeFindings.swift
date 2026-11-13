@@ -138,7 +138,7 @@ enum NativeFindings {
         return definitions.first
     }
 
-    /// NDK libraries that Android 15 has and Minato's guest does not (compatibility plan, gap 14).
+    /// NDK libraries that Android 15 has and Minato's guest does not.
     static let ndkLibrariesMinatoLacks: Set<String> = [
         "libamidi.so", "libbinder_ndk.so", "libneuralnetworks.so", "libOpenMAXAL.so", "libstdc++.so", "libsync.so",
     ]
@@ -154,7 +154,7 @@ enum NativeFindings {
             if let publicLibraries {
                 for name in library.needed where !names.contains(name) && !publicLibraries.contains(name) {
                     own.append(ndkLibrariesMinatoLacks.contains(name)
-                        ? "it needs \(name), an NDK library Minato does not have yet (gap 14)"
+                        ? "it needs \(name), an NDK library Minato does not have yet"
                         : "it needs \(name), which is not in the app and not one of Minato's libraries")
                 }
             }

@@ -2,7 +2,7 @@ import Testing
 
 @testable import APKSession
 
-/// The battery (gap 1 of the compatibility plan): UIDevice's battery as apkrt_battery_set takes it.
+/// The battery: UIDevice's battery as apkrt_battery_set takes it.
 @Suite("BatteryReading")
 struct BatteryReadingTests {
     @Test func theLevelIsWholePercent() {

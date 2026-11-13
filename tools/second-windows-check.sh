@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the test of second windows on the Mac (framework/tests/java_app_run.py; ADR-0041 gap 4 (b)): builds graphics-run
+# Runs the test of second windows on the Mac (framework/tests/java_app_run.py; ADR-0041): builds graphics-run
 # (apk-run with graphics/host's providers) and apk-convert for macOS into build/native/macos-app, and app_process with
 # libandroid_runtime.so (incremental), framework.jar (about 10 s) and second-windows-test (seconds) every time, so it
 # never tests an old binary; then starts second-windows-test through app_process, whose host answers each window
@@ -7,9 +7,9 @@
 # places, and compares its log with Android 15's on
 # apk-runner-35-iphone-gesture (fixtures/expected/second-windows-test.logcat, from tools/android-reference.sh --app
 # second-windows-test): an AlertDialog and PopupWindows in windows of their own, their frames, callbacks, touches, keys
-# and focus, what a bad token meets, and a translucent and a floating activity above the launcher activity (gap 4
-# (b3)). The windows have graphics-run's layers in decision 1's order (MINATO_SESSION_LAYERS=1,
-# MINATO_WINDOW_WATCH=hidden, gap 4 (c)), whose lines the b3 part checks among the app's in this order: the
+# and focus, what a bad token meets, and a translucent and a floating activity above the launcher activity.
+# The windows have graphics-run's layers in decision 1's order (MINATO_SESSION_LAYERS=1,
+# MINATO_WINDOW_WATCH=hidden), whose lines the b3 part checks among the app's in this order: the
 # translucent activity's own window as a requested one of type 1, its SurfaceView's as a MEDIA sub-window below it, its
 # dialog above it, the dialog of the activity below in that one's group below it, gone with it at setTranslucent(false)
 # and back at convertToTranslucent, and the floating activity's window at its frame above the dim.

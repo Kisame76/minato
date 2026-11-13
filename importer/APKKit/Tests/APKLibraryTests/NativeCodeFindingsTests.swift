@@ -290,7 +290,7 @@ struct NativeCodeNeededTests {
             library: "libactivity-test.so",
             reason: "it needs libmissing.so, which is not in the app and not one of Minato's libraries")))
         #expect(issues.contains(.libraryDegraded(
-            library: "libother.so", reason: "it needs libamidi.so, an NDK library Minato does not have yet (gap 14)")))
+            library: "libother.so", reason: "it needs libamidi.so, an NDK library Minato does not have yet")))
     }
 
     @Test func anAppThatFindsEveryNameStaysReady() async throws {

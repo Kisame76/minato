@@ -238,7 +238,7 @@ final class RuntimeSessionHost: SessionHost {
         surfaces?.remove(window)
     }
 
-    /// A window of the guest's own (ADR-0041, gap 4) on a layer in the windows' order, of its buffer's size; the
+    /// A window of the guest's own (ADR-0041) on a layer in the windows' order, of its buffer's size; the
     /// registry retains the layer while the window is there. 0 before the view exists or when the registry has no
     /// room.
     func addRequestedWindow(_ request: WindowRequest) -> UInt64 {
@@ -346,7 +346,7 @@ final class RuntimeSessionHost: SessionHost {
         session.end = Self.endHandler
         session.request = Self.requestHandler
         session.surface = Self.surfaceHandler
-        // The guest's dialogs, popups and toasts on layers of their own (ADR-0041, gap 4).
+        // The guest's dialogs, popups and toasts on layers of their own (ADR-0041).
         session.window = Self.windowHandler
         // The guest's WebViews on graphics/host's WKWebView, in the session's view (ADR-0056 c2).
         session.webview = minato_webview_handle
@@ -532,7 +532,7 @@ final class RuntimeSessionHost: SessionHost {
         }
     }
 
-    /// The runtime's checked window request as the bridge takes it (ADR-0041, gap 4), or nil for an op it does not
+    /// The runtime's checked window request as the bridge takes it (ADR-0041), or nil for an op it does not
     /// know.
     static func windowRequest(_ record: apkrt_window_request) -> WindowRequest? {
         let operation: WindowRequest.Operation
@@ -549,7 +549,7 @@ final class RuntimeSessionHost: SessionHost {
             group: record.group, alpha: Float(bitPattern: record.alpha), dim: Float(bitPattern: record.dim))
     }
 
-    /// The session's window handler (ADR-0041, gap 4), as the surface handler: on the guest thread under the
+    /// The session's window handler (ADR-0041), as the surface handler: on the guest thread under the
     /// runtime's window lock, so a copy of the request goes to the main queue, in the order the runtime took them.
     static let windowHandler: apkrt_window_handler = { _, record in
         guard let request = record.flatMap({ RuntimeSessionHost.windowRequest($0.pointee) }) else { return }
