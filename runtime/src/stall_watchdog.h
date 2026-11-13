@@ -2,7 +2,8 @@
 // native window handed to the app (apkrt_stall_surface_created). When a surface shows no first frame within a timeout,
 // or a continuous renderer stops presenting after it had, the watchdog dumps every thread's stack once into the
 // session log, so a black screen names where each thread waits. A present on another window (the app's decor) does not
-// count as a surface's frame -- the Unity 6 case, where the decor drew while the SurfaceView never presented. It
+// count as a surface's frame -- the Unity 6 case, where the decor drew while the SurfaceView never presented. After a
+// return from the background, an app that keeps working with no frame (the reset race) is dumped once too. It
 // reuses the ANR watchdog's SIGQUIT path for the managed (ART) threads and adds the native threads with symbols, the
 // way process_exit's exit_callers line does. The decision (tick) is pure and tested; the daemon that runs it, the
 // native dump and the signal are the host's side.
@@ -13,8 +14,14 @@
 
 namespace apkrt::stall {
 
-/// The app resumed (APKRT_EVENT_RESUME): a paused app is watched again. `now_ns` is unused -- each surface carries its
-/// own creation time -- but kept so the session posts it the same way as paused(). The one-per-session latch stays.
+/// The app resumed (APKRT_EVENT_RESUME): a paused app is watched again, and if a render surface presented earlier in
+/// the session (a first load is the first-frame watch's), a return's watch starts at `now_ns`. The host replaces the
+/// window and its surfaces at the background, so a return's surfaces are new: each live render surface with no frame
+/// yet, and each one created while the watch runs, joins it with its return work then (set_return_work_source); a
+/// surface that keeps its frame (the menu's pause) does not. The first present on any render surface after `now_ns`
+/// ends the watch. When none comes within the return timeout while a joined surface's work grew -- the reset race, a
+/// reload with no frame -- tick() dumps. Its own latch, once per session, apart from the first-frame/continuous one;
+/// and no surface is dumped twice by either.
 void resumed(std::uint64_t now_ns);
 
 /// The app paused or stopped (APKRT_EVENT_PAUSE/STOP): report nothing until the next resume.
@@ -56,6 +63,16 @@ void set_work_source(std::uint64_t (*source)(std::uint64_t id));
 /// relies on the hard cap.
 void install_asset_work_source();
 
+/// Registers the return watch's work source (apkrt_stall_set_return_work_source): a cumulative count of bytes moved
+/// toward surface `id`, so a re-upload of the same scene grows it. Same rules as set_work_source. `nullptr` clears it:
+/// the return watch then never dumps.
+void set_return_work_source(std::uint64_t (*source)(std::uint64_t id));
+
+/// Installs the runtime's own default return work source: apkrt_stall_asset_read_cumulative() for every surface (every
+/// byte read from a regular file, re-reads counted). start_thread() calls it once; a graphics source registered later
+/// supersedes it.
+void install_asset_return_source();
+
 /// The surface `id` was removed (surfaceDestroyed / apkrt_window_remove): stop watching it, so a surface torn down
 /// before its first frame is not reported. An `id` that is not tracked is ignored.
 void surface_removed(std::uint64_t id);
@@ -63,12 +80,16 @@ void surface_removed(std::uint64_t id);
 /// The watchdog's check at `now_ns`. Returns the reason to dump the first time a watched app surface has gone longer
 /// than the timeout without its first frame (measured from the surface's creation), or a continuous renderer's surface
 /// has gone longer than the timeout since its last frame, and latches, so it returns "" ever after: the dump is once
-/// per session. Returns "" while paused, within the timeout, or once it has dumped. Pure: no log and no signal, so the
-/// host's daemon owns those.
+/// per session. Returns "" while paused, within the timeout, or once it has dumped. A return's watch (resumed()) has
+/// its own once-per-session latch and returns its reason even after that dump, but never for a surface either watch
+/// already reported. Pure: no log and no signal, so the host's daemon owns those.
 std::string tick(std::uint64_t now_ns);
 
 /// The no-present timeout; the default is 10 s. A test sets it small.
 void set_timeout_ns(std::uint64_t ns);
+
+/// The return watch's no-frame timeout, from the resume; the default is 15 s. A test sets it small.
+void set_return_timeout_ns(std::uint64_t ns);
 
 /// The hard cap on time to the first frame: a surface is reported this long after it was created even while its work
 /// keeps growing, so a first load that advances forever or far too slowly cannot dodge the watchdog. Default 60 s; a

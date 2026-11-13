@@ -436,6 +436,21 @@ void apkrt_stall_set_work_source(uint64_t (*source)(uint64_t id));
 /// does not. Read it from the registered source; it is a relaxed atomic load.
 uint64_t apkrt_stall_asset_work(void);
 
+/// For graphics: registers the source the stall watchdog pulls to tell whether an app that returned from the
+/// background keeps working while no frame comes (the reset race: a reload re-reads assets and re-uploads the same
+/// scene into a new surface). Unlike apkrt_stall_set_work_source, `source(id)` must be a cumulative, monotonically
+/// rising count of bytes moved -- never a resident high-water -- so a re-upload of the same scene still grows it; 0 for
+/// an id it cannot measure. The watchdog takes a surface's value when the surface joins a return's watch and dumps
+/// once when it grew with no frame 15 s after the return. Non-blocking, lock-free, must not call back into the runtime
+/// (the watchdog calls it under its own lock). NULL clears it (the return watch then never dumps). Register it once;
+/// it replaces the runtime's default, apkrt_stall_asset_read_cumulative.
+void apkrt_stall_set_return_work_source(uint64_t (*source)(uint64_t id));
+
+/// The runtime's return-work contribution (for the graphics return source to add to its uploaded bytes): a
+/// process-wide, monotonically rising sum of all bytes read from regular files -- re-reads counted, unlike
+/// apkrt_stall_asset_work -- so a reload that re-reads the same assets grows it. A relaxed atomic load.
+uint64_t apkrt_stall_asset_read_cumulative(void);
+
 /// For graphics/host: 1 while the process is in the background, else 0; a sequentially consistent load.
 int apkrt_is_background(void);
 

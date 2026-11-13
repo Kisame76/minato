@@ -38,6 +38,9 @@ struct Surface {
     std::uint64_t present_times[continuous_frames] = {};  // ring of the last `continuous_frames` present times
     std::uint64_t present_count = 0;
     bool renders = true;  // a render surface; false for a Java app's window, watched for its first frame only
+    bool in_return = false;              // in the running return's watch (resumed())
+    std::uint64_t return_work_base = 0;  // its return work when it joined that watch: the baseline for growth
+    bool reported = false;               // a dump named it already: no watch dumps it again
 };
 
 // Never destroyed: the detached watchdog daemon may touch these during static destruction at a host test exit;
@@ -50,11 +53,33 @@ std::uint64_t timeout_ns = 10'000'000'000ull;           // 10 s: no first frame 
 std::uint64_t max_first_frame_ns = 60'000'000'000ull;   // 60 s: hard cap, reported even while work grows
 std::uint64_t (*work_source)(std::uint64_t id) = nullptr;  // pulled per waiting surface; null: created-time deadline
 
+// The return watch (resumed()).
+bool render_presented = false;                            // a render surface presented in this session
+std::uint64_t return_since_ns = 0;                        // the running return's resume; 0: no return watched
+bool return_dumped = false;                               // the return watch's own once-per-session latch
+std::uint64_t return_timeout_ns = 15'000'000'000ull;      // 15 s with no frame since the resume
+std::uint64_t (*return_work_source)(std::uint64_t id) = nullptr;  // cumulative bytes moved; null: never dumps
+
+// A surface joins the running return's watch with its return work now. Only a render surface with no frame of its
+// own: the host replaces a returning app's surfaces, and one that kept its frame (the menu's pause) shows it still.
+// Called with the lock held.
+void join_return(Surface &surface) {
+    if (return_since_ns == 0 || !surface.renders || surface.last_present_ns != 0) return;
+    surface.in_return = true;
+    surface.return_work_base = return_work_source != nullptr ? return_work_source(surface.id) : 0;
+}
+
 }  // namespace
 
-void resumed(std::uint64_t /*now_ns*/) {
+void resumed(std::uint64_t now_ns) {
     const std::lock_guard<std::mutex> hold(lock);
-    is_paused = false;  // the surfaces carry their own creation times; a resume only lifts the pause gate
+    is_paused = false;  // the surfaces carry their own creation times for the first-frame watch
+    // A return's watch starts only after the app had shown frames; before that, a resume is part of its first load.
+    return_since_ns = render_presented ? now_ns : 0;
+    for (Surface &surface : surfaces) {
+        surface.in_return = false;
+        join_return(surface);
+    }
 }
 
 void paused() {
@@ -71,6 +96,7 @@ void watch(std::uint64_t id, std::uint64_t now_ns, bool renders) {
     }
     Surface surface{id, now_ns};
     surface.renders = renders;
+    join_return(surface);  // a surface the returning app makes while the return is watched
     surfaces.push_back(surface);
 }
 
@@ -91,6 +117,12 @@ void presented(std::uint64_t id, std::uint64_t now_ns) {
         surface.last_present_ns = now_ns;
         surface.present_times[surface.present_count % continuous_frames] = now_ns;
         ++surface.present_count;
+        if (surface.renders) {
+            render_presented = true;
+            // The first frame on any render surface after the resume ends that return's watch: the app shows again,
+            // and a second surface still loading without a frame is no stall.
+            if (return_since_ns != 0 && now_ns >= return_since_ns) return_since_ns = 0;
+        }
         return;
     }
     // `id` is not a watched app surface (the decor, a dialog): not a surface's first frame, so it is ignored.
@@ -106,9 +138,20 @@ namespace {
 // relaxed atomic, reported for every surface id. No per-surface split -- a graphics source replaces this when it
 // registers live texture/buffer bytes. apkrt_stall_asset_work does not call back into the watchdog.
 std::uint64_t asset_work_progress(std::uint64_t /*id*/) { return apkrt_stall_asset_work(); }
+
+// The runtime's default return work source: every byte read from a regular file, re-reads counted
+// (apkrt_stall_asset_read_cumulative), the same for every surface id; a graphics source replaces it.
+std::uint64_t asset_read_progress(std::uint64_t /*id*/) { return apkrt_stall_asset_read_cumulative(); }
 }  // namespace
 
 void install_asset_work_source() { set_work_source(&asset_work_progress); }
+
+void set_return_work_source(std::uint64_t (*source)(std::uint64_t id)) {
+    const std::lock_guard<std::mutex> hold(lock);
+    return_work_source = source;
+}
+
+void install_asset_return_source() { set_return_work_source(&asset_read_progress); }
 
 void surface_removed(std::uint64_t id) {
     const std::lock_guard<std::mutex> hold(lock);
@@ -120,10 +163,36 @@ void surface_removed(std::uint64_t id) {
     }
 }
 
+namespace {
+
+// The return watch's check (resumed()), with the lock held: once the return timeout has passed since the resume with
+// no frame on any render surface (a frame ends the watch), the first joined surface whose return work grew since it
+// joined -- the reset race, a reload with no frame -- is dumped, once per session. A quiet resume does no work and is
+// never dumped; there is no hard cap, so a return that stalls without measurable work is not caught here.
+std::string check_return(std::uint64_t now_ns) {
+    if (return_dumped || return_since_ns == 0 || return_work_source == nullptr) return {};
+    if (now_ns <= return_since_ns || now_ns - return_since_ns <= return_timeout_ns) return {};
+    for (Surface &surface : surfaces) {
+        if (!surface.in_return || surface.reported) continue;
+        if (return_work_source(surface.id) <= surface.return_work_base) continue;
+        return_dumped = true;
+        surface.reported = true;
+        return "no frame " + std::to_string((now_ns - return_since_ns) / 1'000'000'000ull) +
+               "s after the app returned, while it kept working (reset race)";
+    }
+    return {};
+}
+
+}  // namespace
+
 std::string tick(std::uint64_t now_ns) {
     const std::lock_guard<std::mutex> hold(lock);
-    if (is_paused || has_dumped) return {};
+    if (is_paused) return {};
     for (Surface &surface : surfaces) {
+        // The first-frame/continuous dump is once per session (the return watch below has its own latch), and a
+        // surface the return watch dumped is not dumped again.
+        if (has_dumped) break;
+        if (surface.reported) continue;
         if (surface.last_present_ns == 0) {
             // No first frame. Progress-aware with a hard cap. Pull the host's cumulative work toward this surface's
             // first frame and slide the soft deadline only when it grows: a render loop that reruns the same uploads
@@ -145,6 +214,7 @@ std::string tick(std::uint64_t now_ns) {
             const bool stalled = now_ns > since && now_ns - since > timeout_ns;
             if (over_cap || stalled) {
                 has_dumped = true;
+                surface.reported = true;
                 if (over_cap) {
                     return "no first frame " + std::to_string((now_ns - surface.created_ns) / 1'000'000'000ull) +
                            "s after the app surface was created (hard cap, despite progress)";
@@ -167,16 +237,22 @@ std::string tick(std::uint64_t now_ns) {
         }
         if (now_ns > surface.last_present_ns && now_ns - surface.last_present_ns > timeout_ns) {
             has_dumped = true;
+            surface.reported = true;
             return "stopped presenting for " +
                    std::to_string((now_ns - surface.last_present_ns) / 1'000'000'000ull) + "s";
         }
     }
-    return {};
+    return check_return(now_ns);
 }
 
 void set_timeout_ns(std::uint64_t ns) {
     const std::lock_guard<std::mutex> hold(lock);
     timeout_ns = ns;
+}
+
+void set_return_timeout_ns(std::uint64_t ns) {
+    const std::lock_guard<std::mutex> hold(lock);
+    return_timeout_ns = ns;
 }
 
 void set_max_first_frame_ns(std::uint64_t ns) {
@@ -192,6 +268,11 @@ void reset_for_test() {
     timeout_ns = 10'000'000'000ull;
     max_first_frame_ns = 60'000'000'000ull;
     work_source = nullptr;
+    render_presented = false;
+    return_since_ns = 0;
+    return_dumped = false;
+    return_timeout_ns = 15'000'000'000ull;
+    return_work_source = nullptr;
 }
 
 namespace {
@@ -339,6 +420,7 @@ void dump_all_threads(const std::string &reason) {
 void start_thread() {
     if (thread_started.exchange(true)) return;
     install_asset_work_source();  // the runtime's own default source until a graphics source supersedes it
+    install_asset_return_source();  // and the return watch's, the same way
     std::thread([] {
         // A runtime helper thread must not catch a signal meant for a guest thread -- above all the SIGQUIT the ANR
         // watchdog sends to ART's signal catcher, which this would otherwise steal. Block them all here.

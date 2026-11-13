@@ -87,6 +87,11 @@ long with_file(int fd, HostCall host_call) {
 // cost: one relaxed fetch_add, only on growth; nothing for a descriptor that is not a regular file.
 std::atomic<std::uint64_t> asset_work_bytes{0};
 
+// The stall watchdog's return work (apkrt_stall_asset_read_cumulative): every byte read from a regular file, re-reads
+// counted, so a reload that re-reads the same assets grows it where asset_work_bytes stays flat. One relaxed fetch_add
+// per counted read.
+std::atomic<std::uint64_t> asset_read_cumulative{0};
+
 // A regular file (or a non-blocking device): not a socket, pipe, FIFO or tty (those can block), and not an
 // eventfd/timerfd/epoll/channel (not Kind::file). A device's reads return 0 or do not advance an offset, so they add
 // nothing of their own.
@@ -105,19 +110,21 @@ void note_high_water(Description &description, std::uint64_t end) {
     }
 }
 
-// A completed stream read of `bytes` on a regular file: advances the tracked position (so the end offset is known
-// without an lseek) and notes it. Non-files cost only the counts_as_file branch, no atomic.
+// A completed stream read of `bytes` on a regular file: counts the bytes, advances the tracked position (so the end
+// offset is known without an lseek) and notes it. Non-files cost only the counts_as_file branch, no atomic.
 void note_stream_read(Description &description, std::uint64_t bytes) {
     if (!counts_as_file(description)) return;
+    asset_read_cumulative.fetch_add(bytes, std::memory_order_relaxed);
     const std::uint64_t end = description.file_pos.load(std::memory_order_relaxed) + bytes;
     description.file_pos.store(end, std::memory_order_relaxed);
     note_high_water(description, end);
 }
 
-// A completed positional read (pread/preadv) ending at `end` on a regular file: notes it; the stream position is
-// unchanged, as pread leaves it.
-void note_positional_read(Description &description, std::uint64_t end) {
+// A completed positional read (pread/preadv) of `bytes` ending at `end` on a regular file: counts the bytes and notes
+// it; the stream position is unchanged, as pread leaves it.
+void note_positional_read(Description &description, std::uint64_t end, std::uint64_t bytes) {
     if (!counts_as_file(description)) return;
+    asset_read_cumulative.fetch_add(bytes, std::memory_order_relaxed);
     note_high_water(description, end);
 }
 
@@ -212,6 +219,12 @@ long record_lock(int fd, int command, std::uint64_t argument) {
 // when a regular file's highest read offset rises, so a re-read does not grow it.
 extern "C" std::uint64_t apkrt_stall_asset_work(void) {
     return asset_work_bytes.load(std::memory_order_relaxed);
+}
+
+// The stall watchdog's return work (apkrt.h): process-wide, monotone, every byte read from a regular file, re-reads
+// counted.
+extern "C" std::uint64_t apkrt_stall_asset_read_cumulative(void) {
+    return asset_read_cumulative.load(std::memory_order_relaxed);
 }
 
 long sys_fcntl(int fd, int command, std::uint64_t argument) {
@@ -1593,7 +1606,8 @@ long sys_pread64(int fd, std::uint64_t buffer, std::uint64_t size, std::int64_t 
     return with_description(fd, [&](Description &description) {
         const long moved = result_or_error(::pread(description.host(), as_pointer<void>(buffer), size, offset));
         if (moved > 0 && offset >= 0) {
-            note_positional_read(description, static_cast<std::uint64_t>(offset) + static_cast<std::uint64_t>(moved));
+            const auto bytes = static_cast<std::uint64_t>(moved);
+            note_positional_read(description, static_cast<std::uint64_t>(offset) + bytes, bytes);
         }
         return moved;
     });
@@ -1612,7 +1626,8 @@ long sys_preadv(int fd, std::uint64_t vectors, int count, std::int64_t offset) {
         const long moved =
             result_or_error(::preadv(description.host(), as_pointer<const iovec>(vectors), count, offset));
         if (moved > 0 && offset >= 0) {
-            note_positional_read(description, static_cast<std::uint64_t>(offset) + static_cast<std::uint64_t>(moved));
+            const auto bytes = static_cast<std::uint64_t>(moved);
+            note_positional_read(description, static_cast<std::uint64_t>(offset) + bytes, bytes);
         }
         return moved;
     });

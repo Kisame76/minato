@@ -463,6 +463,10 @@ void apkrt_stall_set_work_source(uint64_t (*source)(uint64_t id)) {
     apkrt::stall::set_work_source(source);
 }
 
+void apkrt_stall_set_return_work_source(uint64_t (*source)(uint64_t id)) {
+    apkrt::stall::set_return_work_source(source);
+}
+
 int apkrt_is_background(void) {
     return in_background.load() ? 1 : 0;
 }

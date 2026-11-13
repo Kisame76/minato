@@ -31,6 +31,8 @@ using apkrt::stall::presented;
 using apkrt::stall::reset_for_test;
 using apkrt::stall::resumed;
 using apkrt::stall::set_max_first_frame_ns;
+using apkrt::stall::set_return_timeout_ns;
+using apkrt::stall::set_return_work_source;
 using apkrt::stall::set_timeout_ns;
 using apkrt::stall::set_work_source;
 using apkrt::stall::surface_created;
@@ -45,6 +47,30 @@ namespace {
 std::uint64_t g_work_id = 0;
 std::uint64_t g_work = 0;
 std::uint64_t test_work_source(std::uint64_t id) { return id == g_work_id ? g_work : 0; }
+
+// A scripted return work source: the cumulative bytes moved toward one surface id; any other id reads 0.
+std::uint64_t g_return_id = 0;
+std::uint64_t g_return_work = 0;
+std::uint64_t test_return_source(std::uint64_t id) { return id == g_return_id ? g_return_work : 0; }
+
+// An app whose render surface 1 showed a frame and then went to the background, as the host does it: the window and its
+// surfaces are removed at the background (apkrt_window_remove stops their watch) and the returning app gets new ones
+// with new ids (SessionBridge). The first-frame watch is kept out of the way unless a test lowers its timeout.
+void shown_then_backgrounded() {
+    reset_for_test();
+    set_timeout_ns(1'000'000);
+    set_return_timeout_ns(100);
+    set_return_work_source(test_return_source);
+    g_return_id = 0;
+    g_return_work = 0;
+    resumed(1'000);
+    surface_created(1, 1'000);
+    presented(1, 1'010);
+    paused();
+    surface_removed(1);
+}
+
+bool is_return_dump(const std::string &reason) { return reason.find("after the app returned") != std::string::npos; }
 }  // namespace
 
 TEST(reports_once_when_an_app_surface_shows_no_first_frame) {
@@ -332,6 +358,148 @@ TEST(the_stall_report_names_the_thread_its_state_and_the_gate) {
     CHECK(report.find("[test-render]") != std::string::npos);   // the stalled thread, named
     CHECK(report.find("waiting") != std::string::npos);         // its state
     CHECK(report.find("commit gate") != std::string::npos);     // the gate it waits at
+}
+
+TEST(a_return_whose_new_surface_works_with_no_frame_is_reported) {
+    // The reset race: the returning app's new SurfaceView surface (made after the resume) reloads its scene -- its
+    // return work grows -- and no frame comes within the return timeout.
+    shown_then_backgrounded();
+    resumed(2'000);
+    g_return_id = 2;
+    surface_created(2, 2'050);  // joins the return's watch with its work now (0)
+    g_return_work = 500;
+    CHECK(tick(2'100).empty());  // 100 ns after the resume: not past the timeout yet
+    CHECK(is_return_dump(tick(2'200)));
+}
+
+TEST(a_return_whose_new_window_came_before_the_resume_is_reported) {
+    // A NativeActivity's new window is added at onStart, before the resume: it joins when the watch starts.
+    shown_then_backgrounded();
+    g_return_id = 2;
+    surface_created(2, 1'990);
+    resumed(2'000);
+    g_return_work = 500;
+    CHECK(is_return_dump(tick(2'200)));
+}
+
+TEST(a_quiet_return_is_never_reported) {
+    // No work since the resume: an app idle at a menu, not a stall, however long no frame comes.
+    shown_then_backgrounded();
+    resumed(2'000);
+    g_return_id = 2;
+    g_return_work = 700;  // work done before the surface joined is its baseline, not growth
+    surface_created(2, 2'050);
+    CHECK(tick(2'200).empty());
+    CHECK(tick(900'000).empty());
+}
+
+TEST(a_frame_in_time_ends_the_return_watch) {
+    shown_then_backgrounded();
+    resumed(2'000);
+    g_return_id = 2;
+    surface_created(2, 2'050);
+    presented(2, 2'080);  // the app shows again
+    g_return_work = 500;
+    CHECK(tick(2'200).empty());
+}
+
+TEST(a_frame_on_any_surface_ends_the_return_watch) {
+    // Surface 2 presents after the return; surface 3 still loads without a frame of its own: no stall.
+    shown_then_backgrounded();
+    resumed(2'000);
+    surface_created(2, 2'050);
+    g_return_id = 3;
+    surface_created(3, 2'060);
+    presented(2, 2'080);
+    g_return_work = 500;  // surface 3 keeps working
+    CHECK(tick(2'200).empty());
+}
+
+TEST(a_second_stalled_return_in_the_same_session_is_not_reported_again) {
+    shown_then_backgrounded();
+    resumed(2'000);
+    g_return_id = 2;
+    surface_created(2, 2'050);
+    g_return_work = 500;
+    CHECK(is_return_dump(tick(2'200)));
+    paused();
+    surface_removed(2);
+    resumed(3'000);
+    g_return_id = 4;
+    g_return_work = 0;
+    surface_created(4, 3'050);
+    g_return_work = 900;
+    CHECK(tick(3'200).empty());  // the return watch's latch: once per session
+}
+
+TEST(a_resume_before_the_first_frame_is_no_return) {
+    // The app went to the background still loading (no frame yet): its next surface is the first-frame watch's.
+    reset_for_test();
+    set_timeout_ns(1'000'000);
+    set_return_timeout_ns(100);
+    set_return_work_source(test_return_source);
+    g_return_id = 2;
+    g_return_work = 0;
+    resumed(1'000);
+    surface_created(1, 1'000);
+    paused();
+    surface_removed(1);
+    resumed(2'000);
+    surface_created(2, 2'050);
+    g_return_work = 500;
+    CHECK(tick(2'200).empty());
+}
+
+TEST(a_pause_that_keeps_its_frame_is_no_return) {
+    // The menu's pause: onPause and onResume with the same surface, whose frame stays on screen. A quiet app streaming
+    // music from a file grows the return work, but it shows its frame: not a stall.
+    reset_for_test();
+    set_timeout_ns(1'000'000);
+    set_return_timeout_ns(100);
+    set_return_work_source(test_return_source);
+    g_return_id = 1;
+    g_return_work = 0;
+    resumed(1'000);
+    surface_created(1, 1'000);
+    presented(1, 1'010);
+    paused();
+    resumed(2'000);
+    g_return_work = 500;
+    CHECK(tick(2'200).empty());
+}
+
+TEST(a_surface_the_first_frame_watch_reported_is_not_reported_again) {
+    // The return's new surface is also in the first-frame watch; when that one reports it first, the return watch
+    // does not dump it a second time.
+    shown_then_backgrounded();
+    set_timeout_ns(50);  // the first-frame watch reports surface 2 50 ns after it was made (no work source)
+    resumed(2'000);
+    g_return_id = 2;
+    surface_created(2, 2'010);
+    g_return_work = 500;
+    CHECK(tick(2'070).find("no first frame") != std::string::npos);
+    CHECK(tick(2'200).empty());
+}
+
+TEST(the_return_watch_reports_after_the_first_frame_dump_was_spent) {
+    // Its own latch: the first load already dumped once (has_dumped), and a later stalled return is still reported.
+    reset_for_test();
+    set_timeout_ns(100);
+    set_return_timeout_ns(100);
+    set_return_work_source(test_return_source);
+    g_return_id = 0;
+    g_return_work = 0;
+    resumed(1'000);
+    surface_created(1, 1'000);
+    CHECK(tick(1'200).find("no first frame") != std::string::npos);  // the slow first load: the session's dump
+    presented(1, 1'300);
+    paused();
+    surface_removed(1);
+    resumed(2'000);
+    g_return_id = 2;
+    surface_created(2, 2'050);
+    g_return_work = 500;
+    CHECK(is_return_dump(tick(2'200)));
 }
 
 int main() { return apk::testing::run_all(); }
