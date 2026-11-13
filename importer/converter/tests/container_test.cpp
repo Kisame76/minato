@@ -1299,7 +1299,25 @@ TEST(the_refusal_text_carries_the_per_site_facts) {
     auto prog = static_program();
     const std::uint32_t window[] = {
         0xc85f'7db1,  // 0x200 ldxr x17, [x13]
-        0x9100'025f,  // 0x204 mov sp, x18: no island moves sp from x18, so the window's use stays refused
+        0x8b21'625f,  // 0x204 add sp, x18, x1: no island moves sp by a register, so the window's use stays refused
+        0x8b0e'0232,  // 0x208 add x18, x17, x14
+        0xc810'fdb2,  // 0x20c stlxr w16, x18, [x13]
+        0x35ff'ff90,  // 0x210 cbnz w16, ldxr
+        0xd65f'03c0,  // 0x214 ret
+    };
+    for (std::size_t i = 0; i < std::size(window); ++i) prog.put<std::uint32_t>(0x200 + 4 * i, window[i]);
+    CHECK_THROWS(Incompatible, convert(prog),
+                 "of the 1: 0 defined in their loop, 1 live into it, 0 in no window; 1 in a function with a free "
+                 "register");
+}
+
+// The island of a word that sets sp from x18 stores four times; inside a load-/store-exclusive window those stores
+// would break the sequence, so the word stays refused there.
+TEST(a_stack_pointer_set_from_x18_inside_an_exclusive_window_stays_refused) {
+    auto prog = static_program();
+    const std::uint32_t window[] = {
+        0xc85f'7db1,  // 0x200 ldxr x17, [x13]
+        0x9100'025f,  // 0x204 mov sp, x18: an island of its own, but its stores must not run between ldxr and stlxr
         0x8b0e'0232,  // 0x208 add x18, x17, x14
         0xc810'fdb2,  // 0x20c stlxr w16, x18, [x13]
         0x35ff'ff90,  // 0x210 cbnz w16, ldxr
@@ -1389,13 +1407,13 @@ TEST(refuses_what_cannot_run) {
     many.put<std::uint32_t>(0x204, 0x4822'7e44);  // casp x2, x3, x4, x5, [x18]: x18 as the address
     many.put<std::uint32_t>(0x208, 0x4822'7e44);
     for (const std::uint32_t at : {0x20cu, 0x210u, 0x214u, 0x218u}) {
-        many.put<std::uint32_t>(at, 0x9100'025f);  // mov sp, x18
+        many.put<std::uint32_t>(at, 0x8b21'625f);  // add sp, x18, x1
     }
     CHECK_THROWS(Incompatible, convert(many),
                  "x18 cannot run on iOS in 6 places: 4 where it moves the stack pointer, below which the island keeps "
-                 "its registers (0x20c [word 0x9100025f, stack pointer use], "
-                 "0x210 [word 0x9100025f, stack pointer use], "
-                 "0x214 [word 0x9100025f, stack pointer use] and 1 more); 2 where x18 is the address of a pair "
+                 "its registers (0x20c [word 0x8b21625f, stack pointer use], "
+                 "0x210 [word 0x8b21625f, stack pointer use], "
+                 "0x214 [word 0x8b21625f, stack pointer use] and 1 more); 2 where x18 is the address of a pair "
                  "compare-and-swap: it has no register field of its own that an island could stand in for "
                  "(0x204 [word 0x48227e44, pair compare-and-swap] and 0x208 [word 0x48227e44, pair compare-and-swap])");
 

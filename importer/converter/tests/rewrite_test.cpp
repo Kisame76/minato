@@ -689,7 +689,7 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
         0xb400'0052,  // cbz x18, #+8: a two-way island
         0x9000'0012,  // adrp x18, #0: recomputed in the island
         0xd61f'0240,  // br x18: an indirect island (ends no jump table) (X2e)
-        0x9100'025f,  // mov sp, x18: moves sp, which the island needs unmoved
+        0x8b21'625f,  // add sp, x18, x1: moves sp by a register, which no island runs
         0xf81f'0ff2,  // str x18, [sp, #-16]!: writes below sp and moves it
         0xc85f'7c12,  // ldxr x18, [x0]: a lone load-exclusive (no stxr follows), so an island (X2e/C3)
         0x9100'0421,  // add x1, x1, #1: no x18
@@ -708,6 +708,17 @@ TEST(scan_puts_x18_instructions_into_islands_and_names_the_forms_it_cannot) {
     for (std::size_t index = 0; index < findings.x18_unsupported.size() && index < 2; ++index) {
         CHECK(findings.x18_unsupported[index].address == first_unsupported[index]);
     }
+}
+
+// A reserved logical immediate that names sp and x18 (orr sp, x18 with N = 1 and imms = 111111) is no instruction:
+// no island.
+TEST(scan_makes_no_island_for_a_reserved_logical_immediate_that_sets_sp_from_x18) {
+    const std::uint32_t code[] = {0xb240'fe5f, 0xb240'0e5f};  // reserved; orr sp, x18, #0xf
+    const std::span bytes(reinterpret_cast<const std::byte *>(code), sizeof code);
+    apk::rewrite::Findings findings;
+    apk::rewrite::scan(bytes, 0x1000, findings);
+    CHECK(findings.sites.size() == 1 && findings.sites[0].address == 0x1004);
+    CHECK(findings.x18_unsupported.empty());
 }
 
 // Register 31 is sp or xzr depending on the form. Only moving sp and addressing below it clash
@@ -740,11 +751,18 @@ TEST(forms_no_island_handles_are_refused_with_the_reason) {
     };
     for (const auto &group : groups) {
         const auto findings = scan_words(group.begin, group.end, 0x1000);
+        // The words 0, 1 and 3 of the moves-sp group (mov sp, x18; sub sp, x18, #16; and sp, x18, #~15) set sp from
+        // x18 with an immediate and run in an island of their own (ADR-0020, amendment); every other word is refused.
+        const bool sets_sp = group.begin == ref_x18_moves_sp;
         for (const auto &site : findings.sites) {
-            apk::testing::fail(std::source_location::current(), "not refused: ",
-                               describe(group.begin, 0x1000, site.address).c_str());
+            const auto word = (site.address - 0x1000) / 4;
+            if (!sets_sp || (word != 0 && word != 1 && word != 3)) {
+                apk::testing::fail(std::source_location::current(), "not refused: ",
+                                   describe(group.begin, 0x1000, site.address).c_str());
+            }
         }
-        CHECK(findings.x18_unsupported.size() == static_cast<std::size_t>(group.end - group.begin));
+        const auto refused = static_cast<std::size_t>(group.end - group.begin) - (sets_sp ? 3u : 0u);
+        CHECK(findings.x18_unsupported.size() == refused);
         for (const auto &entry : findings.x18_unsupported) {
             if (std::string_view(entry.reason).find(group.reason) == std::string_view::npos) {
                 apk::testing::fail(std::source_location::current(), "unexpected reason: ",

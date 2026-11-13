@@ -91,6 +91,13 @@ if(APK_HOST_BUILD)
   target_link_libraries(rewrite_test PRIVATE apkconv apk_defaults apk_testing)
   add_test(NAME converter.rewrite COMMAND rewrite_test)
 
+  # An island that sets sp from x18 run on the host with timer signals and a thread stopped before each of its words.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+    add_executable(sp_island_exec_test tests/sp_island_exec_test.cpp tests/sp_island_harness.S)
+    target_link_libraries(sp_island_exec_test PRIVATE apkconv apk_defaults)
+    add_test(NAME converter.sp_island_exec COMMAND sp_island_exec_test)
+  endif()
+
   # The register-use decoder: reference cases from the host assembler, and llvm-objdump as the
   # oracle for hundreds of thousands of instruction words (skipped without llvm-objdump).
   add_executable(a64_test tests/a64_test.cpp tests/a64_reference.S)

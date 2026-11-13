@@ -35,6 +35,10 @@ constexpr std::size_t syscall_veneer_words = 6;  // stp, adrp, ldr, blr, ldp, b
 constexpr std::size_t branch_island_words = 9;   // save, mrs, bic, ldr, branch, restore+b (twice)
 constexpr std::size_t indirect_branch_island_words = 5;  // save x16, mrs, bic, ldr, br x16 (BR x18)
 constexpr std::size_t indirect_call_island_words = 8;    // + save x30, adrp+add x30 for the return (BLR x18)
+// The island of a word that sets sp from x18 (see emit()): save 2, load x18 (3), the word, copy 3, add sp, restore 2,
+// b.
+constexpr std::size_t sp_from_x18_island_words = 13;
+constexpr std::size_t sp_from_x18_commit = 9;  // the word that writes sp: the island's commit
 constexpr std::size_t cache_type_read_island_words = 3;  // movz, movk, b
 
 // The CTR_EL0 the cache_type_read island loads, in place of the read XNU traps at EL0 (ADR-0072). 128-byte
@@ -175,7 +179,10 @@ constexpr bool casp_writes_x18(std::uint32_t word) { return casp_rs(word) == 18;
 /// pair the write-back (mov x19; mrs, bic, str), the restores and the branch.
 constexpr std::size_t casp_island_words(std::uint32_t word) { return 2 + 3 + 1 + 1 + (casp_writes_x18(word) ? 4u : 0u) + 2 + 1; }
 
+bool is_sp_from_x18(std::uint32_t word);
+
 std::size_t x18_island_words(std::uint32_t instruction) {
+    if (is_sp_from_x18(instruction)) return sp_from_x18_island_words;
     if (is_casp(instruction)) return casp_island_words(instruction);
     if (is_two_way_branch(instruction)) return branch_island_words;
     if (is_indirect_branch_on_x18(instruction)) return indirect_island_words(instruction);
@@ -467,6 +474,17 @@ bool reaches_below_stack_pointer(std::uint32_t word) {
     return false;
 }
 
+/// Whether `word` sets the stack pointer from x18 with an immediate: ADD or SUB (immediate, without S; also
+/// `mov sp, x18`) and AND, ORR, EOR (immediate), all with Rd = sp and Rn = x18. Builds with clang 8 or older use x18
+/// as an ordinary register and may write them (alloca, realignment, frame restore); they run in a 13-word island
+/// (ADR-0020). A reserved logical immediate is no instruction: the decoder reports no x18 use in it, so none gets here.
+bool is_sp_from_x18(std::uint32_t word) {
+    if (rd_field(word) != sp || rn_field(word) != guest_x18) return false;
+    const bool add_sub = (word & 0x1f80'0000) == 0x1100'0000 && !bit(word, 29);    // not ADDS, SUBS
+    const bool logical = (word & 0x1f80'0000) == 0x1200'0000 && (word & 0x6000'0000) != 0x6000'0000;  // not ANDS
+    return (add_sub || logical) && bit(word, 31);  // the 64-bit forms
+}
+
 constexpr const char *inside_exclusive_sequence =
     "it lies between a load- and a store-exclusive, where the island's memory accesses could break the sequence";
 
@@ -522,6 +540,9 @@ const char *unsupported_reason(std::uint32_t instruction, bool exclusive_ok = fa
     if (is_exclusive(instruction) && !exclusive_ok) {
         return "it is an exclusive access, and the island's memory accesses could break its LL/SC sequence";
     }
+    // Its own island (see emit()), but not inside an exclusive window: the island's four stores would run between the
+    // load- and the store-exclusive. The recheck of such a word (exclusive_ok) falls through to the reason below.
+    if (is_sp_from_x18(instruction) && !exclusive_ok) return nullptr;
     if (writes_stack_pointer(instruction)) {
         return "it moves the stack pointer, below which the island keeps its registers";
     }
@@ -2003,6 +2024,31 @@ std::uint32_t emit(const Site &site, std::uint64_t site_address, std::uint64_t s
                 write.finish();
                 return b(site_address, stub_address);
             }
+            if (is_sp_from_x18(site.instruction)) {
+                // SP := f(x18) (ADR-0020, amendment): the new SP is computed in r, and the two saved scratch
+                // registers are copied into the red zone of the NEW sp before it is written. So the runtime's signal
+                // settling (before the commit back to the site, after it on, the registers always from sp - 128)
+                // holds on both sides of the write.
+                const auto scratch = scratch_registers(site.instruction);
+                if (!scratch.found) throw RewriteError("no scratch registers for an SP island");
+                const unsigned r = scratch.value, t = scratch.base;
+                write(stur(r, sp, scratch_slot_0));
+                write(stur(t, sp, scratch_slot_1));
+                write(mrs_tpidrro_el0(r));
+                write(bic_7(r, r));
+                write(ldr_unsigned(r, r, guest_x18_offset));
+                const std::uint32_t fields = (0x1fu << 5) | 0x1fu;
+                write((site.instruction & ~fields) | (r << 5) | r);  // the word with Rn = Rd = r: the new SP
+                write(stur(t, r, scratch_slot_1));                                     // t still holds its original
+                write(ldur(t, sp, scratch_slot_0));                                    // the saved original of r
+                write(stur(t, r, scratch_slot_0));
+                write(add_immediate(sp, r, 0));                                        // the commit: sp = the new SP
+                write(ldur(r, sp, scratch_slot_0));
+                write(ldur(t, sp, scratch_slot_1));
+                write(b(write.next_address(), back));
+                write.finish();
+                return b(site_address, stub_address);
+            }
             const auto use = a64::register_use(site.instruction);
             const bool reads = (use.reads & (1u << 18)) != 0, writes = (use.writes & (1u << 18)) != 0;
             const auto scratch = scratch_registers(site.instruction);
@@ -2589,6 +2635,16 @@ IslandLayout island_layout(const Site &site) {
                             .base = static_cast<std::uint8_t>(even + 1)};
         layout.commit = 6;
         layout.store = casp_writes_x18(site.instruction) ? 10 : 0;
+        layout.resume = 1;
+        return layout;
+    }
+    if (is_sp_from_x18(site.instruction)) {
+        const auto registers = scratch_registers(site.instruction);
+        IslandLayout layout{.kind = APK_ISLAND_SINGLE,
+                            .words = static_cast<std::uint32_t>(sp_from_x18_island_words),
+                            .value = static_cast<std::uint8_t>(registers.value),
+                            .base = static_cast<std::uint8_t>(registers.base)};
+        layout.commit = static_cast<std::uint8_t>(sp_from_x18_commit);
         layout.resume = 1;
         return layout;
     }

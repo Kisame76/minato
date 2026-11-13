@@ -328,6 +328,42 @@ TEST(counts_nothing_for_a_library_without_these_words) {
     CHECK(counts.x18_islands == 0 && counts.renames_by_symbol == 0 && counts.renames_by_unwind == 0);
 }
 
+// A word that sets the stack pointer from x18 with an immediate runs in an island: nothing is refused, also in a
+// stripped library (no bounds for a rename). Builds with clang 8 or older use x18 as an ordinary register.
+TEST(runs_a_stack_pointer_set_from_x18_with_an_immediate_in_an_island) {
+    constexpr std::uint32_t words[] = {
+        0x9100'c25f,  // add sp, x18, #0x30
+        0x9140'165f,  // add sp, x18, #0x5, lsl #12
+        0xd101'025f,  // sub sp, x18, #0x40
+        0xd140'0e5f,  // sub sp, x18, #0x3, lsl #12
+        0x9100'025f,  // mov sp, x18
+        0x927c'ee5f,  // and sp, x18, #0xfffffffffffffff0
+        0xb240'0e5f,  // orr sp, x18, #0xf
+        0xd240'0a5f,  // eor sp, x18, #0x7
+    };
+    for (const auto word : words) {
+        CHECK(refusal_of(library({nop, word, ret}, false)).empty());
+        CHECK(refusal_of(library({nop, word, ret})).empty());
+        CHECK(apk::container::counts(library({nop, word, ret}, false)).x18_islands == 1);
+    }
+}
+
+// A reserved logical immediate (orr sp, x18 with N = 1 and imms = 111111) is no instruction: the decoder knows no
+// x18 use
+// in it, so no island is made for it and the library is not refused for it.
+TEST(makes_no_island_for_a_reserved_logical_immediate_that_names_sp_and_x18) {
+    constexpr std::uint32_t reserved = 0xb240'fe5f;
+    CHECK(refusal_of(library({nop, reserved, ret}, false)).empty());
+    CHECK(apk::container::counts(library({nop, reserved, ret}, false)).x18_islands == 0);
+}
+
+// The register form (add sp, x18, x1) is not run in an island: refused and named as before.
+TEST(still_refuses_a_stack_pointer_set_from_x18_with_a_register) {
+    constexpr std::uint32_t add_sp_x18_x1 = 0x8b21'625f;
+    const auto text = refusal_of(library({nop, add_sp_x18_x1, ret}, false));
+    CHECK(contains(text, "[word 0x8b21625f, stack pointer use]"));
+}
+
 }  // namespace
 
 int main() {
