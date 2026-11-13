@@ -1797,7 +1797,7 @@ TEST(a_branch_that_leaves_a_window_or_a_register_branch_keeps_it_from_relocating
     }
 }
 
-// A window that writes x18 without ever reading it first must still load x18 in its preamble (Finding D):
+// A window that writes x18 without ever reading it first must still load x18 in its preamble:
 // a signal after the preamble but before the write would otherwise make settle report the value
 // register's own guest value as x18, and a handler that does not return would leave slot 11 wrong.
 TEST(a_window_that_writes_x18_without_reading_it_first_still_loads_x18) {
@@ -1912,7 +1912,7 @@ TEST(a_window_stays_in_place_only_when_a_lost_x18_cannot_escape) {
          {0x9100'0412, 0xf100'025f, 0x5400'0020, 0xc802'7c32, 0x35ff'fe42}},  // add x18; cmp x18, #0; b.eq .+4
         {"x18 decides a branch through another register", 10, 3,
          {0x9100'0412, 0x9100'0645, 0xb400'0025, 0xc802'7c32, 0x35ff'fe42}},  // add x18; add x5, x18, #1; cbz x5
-        {"x18 decides a branch through a cmpbr", 10, 3,  // add x18; add x5, x18, #1; cmpbr x5, x6, .+4 (Finding A)
+        {"x18 decides a branch through a cmpbr", 10, 3,  // add x18; add x5, x18, #1; cmpbr x5, x6, .+4
          {0x9100'0412, 0x9100'0645, 0xf4c6'0025, 0xc802'7c32, 0x35ff'fe42}},
         {"sp from x18", 10, 3, {0x9100'0412, 0x9100'225f, 0xc802'7c32, 0x35ff'fe62},  // add x18; add sp, x18, #8
          "it lies in an exclusive window that moves the stack pointer"},
@@ -2811,8 +2811,8 @@ TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
 
     // The load-exclusive is replaced by a branch to the stub.
     CHECK((patch & 0xfc00'0000) == 0x1400'0000);
-    // The load-exclusive loads x17, not x18, so the island loads the guest x18 before the window
-    // (Finding D); x18 is written, so it also saves both scratch registers in the red zone and stores
+    // The load-exclusive loads x17, not x18, so the island loads the guest x18 before the window;
+    // x18 is written, so it also saves both scratch registers in the red zone and stores
     // the value back.
     const auto words = stub.size() / 4;
     CHECK(words == 1 /* save value */ + 1 /* save base */ + 3 /* load x18 */ + 3 /* window */ +
@@ -2837,7 +2837,7 @@ TEST(the_relocated_exclusive_island_uses_the_scratch_and_stores_x18_after) {
 
 // A CMPBR (FEAT_CMPBR compare-and-branch, two registers and a PC-relative label) is a branch within
 // a window like B.cond: a relocated window may hold one, x18 renamed where it uses it, and the island
-// keeps it aimed at the same word of the copied window (step C class 7 groundwork, Finding A).
+// keeps it aimed at the same word of the copied window (step C class 7 groundwork).
 TEST(a_cmpbr_in_a_relocated_window_is_kept_and_retargeted) {
     const std::uint32_t code[] = {
         0xc85f'7c20,  // ldxr x0, [x1]
@@ -2855,7 +2855,7 @@ TEST(a_cmpbr_in_a_relocated_window_is_kept_and_retargeted) {
     std::vector<std::byte> stub(apk::rewrite::exclusive_region_stub_size(region));
     apk::rewrite::emit_exclusive_region(region, address_of(ref_site), address_of(ref_site) - 0x100, stub);
     // The window is copied contiguously, so the cmpbr keeps its +8 and stays byte-for-byte itself (it
-    // names no x18). The ldxr loads x0, not x18, so the island loads x18 first (Finding D): index 7 =
+    // names no x18). The ldxr loads x0, not x18, so the island loads x18 first: index 7 =
     // save value, save base, [mrs, bic, ldr to load x18], ldxr, add, cmpbr.
     CHECK(word(stub, 7) == 0xf4c4'0043);
 }
@@ -3485,8 +3485,8 @@ TEST(x7_a_casp_with_x18_in_a_pair_has_an_island_over_a_scratch_pair) {
     }
 }
 
-// Runtime's finding on b2b-1: a window's close is read past a word that ends the straight line only when a branch of the
-// window, reachable from its load-exclusive, jumps over it. Here the next function's own forward branch (its source lies
+// Checks that a window's close is read past a word that ends the straight line only when a branch of the window,
+// reachable from its load-exclusive, jumps over that word: the next function's own forward branch (its source lies
 // after F's return) must not make F's `ret` look skipped, or G's store-exclusive would close F's window.
 TEST(x7_a_later_functions_branch_does_not_close_an_earlier_functions_window) {
     const std::uint32_t code[] = {
