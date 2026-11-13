@@ -8,15 +8,16 @@ thread until the foreground (the loop then commits the FIFO in order), 0 at once
 before). The FIFO's lock is not held while park() waits. ANGLEMetalDeferredParked counts the parks. The embedder
 parks only once the app's onStop and its surfaces' surfaceDestroyed are answered, so no answer waits for a parked
 thread (graphics/host's angle.m, behind MINATO_BACKGROUND_PARK).
-For tests only, MINATO_ANGLE_DROP_DISCARDS=1 does to a dropped command buffer what iOS does to a background commit:
-nothing of it reaches the GPU, ANGLE's bookkeeping completes it. The Mac's Metal would run it and hide the loss.
+For the Mac's tests only, MINATO_ANGLE_DROP_DISCARDS=1 does to a dropped command buffer what iOS does to a background
+commit: nothing of it reaches the GPU, ANGLE's bookkeeping completes it. The Mac's Metal would run it and hide the loss.
+The iOS builds have no such switch (tools/release-debug-strings-check.sh).
 Test: graphics/tests/angle_deferral_full.mm (drop: dfull above 0 and the background's one upload lost; park: nothing
 dropped, parked once, the upload kept).
 Upstream: not planned (an embedder's deferral).
 diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
 --- a/src/libANGLE/renderer/metal/mtl_command_buffer.mm
 +++ b/src/libANGLE/renderer/metal/mtl_command_buffer.mm
-@@ -75,6 +75,21 @@
+@@ -75,6 +75,25 @@
  std::atomic<uint64_t> gDeferredFull{0};
  // Minato (patch 0027): the waits for a deferred command buffer's result that went on without it.
  std::atomic<uint64_t> gDeferredSkipped{0};
@@ -24,21 +25,25 @@ diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/re
 +// foreground (then nothing is lost), 0 at once when it does not park (then the oldest goes, as patch 0027 has it).
 +std::atomic<int (*)(void)> gDeferralFullPark{nullptr};
 +std::atomic<uint64_t> gDeferredParked{0};
-+// Minato (patch 0030), for tests only: MINATO_ANGLE_DROP_DISCARDS=1 does to the oldest command buffer of a full FIFO
-+// what iOS does to a background commit: nothing of it reaches the GPU; ANGLE's bookkeeping completes it. The Mac's
-+// Metal would run it, so a test could not see the work that the iPhone loses.
++// Minato (patch 0030), for the Mac's tests only: MINATO_ANGLE_DROP_DISCARDS=1 does to the oldest command buffer of a
++// full FIFO what iOS does to a background commit: nothing of it reaches the GPU; ANGLE's bookkeeping completes it. The
++// Mac's Metal would run it, so a test could not see the work that the iPhone loses. Not in the iOS builds.
 +bool DropDiscards()
 +{
++#if TARGET_OS_OSX
 +    static const bool discards = [] {
 +        const char *value = getenv("MINATO_ANGLE_DROP_DISCARDS");
 +        return value != nullptr && strcmp(value, "1") == 0;
 +    }();
 +    return discards;
++#else
++    return false;
++#endif
 +}
  std::mutex gQueuesLock;
  std::vector<const CommandQueue *> gQueues;
  
-@@ -837,6 +852,25 @@
+@@ -837,6 +856,25 @@
              StartSubmitter();
              return true;
          }
@@ -64,7 +69,7 @@ diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/re
          // Minato (patch 0027): the FIFO is full: its oldest command buffer is committed now instead of
          // a wait for the foreground. iOS refuses a commit in the background (an error of the command
          // buffer, not fatal), so its work is lost, as a dropped frame's is, while ANGLE's bookkeeping
-@@ -848,7 +882,16 @@
+@@ -848,7 +886,16 @@
          mDeferredBytes -= oldest.bytes;
          gDeferredNow.fetch_sub(1, std::memory_order_relaxed);
          gDeferredBytes.fetch_sub(oldest.bytes, std::memory_order_relaxed);
@@ -82,7 +87,7 @@ diff --git a/src/libANGLE/renderer/metal/mtl_command_buffer.mm b/src/libANGLE/re
      }
  }
  
-@@ -3144,6 +3187,18 @@
+@@ -3144,6 +3191,18 @@
      rx::mtl::gCommitEnter.store(enter, std::memory_order_release);
  }
  

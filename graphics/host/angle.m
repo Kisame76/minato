@@ -408,13 +408,17 @@ static void wait_foreground(void) {
     apkrt_wait_foreground();
 }
 
+#ifndef NDEBUG
 /* A full FIFO in the background (patch 0030): with MINATO_BACKGROUND_PARK=1 the committing thread parks until the
    foreground once the app's onStop and every surfaceDestroyed are answered (the runtime's gate), and ANGLE then commits
    the FIFO in order, losing nothing, as Android's GPU, which runs in the background; before that, and without the
-   flag, the oldest command buffer goes (patch 0027), which iOS refuses in the background. */
+   flag, the oldest command buffer goes (patch 0027), which iOS refuses in the background. A Debug build's switch, for
+   the checks (their guest environment sets it); a Release build always takes the drop
+   (tools/release-debug-strings-check.sh). */
 static int park_when_full(void) {
     return apkrt_background_commit_park();
 }
+#endif
 
 static void gates(void *library) {
     void (*set)(void (*)(void), void (*)(void)) =
@@ -427,11 +431,13 @@ static void gates(void *library) {
     if (defer != NULL) {
         defer(commit_enter, wait_foreground);
     }
+#ifndef NDEBUG
     void (*full)(int (*)(void)) = (void (*)(int (*)(void)))dlsym(library, "ANGLEMetalSetDeferralFull");
     const char *park = getenv("MINATO_BACKGROUND_PARK");
     if (full != NULL && park != NULL && strcmp(park, "1") == 0) {
         full(park_when_full);
     }
+#endif
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
     atomic_store(&memory_warning, (void (*)(void))dlsym(library, "ANGLEMetalMemoryWarning"));
     if (minato_graphics_angle_vulkan_backend() && !atomic_load(&vulkan_ready)) {
