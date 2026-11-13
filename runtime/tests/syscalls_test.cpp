@@ -1030,6 +1030,39 @@ TEST(a_surface_with_no_asset_reads_is_reported_unchanged) {
     apkrt::stall::set_work_source(nullptr);
 }
 
+TEST(the_runtime_installs_the_asset_work_source_so_a_loading_surface_is_not_falsely_reported) {
+    // The runtime wires the stall watchdog's work source itself (install_asset_work_source, from start_thread), so a
+    // surface whose first load reads assets slides its no-first-frame deadline without any host or graphics call --
+    // the Ren'Py 10-41 s first frame. Before this wiring the source was null (reset_for_test's default) and such a
+    // surface fired at the soft timeout. A surface that then stops growing is still reported, so a genuine stall is
+    // not masked.
+    Scratch scratch;
+    static char data[8192];
+    const auto w = open_guest(at_fdcwd, "/data/local/tmp/install-load.bin", o_creat | o_rdwr | o_trunc, 0600);
+    CHECK(w >= 0);
+    CHECK(call(nr_write, {unsigned_of(w), address(data), sizeof data}) == static_cast<std::int64_t>(sizeof data));
+    CHECK(call(nr_close, {unsigned_of(w)}) == 0);
+    const auto fd = open_guest(at_fdcwd, "/data/local/tmp/install-load.bin", o_rdonly);
+    CHECK(fd >= 0);
+
+    apkrt::stall::reset_for_test();                   // the production default: no source registered
+    apkrt::stall::set_timeout_ns(100);
+    apkrt::stall::set_max_first_frame_ns(1'000'000);  // a high cap: the soft (progress) deadline governs here
+    apkrt::stall::install_asset_work_source();        // the runtime's own wiring -- not the host, not graphics
+    apkrt::stall::resumed(1'000);
+    apkrt::stall::surface_created(1, 1'000);
+    std::uint64_t now = 1'000;
+    for (int i = 0; i < 5; ++i) {
+        CHECK(read_text(fd, 1000).size() == 1000);    // a real asset read -> the installed source's value grows
+        now += 90;                                    // < the 100 ns soft timeout since that growth
+        CHECK(apkrt::stall::tick(now).empty());        // the installed source slides the deadline: not reported
+    }
+    now += 200;                                       // no more reads: past the soft timeout since the last growth
+    CHECK(!apkrt::stall::tick(now).empty());          // the genuine no-first-frame stall is still reported
+    apkrt::stall::set_work_source(nullptr);
+    CHECK(call(nr_close, {unsigned_of(fd)}) == 0);
+}
+
 // ADR-0039 decision 3: every app runs as one app uid, 10100 (u0_a100), with the same number as its gid.
 TEST(the_program_runs_as_the_app_uid) {
     constexpr std::uint64_t nr_getresuid = 148, nr_getresgid = 150, nr_getuid = 174, nr_geteuid = 175,

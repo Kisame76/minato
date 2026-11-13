@@ -48,6 +48,14 @@ void presented(std::uint64_t id, std::uint64_t now_ns);
 /// that has gone too long with no first frame even while its work keeps growing.
 void set_work_source(std::uint64_t (*source)(std::uint64_t id));
 
+/// Installs the runtime's own default work source: a lock-free read of apkrt_stall_asset_work() for every surface, so
+/// a surface whose first load reads assets or the OBB slides its no-first-frame deadline without any host or graphics
+/// call (the Ren'Py 10-41 s first frame, which read a false stall before this). start_thread() calls it once. A
+/// graphics source registered later (live texture/buffer bytes, per surface, apkrt_stall_set_work_source) supersedes
+/// it. Process-wide, so it returns the same for every id; a surface advancing only on the GPU with no file reads still
+/// relies on the hard cap.
+void install_asset_work_source();
+
 /// The surface `id` was removed (surfaceDestroyed / apkrt_window_remove): stop watching it, so a surface torn down
 /// before its first frame is not reported. An `id` that is not tracked is ignored.
 void surface_removed(std::uint64_t id);

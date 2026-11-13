@@ -101,6 +101,15 @@ void set_work_source(std::uint64_t (*source)(std::uint64_t id)) {
     work_source = source;
 }
 
+namespace {
+// The runtime's default work source: the process-wide asset/OBB read progress (apkrt_stall_asset_work), a lock-free
+// relaxed atomic, reported for every surface id. No per-surface split -- a graphics source replaces this when it
+// registers live texture/buffer bytes. apkrt_stall_asset_work does not call back into the watchdog.
+std::uint64_t asset_work_progress(std::uint64_t /*id*/) { return apkrt_stall_asset_work(); }
+}  // namespace
+
+void install_asset_work_source() { set_work_source(&asset_work_progress); }
+
 void surface_removed(std::uint64_t id) {
     const std::lock_guard<std::mutex> hold(lock);
     for (auto it = surfaces.begin(); it != surfaces.end(); ++it) {
@@ -329,6 +338,7 @@ void dump_all_threads(const std::string &reason) {
 
 void start_thread() {
     if (thread_started.exchange(true)) return;
+    install_asset_work_source();  // the runtime's own default source until a graphics source supersedes it
     std::thread([] {
         // A runtime helper thread must not catch a signal meant for a guest thread -- above all the SIGQUIT the ANR
         // watchdog sends to ART's signal catcher, which this would otherwise steal. Block them all here.
