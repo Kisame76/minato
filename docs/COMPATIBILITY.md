@@ -98,11 +98,11 @@ Only what the project has evidence for is stated as working; "untested" means th
   now keeps the words of an Armv9.6 extension that no current CPU executes, keeps a word that no proven code reaches and
   that steps the stack pointer by `x18` through a vector store (a form no compiler writes), and renames `x18` inside the
   unwind entry of a stripped library's function. A word of that form that proven code reaches, and every other form of
-  `x18` it cannot run, still refuses the library. Our tests show these cases on small libraries; whether that APK
-  imports completely is not confirmed yet and may slip to beta.2. A large Unity game can still run out of memory on the
-  iPhone sooner than on Android: depth buffers and multisampled framebuffers take more graphics memory under Metal. A
-  multisampled window's samples take none of their own, and textures that were idle are kept as compressed copies when
-  memory gets short.
+  `x18` it cannot run, still refuses the library. Our tests show these cases on small libraries. A Unity game that
+  imports can still crash right after it starts; this is not solved yet. A large Unity game can still run out of memory
+  on the iPhone sooner than on Android: depth buffers and multisampled framebuffers take more graphics memory under
+  Metal. A multisampled window's samples take none of their own, and textures that were idle are kept as compressed
+  copies when memory gets short.
 - **Unity with the Mono backend:** not expected to work. Mono needs a JIT, and Unity's Mono games bring no
   ahead-of-time compiled code; the import recognizes them and Get Info lists them as needing a JIT.
 - **SDL2 and Ren'Py:** The call sequences of SDL 2.30's AAudio and OpenSL ES output drivers, played with silence by our
@@ -239,6 +239,7 @@ In plain terms, as a user meets it:
   A library with Android's packed relocations is still refused at import. Large engine libraries can hit this.
 - Voice input: there is no speech recognition; an app that offers it gets the answers of a phone without a recognition
   service.
+- Unity games built with IL2CPP: a game that imports can still crash right after it starts.
 - Camera2 and CameraX: the camera works only through Android's older Camera API so far.
 - Recording audio or video to a file with `MediaRecorder`.
 - The microphone, the camera and location are new and not yet checked on the iPhone.
