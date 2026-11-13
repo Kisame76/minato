@@ -1,5 +1,5 @@
 /*
- * The clipboard (ADR-0045 decision 4's services; gap 1 of the compatibility plan): IClipboard of system_server, local
+ * The clipboard (ADR-0045 decision 4's services): IClipboard of system_server, local
  * in the app's process, which ServiceManager's table gives as "clipboard" and ClipboardManager asks. It keeps the one
  * primary clip of the app and answers as Android 15's ClipboardService does for the app that has the focus [verified:
  * ClipboardService.java at android-15.0.0_r1, clipboard-test on apk-runner-35-bare]: setPrimaryClip refuses a clip
@@ -168,7 +168,7 @@ public final class LocalClipboard extends IClipboard.Default {
     /**
      * What Binder gives the other side, a copy, as ClipboardService copies a clip into a related profile: the clip
      * with an item of its own for each, and the description with the classification status. (Not through a parcel,
-     * which would ask for IntentSender, a gap of gap 9.)
+     * which would ask for IntentSender.)
      */
     private static ClipData copy(ClipData clip) {
         ClipData out = new ClipData(clip);

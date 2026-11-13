@@ -1,5 +1,5 @@
 /*
- * The vibrator manager service (gap 1 of the compatibility plan, batch 3): IVibratorManagerService of system_server,
+ * The vibrator manager service: IVibratorManagerService of system_server,
  * local in the app's process, which ServiceManager's table gives as "vibrator_manager" and AOSP's SystemVibratorManager
  * asks, for SystemVibrator, View's haptic feedback and VibratorManager. It has no vibrator, as Android 15's service on
  * a device without one: no vibrator IDs, so hasVibrator() answers false and a vibration does nothing, after the

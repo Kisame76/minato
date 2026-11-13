@@ -1,4 +1,4 @@
-// The guest's libsqlite.so (compatibility plan, gap 7): what SQLite and Android's functions in it answer, one line each
+// The guest's libsqlite.so: what SQLite and Android's functions in it answer, one line each
 // after "sqlite-native-test: ", which must be fixtures/expected/sqlite-native-test.txt (tools/sqlite-native-check.sh).
 // It opens the library with dlopen, as an app with a targetSdk below 24 may, so that the same program runs on Android
 // 15's own /system/lib64/libsqlite.so for the expected lines. The build's flags show in the library's version, its

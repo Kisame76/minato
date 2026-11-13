@@ -1,5 +1,5 @@
 /*
- * The media session service (gap 1 of the compatibility plan, batch G): ISessionManager of system_server, local in the
+ * The media session service: ISessionManager of system_server, local in the
  * app's process, which ServiceManager's table gives as "media_session" and AOSP's MediaSessionManager asks. It makes
  * the sessions of the app's own MediaSession objects: a session with a controller binder, so that MediaSession has its
  * Token, MediaController its binder and MediaBrowserService its session token. Transport commands of a controller go to

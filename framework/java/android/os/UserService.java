@@ -1,5 +1,5 @@
 /*
- * The user service (ADR-0045 decisions 3 and 4; gap 1 of the compatibility plan, batch 1b): IUserManager of
+ * The user service (ADR-0045 decisions 3 and 4): IUserManager of
  * system_server, local in the app's process, which ServiceManager's table gives as "user" and UserManager asks. Minato
  * has Android's one user of a phone, user 0: the system user, the main and only full user, an admin, unlocked, running
  * and in front, without profiles, restrictions or a guest [verified: services-test on apk-runner-35-bare]. The calls

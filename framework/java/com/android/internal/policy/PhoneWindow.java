@@ -206,7 +206,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             setFlags(WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
                     WindowManager.LayoutParams.FLAG_SPLIT_TOUCH & ~getForcedWindowFlags());
         }
-        // As AOSP's: a floating window's sizes, and every dialog's dim (ADR-0041 gap 4 (b)).
+        // As AOSP's: a floating window's sizes, and every dialog's dim (ADR-0041 (b)).
         a.getValue(R.styleable.Window_windowMinWidthMajor, mMinWidthMajor);
         a.getValue(R.styleable.Window_windowMinWidthMinor, mMinWidthMinor);
         if (a.hasValue(R.styleable.Window_windowFixedWidthMajor)) {

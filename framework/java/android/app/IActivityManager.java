@@ -116,7 +116,7 @@ public interface IActivityManager extends IInterface {
 
     void getMimeTypeFilterAsync(Uri uri, int userId, RemoteCallback resultCallback) throws RemoteException;
 
-    /** UserManager's isUserRunningOrStopping (gap 1, batch 1b). */
+    /** UserManager's isUserRunningOrStopping. */
     boolean isUserRunning(int userid, int flags) throws RemoteException;
 
     /** As AOSP's: the service carried by a Binder under the interface's descriptor. */

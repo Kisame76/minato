@@ -195,7 +195,7 @@ jint SessionRequestSurface(JNIEnv *, jclass, jint op, jint z, jlong token, jint 
                    : 0;
 }
 
-// The window request's layout as the runtime reads it (guest_interface.h, ADR-0041 gap 4).
+// The window request's layout as the runtime reads it (guest_interface.h, ADR-0041).
 static_assert(sizeof(apkrt_window_request) == 72 && offsetof(apkrt_window_request, token) == 8 &&
                       offsetof(apkrt_window_request, parent) == 16 && offsetof(apkrt_window_request, left) == 24 &&
                       offsetof(apkrt_window_request, width) == 40 && offsetof(apkrt_window_request, format) == 48 &&
@@ -204,7 +204,7 @@ static_assert(sizeof(apkrt_window_request) == 72 && offsetof(apkrt_window_reques
                       offsetof(apkrt_window_request, reserved) == 68,
               "struct apkrt_window_request");
 
-// APKRT_REQUEST_WINDOW (ADR-0041 gap 4 (b)): a requested window's make, place or remove, its struct by address,
+// APKRT_REQUEST_WINDOW (ADR-0041 (b)): a requested window's make, place or remove, its struct by address,
 // which the runtime checks and hands the host; 0, or the negative errno. `alpha` and `dim` are floats' bits.
 jint SessionRequestWindow(JNIEnv *, jclass, jint op, jint type, jlong token, jlong parent, jint left, jint top,
                           jint right, jint bottom, jint width, jint height, jint format, jint group, jint alpha,
@@ -364,7 +364,7 @@ jint SessionRequestIme(JNIEnv *env, jclass, jlong serial, jbyteArray text) {
                    : 0;
 }
 
-// The battery (gap 1 of the compatibility plan): APKRT_NR_BATTERY's GET, the host's level | state << 32, or the
+// The battery: APKRT_NR_BATTERY's GET, the host's level | state << 32, or the
 // negative errno (-ENODATA before the host's first value).
 jlong Battery(JNIEnv *, jclass) {
     const long result = syscall(APKRT_NR_BATTERY, APKRT_BATTERY_GET, 0, 0);

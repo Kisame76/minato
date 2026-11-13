@@ -1,5 +1,5 @@
 /*
- * Ours under the generated class's name (ADR-0045 gap 1, batch 2): the usages of the audio policy configuration's
+ * Ours under the generated class's name (ADR-0045): the usages of the audio policy configuration's
  * schema (version 7.0), which xsdc generates from audio_policy_configuration.xsd. AudioAttributes maps its usages to
  * these names and back in its class initializer, so the class must be there; Minato reads no audio policy file. Each
  * constant's raw name is its name, as in the schema.

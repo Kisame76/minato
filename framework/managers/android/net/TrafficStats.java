@@ -5,7 +5,7 @@
 // check, and the hidden constants. The kernel's tag is left out, as nothing on Minato counts by tag and uid (Android's
 // BPF maps). Of the counters that NetworkStatsService gives, another uid's and the transport layer's are UNSUPPORTED,
 // as on Android. The app's own, the totals and an interface's are UNSUPPORTED too, Android's answer for a device that
-// does not count: a named difference until a later gap 3 step counts the app's socket bytes in the runtime. Minato has
+// does not count: a named difference until a later step counts the app's socket bytes in the runtime. Minato has
 // no mobile interface, so the mobile sums are 0. incrementOperationCount checks as NetworkStatsService does and keeps
 // nothing.
 import android.content.Context;

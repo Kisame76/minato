@@ -61,13 +61,13 @@ extern int register_android_os_Trace(JNIEnv *env);
 extern int register_com_android_internal_minato_webkit_WebViewChannel(JNIEnv *env);
 extern int register_android_os_Debug(JNIEnv *env);
 extern int register_android_os_Process(JNIEnv *env);
-// LocalSocket's natives (batch F of the framework breadth): AOSP's, over libcutils' sockets.
+// LocalSocket's natives: AOSP's, over libcutils' sockets.
 extern int register_android_net_LocalSocketImpl(JNIEnv *env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
 extern int register_android_hardware_SensorManager(JNIEnv *env);
 extern int register_android_hardware_HardwareBuffer(JNIEnv *env);
 extern int register_android_hardware_Camera(JNIEnv *env);
-// AudioTrack's (gap 13): ours on libaaudio.
+// AudioTrack's: ours on libaaudio.
 extern int register_android_media_AudioTrack(JNIEnv *env);
 extern int register_android_media_AudioRecord(JNIEnv *env);
 extern int register_android_media_AudioEffect(JNIEnv *env);
@@ -94,13 +94,13 @@ extern int register_android_view_InputChannel(JNIEnv *env);
 extern int register_android_view_InputEventReceiver(JNIEnv *env);
 // The GLES bindings (ADR-0041 a)): AOSP's core/jni files; util.cpp's classes are in namespace android.
 extern int register_android_opengl_classes(JNIEnv *env);
-// SQLite's (the compatibility plan's gap 7): AOSP's core/jni files over libsqlite.so and libandroidfw's CursorWindow.
+// SQLite's: AOSP's core/jni files over libsqlite.so and libandroidfw's CursorWindow.
 extern int register_android_database_CursorWindow(JNIEnv *env);
 extern int register_android_database_SQLiteConnection(JNIEnv *env);
 extern int register_android_database_SQLiteGlobal(JNIEnv *env);
 extern int register_android_database_SQLiteDebug(JNIEnv *env);
 extern int register_android_database_SQLiteRawStatement(JNIEnv *env);
-// The backup classes' (batch G): AOSP's core/jni files over libandroidfw's BackupData and BackupHelpers.
+// The backup classes': AOSP's core/jni files over libandroidfw's BackupData and BackupHelpers.
 extern int register_android_backup_BackupDataInput(JNIEnv *env);
 extern int register_android_backup_BackupDataOutput(JNIEnv *env);
 extern int register_android_backup_BackupHelperDispatcher(JNIEnv *env);

@@ -1,6 +1,6 @@
 // The written part of AudioManager (ADR-0045 decision 3), which tools/managergen joins with the API's methods: the
-// hidden ctor SystemServiceRegistry calls, and decision 4's answers that need no iOS (gap 1 of the compatibility plan,
-// batch 1). Focus is granted at once and given back; the mode, ringer and volumes are those of a phone at rest, read
+// hidden ctor SystemServiceRegistry calls, and decision 4's answers that need no iOS. Focus is granted at once and
+// given back; the mode, ringer and volumes are those of a phone at rest, read
 // only: each stream at AudioSystem.DEFAULT_STREAM_VOLUME between AudioService's MIN_ and MAX_STREAM_VOLUME at
 // android-15.0.0_r1 [read], which apk-runner-35-bare shows for music [verified: services-test]. The output's rate
 // and burst are AAudio's usual ones until step c reads the session's (a named difference): an engine that sizes its
@@ -79,7 +79,7 @@ class AudioManager {
     }
 
     /**
-     * The session's output, as a phone's built-in speaker (gap 13: FMOD lists the outputs before it builds its
+     * The session's output, as a phone's built-in speaker (FMOD lists the outputs before it builds its
      * AudioTrack, and Android lists the speaker among them); no input, as Minato records nothing yet (a named
      * difference: Android lists the built-in microphone).
      */

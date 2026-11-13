@@ -14,10 +14,10 @@ android.graphics.LeakyTypefaceStorage <- android.text.style.TextAppearanceSpan, 
 android.os.PermissionEnforcer <- com.android.internal.compat.IPlatformCompat  # stays: IPlatformCompat's Stub and Proxy, which the local platform compat service never runs
 android.os.VintfObject <- android.os.Build  # stays: Build.isBuildConsistent, a hidden check of system_server
 android.os.PermissionEnforcer <- android.app.IAlarmManager  # stays: IAlarmManager's Stub and Proxy, which the local alarm service never runs
-android.os.PermissionEnforcer <- android.app.IGameManagerService  # stays: IGameManagerService's Stub and Proxy, which the local game service never runs (gap 1, batch A)
-android.os.PermissionEnforcer <- android.app.usage.IUsageStatsManager, android.hardware.usb.IUsbManager  # stays: their Stubs and Proxies, which the local usage stats and USB services never run (gap 1, batch A)
-android.os.PermissionEnforcer <- android.hardware.IConsumerIrService  # stays: IConsumerIrService's Stub, which no service runs: Minato has no IR service, so getSystemService answers null as on the AVD (gap 1, batch B)
-android.os.PowerWhitelistManager <- android.app.usage.UsageStatsManager  # stays: the deprecated whitelistAppTemporarily, which needs the power exemption service (gap 1, batch A)
+android.os.PermissionEnforcer <- android.app.IGameManagerService  # stays: IGameManagerService's Stub and Proxy, which the local game service never runs
+android.os.PermissionEnforcer <- android.app.usage.IUsageStatsManager, android.hardware.usb.IUsbManager  # stays: their Stubs and Proxies, which the local usage stats and USB services never run
+android.os.PermissionEnforcer <- android.hardware.IConsumerIrService  # stays: IConsumerIrService's Stub, which no service runs: Minato has no IR service, so getSystemService answers null as on the AVD
+android.os.PowerWhitelistManager <- android.app.usage.UsageStatsManager  # stays: the deprecated whitelistAppTemporarily, which needs the power exemption service
 android.app.time.UnixEpochTime <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
 android.app.timedetector.ITimeDetectorService <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
 android.app.timedetector.ITimeDetectorService$Stub <- android.os.SystemClock  # gap: SystemClock.currentNetworkTimeClock (API 33)
@@ -56,7 +56,7 @@ com.android.modules.utils.BinaryXmlPullParser <- android.util.Xml  # stays: bina
 com.android.modules.utils.BinaryXmlSerializer <- android.util.Xml  # stays: binary XML, which only system files use; SharedPreferences read and write text (c1)
 
 # The app's components (step c2c1): Intent, Uri, ContentProvider with its transport, Service, BroadcastReceiver and
-# ContentCaptureManager. Providers install and start; calls into them come with ADR-0045's ContentResolver (gap 13a).
+# ContentCaptureManager. Providers install and start; calls into them come with ADR-0045's ContentResolver.
 android.database.BulkCursorDescriptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.CursorToBulkCursorAdaptor <- android.content.ContentProviderNative  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
 android.database.BulkCursorDescriptor <- android.content.ContentProviderProxy  # stays: a provider's IPC (ContentProviderNative's onTransact and its proxy), which no other process calls on Minato
@@ -106,13 +106,13 @@ android.view.contentcapture.ContentCaptureContext$Builder <- android.app.Activit
 # which ANGLE's Metal display lacks.
 android.content.pm.IPackageManager <- com.google.android.gles_jni.GLImpl  # gap: the same check of GLImpl's
 
-# ADR-0045, the input service (gap 7a of the Godot survey): InputManager, InputManagerGlobal and InputDevice
+# ADR-0045, the input service: InputManager, InputManagerGlobal and InputDevice
 # over the local input service, which is AIDL's Default class, so IInputManager's Stub and Proxy never run. Minato's
 # devices, the virtual keyboard and the touchscreen, have no battery, lights, sensors or vibrators.
 android.hardware.input.InputDeviceLightsManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's lights (InputDevice.getLightsManager, API 31), whose manager Android makes for any device
 android.hardware.input.InputDeviceVibrator <- android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # stays: the vibrator of an input device that has one, and Minato's devices have none
 android.hardware.input.InputDeviceVibratorManager <- android.hardware.input.InputManagerGlobal  # gap: an input device's vibrators (InputDevice.getVibratorManager, API 31), whose manager Android makes for any device
-android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings (gap 13)
+android.hardware.input.InputSettings <- android.hardware.input.InputManager  # gap: InputManager's settings, getMaximumObscuringOpacityForTouch (API 31) and hidden ones, whose InputSettings reads Settings
 android.hardware.input.KeyboardLayoutPreviewDrawable <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.hardware.input.PhysicalKeyLayout <- android.hardware.input.InputManager  # stays: the hidden keyboard layout preview, which only the system's Settings app draws
 android.os.PermissionEnforcer <- android.hardware.input.IInputManager  # stays: IInputManager's Stub and Proxy, which the local input service never runs
@@ -124,14 +124,14 @@ android.view.InputMonitor <- android.hardware.input.IInputManager  # stays: IInp
 # ADR-0045's storage and app ops step: StorageVolume, which our StorageManager lists, names the documents UI
 # and the dump's writer.
 
-# ADR-0045's settings step (gap 13a): ContentResolver, Settings, DatabaseUtils and the content service's AIDL
+# ADR-0045's settings step: ContentResolver, Settings, DatabaseUtils and the content service's AIDL
 # name syncs, URI grants and MIME type icons, which an app's settings and queries never meet.
 android.content.pm.IPackageManager <- android.content.AttributionSource  # gap: AttributionSource.myAttributionSource, which asks the package service for the uid's packages; Minato's has none yet (ADR-0045)
 android.os.PermissionEnforcer <- android.content.IContentService  # stays: IContentService's Stub and Proxy, which the local content service never runs
 android.permission.PermissionManager <- android.content.AttributionSource  # stays: AttributionSource.isTrusted for a source with a token, which only another process's source carries
 com.android.internal.util.MimeIconUtils <- android.content.ContentResolver  # gap: a MIME type's icon, as for Icon
 
-# ADR-0045's text to speech (gap 13b): what only an engine or a virtual device reaches, which Minato has
+# ADR-0045's text to speech: what only an engine or a virtual device reaches, which Minato has
 # none of.
 
 # ADR-0043 step d), text: TextView, EditText and Editor, with the selection UI, text classification, translation,
@@ -142,13 +142,13 @@ com.android.internal.inputmethod.InputMethodDebug <- android.view.inputmethod.Ed
 # ADR-0043 step e1), CompoundButton and CheckBox: their autofill, assist, accessibility and debug answers, which
 # only those services and tools ask for, and a button drawable from an Icon.
 
-# The framework breadth's batch 1 (the compatibility plan's entry 22): what its types still name as stubs.
+# what its types still name as stubs.
 
-# The compatibility plan's gap 7, SQLite databases: android.database.sqlite.
+# SQLite databases: android.database.sqlite.
 
-# The framework breadth's batch 2 (the compatibility plan's entry 22): what its types still name as stubs.
+# what its types still name as stubs.
 
-# ADR-0045 gap 1, batch 1: DisplayManager and PowerManager in framework.jar, over the local display, power and
+# DisplayManager and PowerManager in framework.jar, over the local display, power and
 # thermal services, which never run the AIDL interfaces' Stub and Proxy and parcel nothing.
 android.content.pm.IPackageManager <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
 android.content.pm.IPackageManager$Stub <- android.hardware.display.DisplayManager  # stays: the static createVirtualDisplay that mirrors a display, a system API for system apps
@@ -157,14 +157,14 @@ android.os.CoolingDevice <- android.os.IThermalService  # stays: IThermalService
 android.os.Temperature <- android.os.IThermalService, android.os.IThermalEventListener  # stays: the thermal interfaces' Stub and Proxy, which the local thermal service never runs and whose events it sends none of
 android.service.dreams.Sandman <- android.os.PowerManager  # stays: dream, a system API that needs WRITE_DREAM_STATE
 
-# ADR-0045 gap 1, batch 1b: UserManager over the local user service. What it reaches only for a work profile or
+# UserManager over the local user service. What it reaches only for a work profile or
 # with a system permission, which neither Minato's one user nor any app has.
 android.app.admin.DevicePolicyResourcesManager <- android.os.UserManager  # stays: a managed profile's badge and labels (isManagedProfile), which no user of Minato's is
 
-# The compatibility plan's gap 5, widgets, batch 1: what its types still name as stubs.
-android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), the framework breadth's android.app batch
+# Widgets: what its types still name as stubs.
+android.app.LocalActivityManager <- android.widget.TabHost  # gap: a TabHost of activities (setup with a LocalActivityManager), android.app
 
-# ADR-0045 gap 1, batch 2: NotificationManager over the local notification service, with Notification, its
+# NotificationManager over the local notification service, with Notification, its
 # channels, RemoteViews, VibrationEffect and AudioAttributes. What they reach only on the system's side, in a host of
 # RemoteViews, or in a style or call that a later piece brings.
 android.os.PermissionEnforcer <- android.app.INotificationManager  # stays: INotificationManager's Stub and Proxy, which the local notification service never runs
@@ -177,13 +177,13 @@ android.os.vibrator.persistence.VibrationXmlSerializer <- android.app.Notificati
 android.service.notification.NotificationListenerService$Ranking <- android.app.NotificationChannel  # stays: a channel's JSON (toJson), the system's dump
 android.media.MediaRecorder <- android.media.AudioAttributes, android.media.AudioRecordingConfiguration  # gap: AudioAttributes.toString of a capture's attributes (a capture preset) and AudioRecordingConfiguration.toLogFriendlyString's source name, as MediaRecorder is compile-only
 
-# Gap 9: the job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
+# The job scheduler over the local scheduler (JobSchedulerImpl, JobInfo and the job service's classes).
 android.os.PermissionEnforcer <- android.app.job.IJobScheduler  # stays: IJobScheduler's Stub and Proxy, which the local job scheduler never runs
 
-# Gap 1: the clipboard over the local clipboard service.
+# The clipboard over the local clipboard service.
 android.os.PermissionEnforcer <- android.content.IClipboard  # stays: IClipboard's Stub and Proxy, which the local clipboard never runs
 
-# The Unity test APK probe's batch C: android.webkit without a WebView provider (no webview feature) and the legacy
+# android.webkit without a WebView provider (no webview feature) and the legacy
 # The legacy Camera without the audio and app ops services it asks for.
 android.webkit.IWebViewUpdateService <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the update service only when WebViewFactory gives one, and without the webview feature it gives none
 android.webkit.WebViewUpdateManager <- android.webkit.WebView  # stays: getCurrentWebViewPackage asks the manager only with the flag update_service_ipc_wrapper, off in ap3a
@@ -192,18 +192,19 @@ android.media.IAudioService$Stub <- android.hardware.Camera  # stays: the shutte
 com.android.internal.app.IAppOpsService <- android.hardware.Camera  # stays: the app ops binder, which the patched constructor no longer asks for
 com.android.internal.app.IAppOpsCallback$Stub <- android.hardware.Camera  # stays: the app ops watch's wrapper, which the patched constructor no longer makes
 
-# Batch B1 (retest 8's resolve list): Telephony's SMS and MMS helpers.
+# Telephony's SMS and MMS helpers.
 android.telephony.SmsMessage <- android.provider.Telephony  # gap: Sms.Intents.getMessagesFromIntent decodes the PDUs of a received SMS, and Minato has no SMS
 
 # F4e: camera2's session data.
 android.media.CamcorderProfile <- android.hardware.camera2.params.MandatoryStreamCombination  # stays: the recording size of the mandatory stream combinations, which are built from a camera's characteristics, and cameraserver lists no camera
 android.media.MediaRecorder <- android.hardware.camera2.params.MandatoryStreamCombination, android.hardware.camera2.params.OutputConfiguration, android.hardware.camera2.params.StreamConfigurationMap  # gap: a MediaRecorder.class output (OutputConfiguration(Size, Class), StreamConfigurationMap.isOutputSupportedFor) and any class that is neither SurfaceHolder nor SurfaceTexture, as MediaRecorder is compile-only
 
-# Batch B2 (retest 8's resolve list): android.accounts.
+# android.accounts.
 android.app.admin.DevicePolicyResourcesManager <- android.accounts.CantAddAccountActivity, android.accounts.ChooseTypeAndAccountActivity  # gap: as DevicePolicyManager
 android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator  # stays: IAccountAuthenticator's Stub, which an app's authenticator service makes, and Minato never binds one
 
-# The package installer (the Unity test APK resolve list, batch E): the session service is LocalPackageInstaller's, in the process.
+# The package installer (the Unity test APK resolve list): the session service is LocalPackageInstaller's, in the
+# process.
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors and permission checks, which the local installer never runs
 android.content.pm.parsing.ApkLiteParseUtils <- android.content.pm.PackageInstaller  # stays: readInstallInfo, a system API of installer apps
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
@@ -216,7 +217,7 @@ com.android.internal.util.function.pooled.PooledRunnable <- android.content.pm.P
 # android.media's take-in classes (the Unity test APK gap sort, category 1).
 android.print.PrintJobInfo <- android.print.PrintJob  # stays: a print job's info, and a PrintJob comes only from PrintManager.print, which returns none here (category 1, package 2)
 
-# Activity's signature types (the Unity test APK retest 10): the types they take in reach these.
+# Activity's signature types (the Unity test APK): the types they take in reach these.
 android.view.IRemoteAnimationRunner <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.view.RemoteAnimationAdapter <- android.view.RemoteAnimationDefinition  # stays: the system's remote animations, which only an app holding CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS registers, and Minato's window manager runs none
 android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub and Proxy, which the local vibrator manager service never runs
@@ -240,10 +241,10 @@ android.os.connectivity.WifiBatteryStats <- com.android.internal.app.IBatterySta
 android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
 android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service (an IBatteryStats.Default) never runs
 
-# Batch G's biometric prompt.
+# Biometric prompt.
 android.hardware.face.FaceManager <- android.hardware.biometrics.BiometricPrompt  # stays: BiometricPrompt's receiver asks it for the text of an error of the face modality, which no service of Minato sends (no face sensor an app can use, ADR-0045 decision 4)
 android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' constructors, which the local authentication service (an IAuthService.Default) never runs
-# VpnService (group 1 of the framework breadth).
+# VpnService.
 com.android.internal.net.VpnProfile <- android.net.IVpnManager  # stays: IVpnManager's Stub reads a VpnProfile in two transactions (provisionVpnProfile, startLegacyVpn), which are no app API: VpnService and VpnManager never call them and no parcel reaches the local vpn service, which is AIDL's Default class
-android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads (batch H4); Minato has none and no app is one
-android.view.inputmethod.InlineSuggestionsRequest <- android.service.autofill.FillRequest  # stays: FillRequest's inline suggestions request, a compile-only stub until the input method's inline family (text input gap 11) is taken; a FillRequest built by an app has none
+android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads; Minato has none and no app is one
+android.view.inputmethod.InlineSuggestionsRequest <- android.service.autofill.FillRequest  # stays: FillRequest's inline suggestions request, a compile-only stub until the input method's inline family is taken; a FillRequest built by an app has none

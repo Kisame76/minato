@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// The written part of AudioTrack (the compatibility plan's gap 13, the Unity test APK probe: FMOD's output thread), which
+// The written part of AudioTrack (the Unity test APK probe: FMOD's output thread), which
 // tools/managergen joins with the API's methods. The checks, states and messages are those of AOSP's AudioTrack.java
 // at android-15.0.0_r1, without PlayerBase and the audio server: the natives (android_media_AudioTrack.cpp, ours) keep
 // the track's buffer and play it on a libaaudio stream. Not written, so logged once: routing, codec and stream event

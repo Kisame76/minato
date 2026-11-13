@@ -51,7 +51,7 @@ public final class SurfaceState {
 
     /**
      * Tokens of the process's surfaces and requested windows, never 0 and never reused: one count for both, as a
-     * SurfaceView in a requested window asks for a window (ADR-0041 gap 4 (b3), decision 7), whose events then name it.
+     * SurfaceView in a requested window asks for a window (ADR-0041 (b3), decision 7), whose events then name it.
      */
     private static final AtomicLong sTokens = new AtomicLong();
 

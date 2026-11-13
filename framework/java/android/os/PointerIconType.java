@@ -1,6 +1,6 @@
 /*
  * Ours in place of the class aidl --lang=java writes from frameworks/native's
- * libs/input/android/os/PointerIconType.aidl at android-15.0.0_r1 (ADR-0042 b, gap 6), which PointerIcon's type
+ * libs/input/android/os/PointerIconType.aidl at android-15.0.0_r1 (ADR-0042 b), which PointerIcon's type
  * constants name: frameworks/native's input library is not fetched beyond what libinput's MotionEvent needs. As the
  * generated one, an @interface of the AIDL enum's int values, under its names, which
  * framework/native/include/android/os/PointerIconType.h has for C++ (ADR-0045 step 7b1). The public values are

@@ -1,5 +1,5 @@
 /*
- * Ours under AOSP's name (gap 1 of the compatibility plan, batch B): android.hardware.biometrics.BiometricManager.
+ * Ours under AOSP's name: android.hardware.biometrics.BiometricManager.
  * AOSP's asks the authentication service (IAuthService), whose interface reaches the fingerprint, face and iris
  * services' types by the hundred; Minato has none of them. Ours keeps the public API apps and the AndroidX biometric
  * library call and answers as a phone without a biometric sensor: canAuthenticate gives BIOMETRIC_ERROR_NO_HARDWARE

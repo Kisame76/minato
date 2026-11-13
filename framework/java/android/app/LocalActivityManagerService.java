@@ -301,7 +301,7 @@ public final class LocalActivityManagerService extends IActivityManager.Stub {
     }
 
     /**
-     * A broadcast to the receivers of the app's manifest (gap 9, alarms and jobs that run), as the broadcast queue
+     * A broadcast to the receivers of the app's manifest (alarms and jobs that run), as the broadcast queue
      * sends it to a receiver of a component: an explicit one to its component, one for the app's package to the
      * receivers whose filters match; an implicit one with no package reaches none, as since Android 8. Delivered at
      * once on the main thread, unordered; an ordered broadcast reaches only the registered receivers (a named limit).

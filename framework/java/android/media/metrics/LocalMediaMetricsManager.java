@@ -1,5 +1,5 @@
 /*
- * The media metrics service (gap 1 of the compatibility plan, batch 3): IMediaMetricsManager of system_server, local in
+ * The media metrics service: IMediaMetricsManager of system_server, local in
  * the app's process, which ServiceManager's table gives as "media_metrics" and AOSP's MediaMetricsManager asks;
  * media3's MediaMetricsListener takes a playback session from it on Android 12 and later. Each session's ID is 12
  * random bytes in URL-safe Base64 without padding, 16 characters, as MediaMetricsManagerService makes them

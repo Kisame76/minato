@@ -80,7 +80,7 @@ public:
     status_t writeByteVector(const std::vector<uint8_t> &val);
     void *writeInplace(size_t len);
     status_t writeString8(const char *str, size_t len);
-    // As libbinder's, for libandroidfw's CursorWindow (the compatibility plan's gap 7): a String8 goes in as the form
+    // As libbinder's, for libandroidfw's CursorWindow: a String8 goes in as the form
     // above; readString8 answers UNEXPECTED_NULL and an empty string for a null one; read copies len bytes and moves on
     // by them padded to 4, as readInplace; readUint32 and readBool give a status, as readInt32's form does.
     status_t writeString8(const String8 &str);

@@ -12,7 +12,7 @@ runtime/tests/art_run.py lays them out for dalvikvm:
     (build/sources/ca-certificates) in its cacerts, where the runtime's link /system/etc/security/cacerts leads
     (ADR-0046 decision 4);
   - bionic's libraries and libandroid_runtime.so (ADR-0039 decision 10) in /system/lib64, bionic's /system, ICU's
-    data and the tzdata module's files (the compatibility plan's gap 21, tzdata_module()) in their APEXes;
+    data and the tzdata module's files (tzdata_module()) in their APEXes;
   - libhwui.so and its set (tools/build-hwui.sh) in /system/lib64, with ART's build's copies of libbase,
     libziparchive, libexpat and libc++_shared beside them, as graphics/tests/hwui_load_run.py lays them out:
     libandroid_runtime registers hwui's graphics natives at every start, and bionic's /system has the fonts that
@@ -81,7 +81,7 @@ MONET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "to
 # Conscrypt's CA certificates (ADR-0046 decision 4), the guest's /apex/com.android.conscrypt/cacerts.
 CA_CERTIFICATES = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build",
                                                "sources", "ca-certificates", "files"))
-# The tzdata module's files of the tag that are no IANA data (the compatibility plan's gap 21): system/timezone's
+# The tzdata module's files of the tag that are no IANA data: system/timezone's
 # output_data (tools/fetch-sources.py --set art), as its APEX installs them.
 TIMEZONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "sources", "timezone",
                         "output_data")
@@ -335,7 +335,7 @@ def run_app(command, last=None, grace=2.0, timeout=300):
 
 def tzdata_module(tzdata, folder):
     """Lays out the tzdata module's etc/tz in `folder` as Android 15's com.android.tzdata has it (the compatibility
-    plan's gap 21): bionic's `tzdata` with its tz_version at the top, for bionic, and the same two in versioned/8,
+    ): bionic's `tzdata` with its tz_version at the top, for bionic, and the same two in versioned/8,
     where libcore reads them (TimeZoneDataFiles); there too the tag's tzlookup.xml and telephonylookup.xml, and ICU's
     time zone resources of the same release in icu/, where IcuRegistration points ICU: one IANA release for bionic,
     libcore and ICU (ADR-0033 decision 9). tz_version is in the tag's format, "008.001|<release>|001", with the
@@ -380,7 +380,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     /data/local/tmp as the app's. With framework-res's folder among `mounts`, /data/resource-cache holds Monet's
     overlays made from that build of framework-res, as SystemUI and idmap2 keep them there on Android 15 (ADR-0043
     f)): every app's Resources take them, as its overlay paths. libsqlite.so beside app_process goes to /system/lib64
-    too, for libandroid_runtime's database natives (the compatibility plan's gap 7).
+    too, for libandroid_runtime's database natives.
     `picks` are the files the user picks when the app asks for a document (ADR-0057 step b): apk-run clones them into
     the app's Download folder, which is mounted at /storage/emulated/0/Download then, and writes the manifest below
     the data folder's .minato/picks (--pick-file, --pick-download, --pick-data). `photos` are the photos the user
@@ -392,7 +392,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     `environment` are apk-run's --env entries (<name>=<value>) on top of the app's environment, as GuestStart's
     extra entries (the gap scanner's MINATO_GAPSCAN).
     `android_id` goes to ActivityThread as --android-id, the value its settings provider gives as android_id, as the
-    host gives it (ADR-0045, gap 13a); None leaves it to make one for the start.
+    host gives it (ADR-0045); None leaves it to make one for the start.
     `again` starts it once more over the run folder of the start before, as Android starts an app's process again over
     its data (step c1); the folders are made only for a new run. `obbs` are files copied into the app's OBB folder of
     a new run, as a user or the library puts them there (ADR-0049 test 8). `packs` are files copied read-only into the
@@ -421,7 +421,7 @@ def start(art, bionic_lib, bionic_system, hwui_lib, icu_data, apk_convert, apk_r
     runtime = os.path.join(os.path.dirname(app_process), "libandroid_runtime.so")
     if os.path.exists(runtime):
         convert(apk_convert, runtime, os.path.join(system_lib64, "libandroid_runtime.so.dylib"))
-    # Its database natives link libsqlite.so (the compatibility plan's gap 7), which Android 15 has in /system/lib64.
+    # Its database natives link libsqlite.so, which Android 15 has in /system/lib64.
     sqlite = os.path.join(os.path.dirname(app_process), "libsqlite.so")
     if os.path.exists(sqlite):
         convert(apk_convert, sqlite, os.path.join(system_lib64, "libsqlite.so.dylib"))

@@ -1,5 +1,5 @@
 /*
- * The notification service (ADR-0045 decisions 3 and 4; gap 1 of the compatibility plan, batch 2):
+ * The notification service (ADR-0045 decisions 3 and 4):
  * INotificationManager of system_server, local in the app's process, which ServiceManager's table gives as
  * "notification" and NotificationManager asks. It answers as Android 15's NotificationManagerService and its
  * PreferencesHelper do for an app without POST_NOTIFICATIONS, which decision 6 never grants [verified: services-test on
@@ -10,7 +10,7 @@
  *     channel created again takes the new name and description, a group when it had none, and a lower importance while
  *     the user changed nothing, and comes back when it was deleted; a new one gets what an app cannot set reset. A
  *     deleted channel stays as deleted, gone from every answer; a deleted group takes its channels along.
- * They live as long as the process, where Android keeps them in its policy file across starts. Toasts (ADR-0041 gap 4
+ * They live as long as the process, where Android keeps them in its policy file across starts. Toasts (ADR-0041
  * (b4)) go through the queue ToastQueue keeps as NotificationManagerService does, on the main thread: a text toast is
  * drawn by ToastPresenter in the app's process, where Android's SystemUI draws it, and a toast with a view of its own
  * by the app's Toast.TN; each shows in a requested window of type TYPE_TOAST with a window token of the service's,
@@ -69,7 +69,7 @@ public final class NotificationService extends INotificationManager.Default {
 
     /** NotificationManagerService's tag. */
     private static final String TAG = "NotificationService";
-    /** The window tokens of the toasts that show, which a window of TYPE_TOAST must name (gap 4 (b4)). */
+    /** The window tokens of the toasts that show, which a window of TYPE_TOAST must name (ADR-0041 (b4)). */
     private static final Set<IBinder> sToastWindows = Collections.synchronizedSet(new HashSet<>());
     /** The toast queue and what each queued toast shows, by the app's token; under mToastLock. */
     private final Object mToastLock = new Object();

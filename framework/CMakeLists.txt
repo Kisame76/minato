@@ -41,7 +41,7 @@ target_link_libraries(app_process PRIVATE art_libnativehelper art_libsigchain lo
 # library takes its Android.bp's sources and flags for the android target, with Soong's global flags as for the host
 # aapt2 (tools/aapt2/soong.cmake) on top of the NDK's own; liblog and libz are the guest system's. Left out, as no
 # caller needs them before their Java comes: libandroidfw's BackupData and BackupHelpers, which need libbinder.
-# CursorWindow, which SQLite's queries fill (the compatibility plan's gap 7), takes its parcel from native/include's
+# CursorWindow, which SQLite's queries fill, takes its parcel from native/include's
 # binder/Parcel.h, Minato's parcel. libincfs is our two-function stand-in (native/incfs), and libziparchive is the
 # default one, with incfs support off, rather than libziparchive_for_incfs: Minato installs no app on incfs.
 set(SOURCES "${MINATO_ROOT}/build/sources")
@@ -186,7 +186,7 @@ target_compile_options(androidfw-test PRIVATE -Wall -Wextra -Werror)
 target_link_options(androidfw-test PRIVATE -Wl,-z,max-page-size=16384)
 target_link_libraries(androidfw-test PRIVATE androidfw)
 
-# The guest's libsqlite.so test (compatibility plan, gap 7; tools/sqlite-native-check.sh): a program that opens the
+# The guest's libsqlite.so test (tools/sqlite-native-check.sh): a program that opens the
 # library with dlopen, as an app with a targetSdk below 24 may, so that it runs on Android 15's own library too.
 add_executable(sqlite-native-test tests/native/sqlite_native_test.c)
 target_include_directories(sqlite-native-test PRIVATE "${SOURCES}/sqlite/dist/sqlite-autoconf-3440300")
@@ -194,7 +194,7 @@ target_compile_options(sqlite-native-test PRIVATE -Wall -Wextra -Werror)
 target_link_options(sqlite-native-test PRIVATE -Wl,-z,max-page-size=16384)
 target_link_libraries(sqlite-native-test PRIVATE dl)
 
-# --- libsqlite.so (compatibility plan, gap 7): SQLite 3.44.3 of external/sqlite's dist at android-15.0.0_r1, the
+# --- libsqlite.so: SQLite 3.44.3 of external/sqlite's dist at android-15.0.0_r1, the
 # version that the tag's release flag RELEASE_PACKAGE_LIBSQLITE3 picks, with Android's functions of its android folder
 # (libsqlite3_android: the phone numbers, the LOCALIZED, UNICODE and PHONEBOOK collators and _TOKENIZE) linked in
 # whole, as Android.bp builds libsqlite for the android target: sqlite-defaults' flags and SQLITE_ENABLE_ICU. It lies
@@ -311,12 +311,12 @@ sources_in(android_runtime_sources "${jni}"
   android_content_res_ApkAssets.cpp android_os_SystemProperties.cpp android_os_SystemClock.cpp core_jni_helpers.cpp
   android_animation_PropertyValuesHolder.cpp com_android_internal_util_VirtualRefBasePtr.cpp
   android_net_LocalSocketImpl.cpp)
-# SQLite's natives (the compatibility plan's gap 7): AOSP's core/jni files as they stand, over libsqlite.so and
+# SQLite's natives: AOSP's core/jni files as they stand, over libsqlite.so and
 # libandroidfw's CursorWindow.
 sources_in(database_jni_sources "${jni}"
   android_database_CursorWindow.cpp android_database_SQLiteCommon.cpp android_database_SQLiteConnection.cpp
   android_database_SQLiteDebug.cpp android_database_SQLiteGlobal.cpp android_database_SQLiteRawStatement.cpp)
-# The backup classes' natives (the compatibility plan's gap 1, batch G): AOSP's core/jni files for BackupDataInput,
+# The backup classes' natives: AOSP's core/jni files for BackupDataInput,
 # BackupDataOutput, BackupHelperDispatcher and FileBackupHelperBase over libandroidfw's BackupData and BackupHelpers.
 sources_in(backup_jni_sources "${jni}"
   android_backup_BackupDataInput.cpp android_backup_BackupDataOutput.cpp android_backup_BackupHelperDispatcher.cpp

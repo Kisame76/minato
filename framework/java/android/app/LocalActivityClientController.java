@@ -22,7 +22,7 @@
  *     and finishAndRemoveTask from the task's root ends the task;
  *   - up navigation (step b3.5b2-2b): navigateUpTo finishes up to the destination in the task and starts it there,
  *     and shouldUpRecreateTask compares the destination's affinity with the task's;
- *   - translucency (ADR-0041 gap 4 (b3)): convertFromTranslucent and convertToTranslucent change whether the activity
+ *   - translucency (ADR-0041 (b3)): convertFromTranslucent and convertToTranslucent change whether the activity
  *     occludes the ones below it, as ActivityRecord.setOccludesParent, answering whether that changed;
  *   - the back (ADR-0041 decision 10): onBackPressed moves the task to the back where Android 15's
  *     ActivityClientController.shouldMoveTaskToBack would, and finishes any other activity through its callback;

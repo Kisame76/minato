@@ -5,11 +5,11 @@
  *   - an activity's window (TYPE_BASE_APPLICATION) gets its ViewRootImpl, as AOSP's addView makes one, and goes with
  *     removeView;
  *   - an application window (a dialog) and a sub-window (a popup, a panel) get theirs as requested windows of the
- *     session's host (ADR-0041 gap 4 (b)), after the checks WMS's addWindow makes of their token, which throw
+ *     session's host (ADR-0041 (b)), after the checks WMS's addWindow makes of their token, which throw
  *     Android's BadTokenException from setView: an application window needs an activity that is not destroyed, a
  *     sub-window a shown window that is no sub-window itself; TYPE_APPLICATION_OVERLAY is refused as without
  *     SYSTEM_ALERT_WINDOW. A window's sub-windows go before it, as WMS's removeImmediately takes the children;
- *   - the windows' input and focus (gap 4 (b2), decision 4): the session's touches go to the window Android 15's
+ *   - the windows' input and focus (ADR-0041 (b2), decision 4): the session's touches go to the window Android 15's
  *     InputDispatcher picks among the shown windows in decision 1's order, and the session's focus to the topmost
  *     focusable one, which also gets the system's back (ADR-0041 decision 10);
  *   - every other window (a toast, a system window) is a gap that is logged and never shown, so that its
@@ -110,7 +110,7 @@ public final class WindowManagerGlobal {
             if (!application && !subWindow && type != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                     && type != WindowManager.LayoutParams.TYPE_TOAST) {
                 Log.w(TAG, "Not shown: a window of type " + type + " (" + wparams.getTitle()
-                        + "), as Minato shows only activities, dialogs, popups and toasts yet (ADR-0041 gap 4 (b))");
+                        + "), as Minato shows only activities, dialogs, popups and toasts yet (ADR-0041 (b))");
                 view.setLayoutParams(wparams);
                 mGapViews.add(view);
                 return;
@@ -138,7 +138,7 @@ public final class WindowManagerGlobal {
      * without SYSTEM_ALERT_WINDOW (ADD_PERMISSION_DENIED); an application window's token must be an activity's that
      * is not destroyed (ADD_BAD_APP_TOKEN); a sub-window's must be a shown window's that is no sub-window itself
      * (ADD_BAD_SUBWINDOW_TOKEN); a toast's must be a window token of the notification service's, as WMS's addWindow
-     * refuses an app's own toast window from target O on (ADD_BAD_APP_TOKEN, gap 4 (b4)). The window then is a
+     * refuses an app's own toast window from target O on (ADD_BAD_APP_TOKEN, ADR-0041 (b4)). The window then is a
      * requested one, an application window in its activity's group, taken away while its activity is not visible (gap
      * 4 (b3)), a toast above every group.
      */
@@ -207,8 +207,8 @@ public final class WindowManagerGlobal {
 
     /**
      * @hide ActivityThread's, at WINDOW_DESTROYED: the host took the window away at the background or the end; its
-     * surface goes and its token is removed, and it is asked for again at the session's return (decision 6, gap 4
-     * (b5a)). False as at the creation.
+     * surface goes and its token is removed, and it is asked for again at the session's return (decision 6,
+     * ADR-0041 b5a). False as at the creation.
      */
     public boolean dispatchWindowDestroyed(long token) {
         ViewRootImpl root = rootOfRequest(token);
@@ -220,7 +220,7 @@ public final class WindowManagerGlobal {
     }
 
     /**
-     * @hide ActivityThread's, at the session's RESUME after the background (decision 6, gap 4 (b5a)): the requested
+     * @hide ActivityThread's, at the session's RESUME after the background (decision 6, ADR-0041 (b5a)): the requested
      * windows the host took away are asked for again, each sub-window once its parent has its window, as the guest's
      * ViewRootImpls relayout at the start.
      */
@@ -285,7 +285,8 @@ public final class WindowManagerGlobal {
         focused.dispatchImeHiddenByUser();
     }
 
-    /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (gap 4 (b3)). */
+    /** ViewRootImpl's, once `parent` has its window: its sub-windows that waited for it ask for theirs (ADR-0041 (b3)).
+      * */
     void childrenMayAsk(ViewRootImpl parent) {
         final ArrayList<ViewRootImpl> children = new ArrayList<>();
         synchronized (mLock) {
@@ -301,7 +302,7 @@ public final class WindowManagerGlobal {
     }
 
     /**
-     * @hide ActivityThread's (gap 4 (b3), decision 3): an activity whose window changed, as ActivityWindows.update
+     * @hide ActivityThread's (ADR-0041 (b3), decision 3): an activity whose window changed, as ActivityWindows.update
      * gave it. First every window of each activity whose window changed goes, top down, as WMS hides an activity that
      * is not visible: its windows' sub-windows, then its dialogs and other application windows, then its own window's
      * request; then ActivityThread moves the session's window; then each one that is visible gets its windows again,
@@ -590,7 +591,7 @@ public final class WindowManagerGlobal {
         if (target != null && target != session) {
             target.deliverRouted(copyFor(target, event));
         } else if (target != null && session.requestToken() != 0) {
-            // The input's window is a requested one at its frame, a floating activity's at the bottom (gap 4 (b3)).
+            // The input's window is a requested one at its frame, a floating activity's at the bottom (ADR-0041 (b3)).
             event.offsetLocation(-session.mWinFrame.left, -session.mWinFrame.top);
         }
         return target;
@@ -619,7 +620,7 @@ public final class WindowManagerGlobal {
      * window, with its sub-windows, then the requested application windows by group and newer above, each with its
      * sub-windows around it by sublayer (below it for a negative one) and newer above. A requested window is shown
      * once the host made its window, and while its view is visible; for the `focus`, one that waits for its window too
-     * (gap 4 (b5a)).
+     * (ADR-0041 (b5a)).
      */
     private ArrayList<ViewRootImpl> windowsTopFirst(boolean focus) {
         final ArrayList<ViewRootImpl> order = new ArrayList<>();
@@ -637,7 +638,7 @@ public final class WindowManagerGlobal {
             }
         }
         // Below a floating activity at the bottom the session's window is empty, and the session's input reaches that
-        // activity's requested window (gap 4 (b3)).
+        // activity's requested window (ADR-0041 (b3)).
         if (mSessionRoot.requestToken() == 0) {
             place(mSessionRoot, shown, order);
         }

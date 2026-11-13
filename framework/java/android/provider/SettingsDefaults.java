@@ -1,5 +1,5 @@
 /*
- * The local settings provider's values (ADR-0045 decision 4, gap 13a): the reference AVD's, as `settings list system`,
+ * The local settings provider's values (ADR-0045 decision 4): the reference AVD's, as `settings list system`,
  * `secure` and `global` give them on apk-runner-35 wiped (Android 15, AE3A.240806.019, the build Minato reports), in
  * the lists' order, but for
  *   - the values that name the AVD or its run, which no device shares: android_id, which SettingsProvider takes from

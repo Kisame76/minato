@@ -24,7 +24,7 @@
  * callbacks returned; they become Android's lifecycle transactions (CREATE the launch, START, RESUME, PAUSE, STOP and
  * DESTROY as AOSP's handlers, the instance state saved with the stop by the target SDK), and the window's events reach
  * its ViewRootImpl. The last activity's finish() asks the host, which answers with the quit. Without a session the
- * launch runs by itself as before. Since ADR-0045's gap 13a it gives ContentResolver the app's providers and the
+ * launch runs by itself as before. Since ADR-0045 it gives ContentResolver the app's providers and the
  * local settings provider (acquireProvider), whose android_id is the host's --android-id. Since step c2d3 it gives
  * the main thread and the process StrictMode's defaults for the app's target SDK, and allows disk writes while the
  * Application is made and created, as handleBindApplication does. Since step b3.5b2-1 the app starts its own
@@ -179,7 +179,7 @@ public final class ActivityThread {
     /** The app's providers by authority, as installProvider registers them for acquireProvider (step c2d). */
     final ArrayMap<String, ContentProvider> mLocalProvidersByAuthority = new ArrayMap<>();
 
-    /** The host's android_id (--android-id), or null; the settings provider then makes one (ADR-0045, gap 13a). */
+    /** The host's android_id (--android-id), or null; the settings provider then makes one (ADR-0045). */
     private String mAndroidId;
     /** The local settings provider, made at its first acquire; under mLocalProvidersByAuthority's lock. */
     private SettingsProvider mSettingsProvider;
@@ -232,7 +232,7 @@ public final class ActivityThread {
          * the Displayed line that its window's first draw logs (reportWindowsDrawn); 0 once logged.
          */
         long launchStartTime;
-        /** Which window it has (ADR-0041 gap 4 (b3)), as ActivityWindows' pass gave it. */
+        /** Which window it has (ADR-0041 (b3)), as ActivityWindows' pass gave it. */
         final ActivityWindows.Slot windows = new ActivityWindows.Slot();
         /** Whether its windows were given with its own window added, which its resume adds after its create. */
         boolean windowsApplied;
@@ -433,8 +433,7 @@ public final class ActivityThread {
         LoggingHandler logging = new LoggingHandler();
         RuntimeHooks.setUncaughtExceptionPreHandler(logging);
         Thread.setDefaultUncaughtExceptionHandler(new KillApplicationHandler(logging));
-        // The default time zone is the device's, which the runtime puts in persist.sys.timezone (the compatibility
-        // plan's gap 21).
+        // The default time zone is the device's, which the runtime puts in persist.sys.timezone .
         RuntimeHooks.setTimeZoneIdSupplier(() -> SystemProperties.get("persist.sys.timezone"));
         TrafficStats.attachSocketTagger();
         // The system bars' sizes the host passed in the environment, which com.android.minato.view cannot read itself.
@@ -639,7 +638,7 @@ public final class ActivityThread {
     }
 
     /**
-     * As AOSP's acquireProvider, which ContextImpl's ApplicationContentResolver calls (ADR-0045, gap 13a): the app's
+     * As AOSP's acquireProvider, which ContextImpl's ApplicationContentResolver calls (ADR-0045): the app's
      * own providers by authority (step c2c1 installs them), and "settings", the local settings provider, which
      * Android's system_server publishes; it is made at its first acquire, on the caller's application context. Android
      * asks system_server for any other authority, which Minato has none of: null, logged as Android logs it. Each
@@ -716,7 +715,7 @@ public final class ActivityThread {
     private final ArrayMap<IBinder, ServiceInfo> mServicesData = new ArrayMap<>();
 
     /**
-     * As scheduleReceiver, for a broadcast to a receiver of the manifest (gap 9, alarms and jobs that run): the
+     * As scheduleReceiver, for a broadcast to a receiver of the manifest (alarms and jobs that run): the
      * receiver is made on the main thread through the app's AppComponentFactory and gets the intent.
      */
     void scheduleReceiver(Intent intent, ActivityInfo info) {
@@ -1391,16 +1390,16 @@ public final class ActivityThread {
     private InputChannel mHostInput;
     private boolean mHostFocus;
     /**
-     * The window that holds the input channel and the focus: the lowest visible activity's (ADR-0041 gap 4 (b3)), null
+     * The window that holds the input channel and the focus: the lowest visible activity's (ADR-0041 (b3)), null
      * before the first.
      */
     private ViewRootImpl mHostRoot;
     /**
      * The window that holds the session's window: the lowest visible activity's, null below a floating one at the
-     * bottom, whose requested window lies over the empty session's window (gap 4 (b3)).
+     * bottom, whose requested window lies over the empty session's window (ADR-0041 (b3)).
      */
     private ViewRootImpl mWindowRoot;
-    /** Which window each activity has (gap 4 (b3), decision 3). */
+    /** Which window each activity has (ADR-0041 (b3), decision 3). */
     private final ActivityWindows mWindows = new ActivityWindows();
     /** The event types answered without more, each logged once: the content's rectangle. */
     private final boolean[] mSkippedEvents = new boolean[32];
@@ -1507,7 +1506,7 @@ public final class ActivityThread {
                 } else if (r != null && r.state == ON_STOP) {
                     // At the return every activity the pass shows starts again, bottom up, as the task's
                     // ensureActivitiesVisible makes them visible: one below a translucent top before the top
-                    // (ADR-0041 gap 4 (b5a)).
+                    // (ADR-0041 (b5a)).
                     for (ActivityClientRecord shown : new ArrayList<>(mTask)) {
                         if (shown != r && shown.state == ON_STOP && !finishing(shown)
                                 && shown.windows.mode() != ActivityWindows.HIDDEN) {
@@ -1520,7 +1519,7 @@ public final class ActivityThread {
                 break;
             case EVENT_RESUME:
                 mSessionResumed = true;
-                // The requested windows the host took away at the background come back (ADR-0041 gap 4 (b5a)).
+                // The requested windows the host took away at the background come back (ADR-0041 (b5a)).
                 WindowManagerGlobal.getInstance().dispatchSessionReturn();
                 if (r != null && r.state == ON_START) {
                     deliverPending(r);
@@ -1563,7 +1562,7 @@ public final class ActivityThread {
                 break;
             case EVENT_WINDOW_FOCUS_CHANGED:
                 mHostFocus = event[2] != 0;
-                // The session's focus goes to its top focusable window (ADR-0041 gap 4 (b2)).
+                // The session's focus goes to its top focusable window (ADR-0041 (b2)).
                 WindowManagerGlobal.getInstance().setSessionWindow(root, mHostFocus);
                 break;
             case EVENT_CONFIGURATION_CHANGED:
@@ -1627,7 +1626,7 @@ public final class ActivityThread {
             case EVENT_SURFACE_DESTROYED:
                 SurfaceView.dispatchSurfaceDestroyed(event[2]);
                 break;
-            // A requested window's, or a SurfaceView's in a requested window (gap 4 (b3), decision 7).
+            // A requested window's, or a SurfaceView's in a requested window (ADR-0041 (b3), decision 7).
             case EVENT_WINDOW_CREATED:
                 if (!WindowManagerGlobal.getInstance().dispatchWindowCreated(event[2], event[3], (int) event[4],
                         (int) (event[4] >>> 32))) {
@@ -2337,7 +2336,7 @@ public final class ActivityThread {
                 ActivityClientRecord top = topLiveRecord();
                 // As ensureActivitiesVisible: an activity stops when one that occludes it covers it, so the ones below
                 // a translucent top, a dialog theme or the photo picker, stay paused (ADR-0057 step a), and one that
-                // setTranslucent shows again starts again (ADR-0041 gap 4 (b3)); ActivityWindows' pass says which.
+                // setTranslucent shows again starts again (ADR-0041 (b3)); ActivityWindows' pass says which.
                 updateWindows();
                 for (ActivityClientRecord r : reversedTask()) {
                     if (r == top || !mTask.contains(r)) {
@@ -2390,7 +2389,7 @@ public final class ActivityThread {
     }
 
     /**
-     * ADR-0041 gap 4 (b3), the plan's decision 3, as Android 15's ensureActivitiesVisible gives each activity its
+     * ADR-0041 (b3), the plan's decision 3, as Android 15's ensureActivitiesVisible gives each activity its
      * window: ActivityWindows' pass over the task, then, for each activity whose window changed, its windows taken
      * away, top down; the session's window and input to the lowest visible activity; and each visible one's windows
      * again, bottom up, its own as a requested one above the lowest or for a floating one. An activity whose own window
@@ -2441,7 +2440,7 @@ public final class ActivityThread {
     }
 
     /**
-     * @hide WindowManagerGlobal's, at an application window's add (gap 4 (b3)): the group of the activity's windows,
+     * @hide WindowManagerGlobal's, at an application window's add (ADR-0041 (b3)): the group of the activity's windows,
      * its key, or -1 while it is not visible, when the window waits for it.
      */
     public int windowGroupOf(IBinder token) {
@@ -2479,7 +2478,7 @@ public final class ActivityThread {
 
     /**
      * The session's window goes to `windowRecord`'s window, and its input channel and focus to `inputRecord`'s: the
-     * lowest visible activity's (step b3.5b2-1, ADR-0041 gap 4 (b3)), as Android's window manager gives them. The
+     * lowest visible activity's (step b3.5b2-1, ADR-0041 (b3)), as Android's window manager gives them. The
      * window before loses its surface, so its SurfaceViews' surfaces go; the new one gets the window, which its next
      * traversal draws whole. Below a floating activity at the bottom (no `windowRecord`) the session's window is empty.
      * The screen keeps the old window's last frame until the new one's first. An activity whose own window is not
@@ -2528,12 +2527,13 @@ public final class ActivityThread {
         } else if (input != null) {
             to.setInputChannel(input);
         }
-        // The focus leaves the window before and goes to the new one's top focusable window (ADR-0041 gap 4 (b2)).
+        // The focus leaves the window before and goes to the new one's top focusable window (ADR-0041 (b2)).
         WindowManagerGlobal.getInstance().setSessionWindow(to, mHostFocus);
     }
 
     /**
-     * The empty session's window below a floating activity at the bottom (gap 4 (b3)): black, where Android shows the
+     * The empty session's window below a floating activity at the bottom (ADR-0041 (b3)): black, where Android shows
+     * the
      * home screen.
      */
     @SuppressWarnings("deprecation") // Surface.transferFrom, as our ViewRootImpl takes its window's surface.
@@ -2706,7 +2706,7 @@ public final class ActivityThread {
     }
 
     /**
-     * @hide ViewRootImpl's (ADR-0041 gap 4 (b)): a requested window of `type` at a frame in the session's pixels, a
+     * @hide ViewRootImpl's (ADR-0041 (b)): a requested window of `type` at a frame in the session's pixels, a
      * sub-window of `parent` (a requested window's token, or 0 for the session's window) or an application window in
      * the activity group `group`, with its buffer's size (0 x 0 for the frame's), format, alpha and dim. The session
      * answers with WINDOW_CREATED; a negative answer is an errno, -EOPNOTSUPP without a session.
@@ -2740,7 +2740,7 @@ public final class ActivityThread {
     }
 
     /**
-     * @hide NotificationService's toasts (ADR-0041 gap 4 (b4)): whether the app is in the foreground, as
+     * @hide NotificationService's toasts (ADR-0041 (b4)): whether the app is in the foreground, as
      * ActivityTaskManager's hasResumedActivity answers for its toasts: the session resumed with an activity on top.
      */
     public boolean isAppForeground() {
@@ -2748,7 +2748,7 @@ public final class ActivityThread {
     }
 
     /**
-     * @hide WindowManagerGlobal's, at an application window's add (ADR-0041 gap 4 (b)): whether `token` is an
+     * @hide WindowManagerGlobal's, at an application window's add (ADR-0041 (b)): whether `token` is an
      * activity's that is not destroyed, as WMS finds its ActivityRecord; an unknown or destroyed one gives Android's
      * ADD_BAD_APP_TOKEN.
      */
@@ -3151,7 +3151,7 @@ public final class ActivityThread {
 
     /**
      * As AOSP's updateVisibility: for a hidden window the decor goes invisible until the next resume shows it; for a
-     * window shown again without a resume, as below a translucent activity (gap 4 (b3)), it is visible at once.
+     * window shown again without a resume, as below a translucent activity (ADR-0041 (b3)), it is visible at once.
      */
     private void updateVisibility(ActivityClientRecord r, boolean show) {
         View decor = r.activity.mDecor;
@@ -3344,7 +3344,7 @@ public final class ActivityThread {
     private static native int nativeSessionRequestSurface(int op, int z, long token, int left, int top, int right,
             int bottom, int width, int height, int format);
 
-    /** APKRT_REQUEST_WINDOW with its struct apkrt_window_request (ADR-0041 gap 4 (b)); alpha and dim as bits. */
+    /** APKRT_REQUEST_WINDOW with its struct apkrt_window_request (ADR-0041 (b)); alpha and dim as bits. */
     private static native int nativeSessionRequestWindow(int op, int type, long token, long parent, int left, int top,
             int right, int bottom, int width, int height, int format, int group, int alpha, int dim);
 

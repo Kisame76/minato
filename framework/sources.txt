@@ -537,7 +537,7 @@ frameworks_base/core/java/android/view/WindowInsetsController.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityEvent.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityEventSource.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityRecord.java
-# Services batch D: the accessibility data classes apps and libraries fill and read (node, window and service infos), taken
+# The accessibility data classes apps and libraries fill and read (node, window and service infos), taken
 # with Minato's own AccessibilityInteractionClient (no service, so no connection); the node info's patch drops the direct
 # connection (framework/patches/accessibilitynodeinfo-without-direct-connection.patch).
 frameworks_base/core/java/android/view/accessibility/AccessibilityNodeInfo.java
@@ -564,7 +564,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/DrawableInflate
 frameworks_base_graphics/graphics/java/android/graphics/drawable/GradientDrawable.java
 
 # ADR-0041 a): Java's Choreographer and the display (decision 6), which androidx's profileinstaller asks for
-# while the providers install (test 2's gap 9). Choreographer with DisplayEventReceiver, whose natives are ours on
+# while the providers install. Choreographer with DisplayEventReceiver, whose natives are ours on
 # libandroid's AChoreographer, and TimeUtils, which its doFrame calls with c2c2's AnimationUtils; the frame interval
 # comes from DisplayManagerGlobal's DisplayInfo for display 0, over the local IDisplayManager of ServiceManager's
 # "display" (ADR-0045 decision 2), with Display, whose Mode gives DisplayInfo's refresh rate (its cache,
@@ -735,7 +735,7 @@ frameworks_base/core/java/com/android/internal/dynamicanimation/animation/Force.
 frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringAnimation.java
 frameworks_base/core/java/com/android/internal/dynamicanimation/animation/SpringForce.java
 
-# ADR-0045, the local services Godot's start asks for (gaps 11 and 14 of the Godot survey): UtteranceProgressListener,
+# ADR-0045, the local services Godot's start asks for: UtteranceProgressListener,
 # which Godot's speech class extends, and the sensors, AOSP's SensorManager and SystemSensorManager over natives of ours
 # that report none (decision 3), with the classes their API names. LegacySensorManager, the helper of the
 # SensorListener API (deprecated since API 3), stays a compile-only stub.
@@ -755,7 +755,7 @@ frameworks_base/core/java/android/hardware/TriggerEvent.java
 frameworks_base/core/java/android/hardware/TriggerEventListener.java
 frameworks_base/core/java/android/speech/tts/UtteranceProgressListener.java
 
-# ADR-0041 a): GLES from Java (decision 4; test 2's gap 8), opengl/java's three packages: android.opengl, the
+# ADR-0041 a): GLES from Java (decision 4), opengl/java's three packages: android.opengl, the
 # Khronos interfaces javax.microedition.khronos.egl and .opengles, and their implementations in
 # com.google.android.gles_jni, whose natives are AOSP's core/jni files in libandroid_runtime over Minato's front libs
 # (EGL10 makes a GLImpl, whose natives are ES 1.x's, from libGLESv1_CM). ETC1 and ETC1Util came with the graphics
@@ -813,7 +813,7 @@ frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11.java
 frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11Ext.java
 frameworks_base/opengl/java/javax/microedition/khronos/opengles/GL11ExtensionPack.java
 
-# ADR-0045, the input service Godot's start asks for (gap 7a of the Godot survey): InputManager, InputManagerGlobal and
+# ADR-0045, the input service Godot's start asks for: InputManager, InputManagerGlobal and
 # InputDevice over the local input service (android.hardware.input.InputService, ours), with IInputManager's AIDL and
 # what it names, and the gesture detectors Godot's input handler makes, with AppGlobals, whose core settings
 # ViewConfiguration's input timeouts ask from GestureDetector's static init on. VelocityTracker and KeyCharacterMap come
@@ -881,7 +881,7 @@ frameworks_base/core/java/android/transition/Visibility.java
 frameworks_base/core/java/android/transition/VisibilityPropagation.java
 
 # ADR-0043 d2: android.os.Parcel over Minato's natives in libbinder's wire format (android_os_Parcel.cpp), for
-# SurroundingText's copy of a text, Bundles through bytes and apps' saved states (Godot's gap 23), with the
+# SurroundingText's copy of a text, Bundles through bytes and apps' saved states, with the
 # exceptions it throws, ParcelFormatException among them, which its natives throw for NOT_ENOUGH_DATA;
 # PersistableBundle, which it reads from a parcel, and SizeF, which writeValue asks every value about.
 frameworks_base/core/java/android/os/Parcel.java
@@ -909,7 +909,7 @@ frameworks_base/core/java/android/os/FileUriExposedException.java
 # StorageVolume, the one emulated volume that our StorageManager (managergen's, framework/managers) lists.
 frameworks_base/core/java/android/os/storage/StorageVolume.java
 
-# ADR-0045, the settings Godot's start reads (gap 13a, stop 10): ContentResolver, which ContextImpl's
+# ADR-0045, the settings Godot's start reads: ContentResolver, which ContextImpl's
 # ApplicationContentResolver extends, with its client (ContentProviderClient) and its event log tags, Settings over the
 # local settings provider (android.provider.SettingsProvider), MemoryIntArray, which Settings' generation trackers
 # name, ContentObserver with its AIDL, IContentService's AIDL for the local content service, with SyncStatusInfo,
@@ -951,7 +951,7 @@ media_provider_module/apex/framework/java/android/provider/MediaStore.java
 frameworks_base/core/java/android/os/RemoteCallback.java
 frameworks_base/core/java/android/os/ICancellationSignal.aidl
 
-# ADR-0045's text to speech (gap 13b, Godot's gap 11): TextToSpeech with TtsEngines, which finds the engines through
+# ADR-0045's text to speech: TextToSpeech with TtsEngines, which finds the engines through
 # Settings and the package manager, Voice, the AIDL of an engine's service and of the system's TTS manager, which a
 # bound engine speaks through, and ServiceConnection, which the connection to an engine implements. Minato has no
 # engine, so the constructor answers onInit(ERROR) as Android does on a phone without one, and the calls that need an
@@ -1164,7 +1164,7 @@ frameworks_base/core/java/android/view/SoundEffectConstants.java
 # checkStartActivityResult throws for a component that the manifest lacks, was a compile-only stub.
 frameworks_base/core/java/android/content/ActivityNotFoundException.java
 
-# The framework breadth's batch 1 (the compatibility plan's entry 22): the pure-Java
+# The pure-Java
 # public types of android.content, android.database, android.net and android.os, the Unity test APK's packages first, with
 # the hidden types they pull in, which have no stub.
 frameworks_base/core/java/android/content/AsyncQueryHandler.java
@@ -1222,7 +1222,7 @@ frameworks_base/core/java/android/os/WorkDuration.java
 frameworks_base/core/java/android/os/WorkSource.java
 frameworks_base/core/java/android/net/MatchAllNetworkSpecifier.java
 
-# The compatibility plan's gap 7, SQLite databases: android.database.sqlite at the tag over libsqlite.so in the
+# SQLite databases: android.database.sqlite at the tag over libsqlite.so in the
 # guest's /system/lib64 (framework/CMakeLists.txt), with the cursor window its queries fill, the error handlers
 # SQLiteOpenHelper takes and the helpers they reach; their natives are core/jni's android_database_*.cpp, which
 # libandroid_runtime registers.
@@ -1275,7 +1275,7 @@ frameworks_base/core/java/android/database/sqlite/SQLiteTokenizer.java
 frameworks_base/core/java/android/database/sqlite/SQLiteTransactionListener.java
 frameworks_base/core/java/android/database/sqlite/SqliteWrapper.java
 
-# The framework breadth's batch 2 (the compatibility plan's entry 22): the pure-Java
+# The pure-Java
 # public types of android.content.pm, android.view and android.view.autofill, with the hidden types they pull in,
 # which have no stub. OrientationEventListener comes too, whose sensor service ContextImpl answers, and the IdRes
 # annotation, which Attribution's constructor validates its label against.
@@ -1353,7 +1353,7 @@ frameworks_base/core/java/com/android/internal/view/menu/SubMenuBuilder.java
 frameworks_base_graphics/graphics/java/android/view/PixelCopy.java
 modules_utils/java/android/annotation/IdRes.java
 
-# ADR-0045 gap 1, batch 1: the services that answered null. DisplayManager over DisplayManagerGlobal's local
+# The services that answered null. DisplayManager over DisplayManagerGlobal's local
 # display service; PowerManager over the local power and thermal services (IPowerManager, IThermalService, with the
 # listeners and callbacks their signatures name), with PowerSaveState, which getLocationPowerSaveMode reads.
 frameworks_base/core/java/android/hardware/display/DisplayManager.java
@@ -1365,7 +1365,7 @@ frameworks_base/core/java/android/os/IThermalService.aidl
 frameworks_base/core/java/android/os/IThermalEventListener.aidl
 frameworks_base/core/java/android/os/IThermalStatusListener.aidl
 
-# ADR-0045 gap 1, batch 1b: UserManager over the local user service (IUserManager, with the listener its
+# UserManager over the local user service (IUserManager, with the listener its
 # signatures name), and UserInfo and UserProperties, which its answers carry.
 frameworks_base/core/java/android/os/UserManager.java
 frameworks_base/core/java/android/os/IUserManager.aidl
@@ -1373,13 +1373,13 @@ frameworks_base/core/java/android/os/IUserRestrictionsListener.aidl
 frameworks_base/core/java/android/content/pm/UserInfo.java
 frameworks_base/core/java/android/content/pm/UserProperties.java
 
-# The compatibility plan's Unity test APK probe: ConditionVariable, on which ad SDKs block their threads, and Messenger,
+# ConditionVariable, on which ad SDKs block their threads, and Messenger,
 # firebase-iid's channel, over Handler's IMessenger.
 frameworks_base/core/java/android/os/ConditionVariable.java
 frameworks_base/core/java/android/os/Messenger.java
 
-# The compatibility plan's gap 5, widgets, batch 1 (the framework breadth's tool): the
-# public types of android.widget but those that open a second window (gap 4) or stand on one, with the bases they
+# Widgets: the
+# public types of android.widget but those that open a second window or stand on one, with the bases they
 # stand on, android.view.animation, android.view.inspector, android.graphics.drawable.shapes, DateUtils, Time and
 # LogPrinter, the hidden types they pull in, which have no stub, and AnimationScaleListDrawable, which the
 # Material theme's indeterminate progress drawables name.
@@ -1500,7 +1500,7 @@ frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/PathShap
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/RoundRectShape.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/shapes/Shape.java
-# The framework breadth's batch 3a, the Unity test APK probe's: android.os.Debug, which
+# android.os.Debug, which
 # Crashlytics asks whether a debugger is attached, with the hidden TypedProperties it pulls in, and android.util's
 # Base64 streams, with which Firebase writes its heartbeat header.
 frameworks_base/core/java/android/os/Debug.java
@@ -1508,7 +1508,7 @@ frameworks_base/core/java/android/util/Base64DataException.java
 frameworks_base/core/java/android/util/Base64InputStream.java
 frameworks_base/core/java/android/util/Base64OutputStream.java
 frameworks_base/core/java/com/android/internal/util/TypedProperties.java
-# Gap 1's batch 2 (ADR-0045 decisions 3 and 4): NotificationManager over the local notification service
+# ADR-0045 decisions 3 and 4: NotificationManager over the local notification service
 # (android.app.NotificationService, ServiceManager's "notification"), with the channels, groups and notifications it
 # names; AudioAttributes, which Notification's default sound attributes build at class init; ParceledListSlice, which
 # carries the service's lists; Icon, a notification's small icon; RemoteViews, a notification's content views, which
@@ -1554,7 +1554,7 @@ frameworks_base/core/java/android/util/JsonWriter.java
 frameworks_base/core/java/android/util/MalformedJsonException.java
 frameworks_base/core/java/com/android/internal/util/StringPool.java
 
-# The job scheduler (gap 9; the Unity test APK probe: WorkManager casts getSystemService("jobscheduler")), jobs-test: the
+# The job scheduler (the Unity test APK probe: WorkManager casts getSystemService("jobscheduler")), jobs-test: the
 # apex's framework classes and its AIDL, with android.app.JobSchedulerImpl, which the "jobscheduler" service makes.
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/JobSchedulerImpl.java
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/job/IJobCallback.aidl
@@ -1590,13 +1590,13 @@ frameworks_base_graphics/graphics/java/android/graphics/HardwareRenderer.java
 frameworks_base/core/java/android/view/IGraphicsStats.aidl
 frameworks_base/core/java/android/view/IGraphicsStatsCallback.aidl
 
-# AudioTrack (gap 13, the Unity test APK probe: FMOD's output thread), audiotrack-test: our written AudioTrack
+# AudioTrack (the Unity test APK probe: FMOD's output thread), audiotrack-test: our written AudioTrack
 # (framework/managers) takes AudioFormat as it stands, and implements the two interfaces of its API.
 frameworks_base_types/media/java/android/media/AudioFormat.java
 frameworks_base_types/media/java/android/media/AudioRouting.java
 frameworks_base_types/media/java/android/media/VolumeAutomation.java
 
-# The Unity test APK probe's batch C, webview-camera-test: android.webkit's classes that the ad SDKs and FileProvider
+# webview-camera-test: android.webkit's classes that the ad SDKs and FileProvider
 # name, with WebView answering as Android 15 does without the webview feature, which Minato does not report
 # (WebViewFactory.getProvider's UnsupportedOperationException); the legacy Camera, whose Camera$Area Unity's
 # Camera2Wrapper names, on a device without cameras.
@@ -1614,7 +1614,7 @@ frameworks_base/core/java/android/webkit/WebViewFactoryProvider.java
 frameworks_base/core/java/android/webkit/WebViewProvider.java
 frameworks_base/core/java/android/hardware/Camera.java
 
-# The keystore's parameter classes (batch D 2: GetSocial and AndroidX Security build a KeyGenParameterSpec before they
+# The keystore's parameter classes (GetSocial and AndroidX Security build a KeyGenParameterSpec before they
 # ask the AndroidKeyStore provider for a key), keystore-test: the spec and its Builder, KeyProperties, their two
 # helpers and the spec's interface UserAuthArgs. The provider is ADR-0059's; KeymasterDefs, KeyMint's EcCurve and
 # GateKeeper, whose constants they inline, are hand stubs.
@@ -1624,13 +1624,13 @@ frameworks_base_types/keystore/java/android/security/keystore/Utils.java
 frameworks_base_types/keystore/java/android/security/keystore/ArrayUtils.java
 frameworks_base_types/keystore/java/android/security/keystore/UserAuthArgs.java
 
-# Batch B1 (retest 8's resolve list): android.provider.Telephony, whose Sms class the Unity test APK's SDKs read the default SMS app
+# android.provider.Telephony, whose Sms class the Unity test APK's SDKs read the default SMS app
 # and the SMS columns from.
 frameworks_base/core/java/android/provider/Telephony.java
 frameworks_base/core/java/android/telephony/Rlog.java
 frameworks_base/core/java/android/util/Patterns.java
 
-# Batch B2 (retest 8's resolve list): android.accounts, AccountManager over a local account service
+# android.accounts, AccountManager over a local account service
 # (framework/java/android/accounts/LocalAccountManager.java), with the classes an app's authenticator extends.
 frameworks_base/core/java/android/accounts/Account.java
 frameworks_base/core/java/android/accounts/Account.aidl
@@ -1661,7 +1661,7 @@ frameworks_base/core/java/android/accounts/CantAddAccountActivity.java
 frameworks_base/core/java/android/accounts/GrantCredentialsPermissionActivity.java
 frameworks_base/core/java/android/app/admin/DevicePolicyResources.java
 
-# The package installer and the exit reasons (the Unity test APK resolve list, batch E), package-installer-test: the AOSP class
+# The package installer and the exit reasons (the Unity test APK resolve list), package-installer-test: the AOSP class
 # and its AIDL, with the installer our package manager answers with (framework/java), and ApplicationExitInfo, whose
 # list ActivityManager answers empty.
 frameworks_base/core/java/android/content/pm/PackageInstaller.java
@@ -1704,7 +1704,7 @@ frameworks_base_types/media/java/android/media/UnsupportedSchemeException.java
 frameworks_base_types/media/java/android/media/ResourceBusyException.java
 frameworks_base_types/media/java/android/media/MediaDrmThrowable.java
 
-# The Unity test APK probe's gap sort, category 1, webview-camera-test: the rest of android.webkit's public types
+# webview-camera-test: the rest of android.webkit's public types
 # that the ad SDKs name, plain Java: messages, results, handlers and the abstract types a provider implements.
 frameworks_base/core/java/android/webkit/ClientCertRequest.java
 frameworks_base/core/java/android/webkit/ConsoleMessage.java
@@ -1733,7 +1733,7 @@ frameworks_base/core/java/android/webkit/WebViewRenderProcessClient.java
 frameworks_base/core/java/android/webkit/GeolocationPermissions.java
 frameworks_base/core/java/android/webkit/WebStorage.java
 
-# The Unity test APK probe's gap sort, category 1, package 2, webview-camera-test: camera2's plain types that Unity's
+# webview-camera-test: camera2's plain types that Unity's
 # Camera2Wrapper names (the exception, a metering area, the session's callbacks and a capture failure), android.print's
 # plain types (page ranges, print attributes, a document's info, the adapter and a print job) and ShapeDrawable.
 frameworks_base/core/java/android/hardware/camera2/CameraAccessException.java
@@ -1748,7 +1748,7 @@ frameworks_base/core/java/android/print/PrintDocumentInfo.java
 frameworks_base/core/java/android/print/PrintJob.java
 frameworks_base_graphics/graphics/java/android/graphics/drawable/ShapeDrawable.java
 
-# The alarm manager (ADR-0045: alarms kept, none run; batch D 3), alarm-test: the apex's AlarmManager and its AIDL,
+# The alarm manager (ADR-0045: alarms kept, none run), alarm-test: the apex's AlarmManager and its AIDL,
 # over the local alarm service (android.app.LocalAlarmManager) that ServiceManager gives as "alarm".
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/AlarmManager.java
 frameworks_base_types/apex/jobscheduler/framework/java/android/app/IAlarmManager.aidl
@@ -1803,7 +1803,7 @@ frameworks_base/core/java/android/view/IScrollCaptureCallbacks.aidl
 media_module/apex/framework/java/android/media/ApplicationMediaCapabilities.java
 media_module/apex/framework/java/android/media/MediaFeature.java
 
-# Batch B1, MimeTypeMap and URLUtil (retest 8's resolve list): the table of extensions and MIME types that a library asks
+# MimeTypeMap and URLUtil: the table of extensions and MIME types that a library asks
 # for a download's name or an upload's type, and the URL helpers of a WebView's downloads. DefaultMimeMapFactory (fetched
 # with the three tables it reads, third_party/sources.json's mime_map and mime_support) is the supplier that
 # ActivityThread.main installs as libcore's MimeMap default, as RuntimeInit.commonInit does on Android.
@@ -1819,7 +1819,7 @@ wifi_java/framework/java/android/net/wifi/SupplicantState.java
 connectivity_java/framework-t/src/android/net/EthernetNetworkSpecifier.java
 frameworks_base/core/java/android/webkit/WebChromeClient.java
 
-# The Unity test APK probe's gap sort, category 2, webview-camera-test: Movie, whose GIFs hwui's GIFMovie decodes over
+# webview-camera-test: Movie, whose GIFs hwui's GIFMovie decodes over
 # giflib, and PdfDocument with PrintedPdfDocument over Skia's PDF backend (graphics/hwui's patch 0011 registers both on
 # the host flavor), in place of the Movie placeholder; and android.util.Range, which StreamConfigurationMap names.
 frameworks_base_graphics/graphics/java/android/graphics/Movie.java
@@ -1949,7 +1949,7 @@ frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperation.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperOperationFlag.aidl
 frameworks_av_media_aidl/aidl/android/media/VolumeShaperState.aidl
 
-# Batch B3b-2 (signature types, pure Java): what framework/signature-gaps.txt's types need
+# Signature types, pure Java: what framework/signature-gaps.txt's types need
 frameworks_base/core/java/android/app/IInstrumentationWatcher.aidl
 frameworks_base/core/java/android/app/IUriGrantsManager.aidl
 frameworks_base/core/java/android/app/NotificationHistory.java
@@ -1968,7 +1968,7 @@ frameworks_base/core/java/android/hardware/display/BrightnessCorrection.java
 frameworks_base/core/java/android/hardware/display/WifiDisplay.java
 frameworks_base/core/java/android/hardware/display/WifiDisplaySessionInfo.java
 
-# Batch B3b-3 (signature types, pure Java): what framework/signature-gaps.txt's types need
+# Signature types, pure Java: what framework/signature-gaps.txt's types need
 modules_utils/java/android/annotation/AppIdInt.java
 modules_utils/java/android/annotation/FloatRange.java
 modules_utils/java/android/annotation/IntRange.java
@@ -1993,7 +1993,7 @@ frameworks_base/core/java/com/android/internal/content/ReferrerIntent.java
 frameworks_base/core/java/android/view/accessibility/AccessibilityRequestPreparer.java
 frameworks_base/core/java/android/os/CancellationSignalBeamer.java
 
-# Batch B3b-4 (signature types, pure Java): what framework/signature-gaps.txt's types need
+# Signature types, pure Java: what framework/signature-gaps.txt's types need
 frameworks_base_graphics/graphics/java/android/graphics/GraphicBuffer.java
 frameworks_base_graphics/graphics/java/android/graphics/TextureLayer.java
 frameworks_base/core/java/android/hardware/display/VirtualDisplay.java
@@ -2002,7 +2002,7 @@ frameworks_base/core/java/android/hardware/input/InputDeviceSensorManager.java
 frameworks_base/core/java/android/view/autofill/IAutofillWindowPresenter.aidl
 frameworks_base/core/java/com/android/internal/inputmethod/IInputContentUriToken.aidl
 
-# Batch B4 (SDK-path types, pure Java): what Unity games and common SDKs reach
+# SDK-path types, pure Java: what Unity games and common SDKs reach
 frameworks_base/core/java/android/app/AuthenticationRequiredException.java
 frameworks_base/core/java/android/app/ExpandableListActivity.java
 frameworks_base/core/java/android/app/IntentService.java
@@ -2073,7 +2073,7 @@ frameworks_base/core/java/com/android/internal/logging/EventLogTags.logtags
 # CombinedVibration, what VibratorManager.vibrate takes; LightState and LightsRequest, a light's state and a session's
 # request; PlaybackState with its CustomAction, a media session's playback state, which MediaController reports.
 frameworks_base/core/java/android/os/CombinedVibration.java
-# Gap 1's batch 3 (2026-10-28 and 29): the vibrator and its manager, AOSP's SystemVibrator and
+# The vibrator and its manager, AOSP's SystemVibrator and
 # SystemVibratorManager over the local vibrator manager service (android.os.VibratorManagerService), with Vibrator,
 # VibratorManager, NullVibrator, VibrationAttributes, the vibrators' info and config, and the vibrator HAL's AIDL
 # (hardware/interfaces' vibrator), whose IVibrator's constants and Braking VibratorInfo reads.
@@ -2099,7 +2099,7 @@ hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/EffectStren
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibrator.aidl
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/IVibratorCallback.aidl
 hardware_interfaces_vibrator/vibrator/aidl/android/hardware/vibrator/PrimitivePwle.aidl
-# Gap 1's batch 3 (2026-10-29): UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
+# UiModeManager, which AppCompat's night mode, media3's Util.isTv and Material's
 # ColorContrast ask, over the local UI mode service (android.app.LocalUiModeManager), with its interfaces and the
 # IpcDataCache of its night mode (enable_night_mode_binder_cache).
 frameworks_base/core/java/android/app/UiModeManager.java
@@ -2107,7 +2107,7 @@ frameworks_base/core/java/android/app/IUiModeManager.aidl
 frameworks_base/core/java/android/app/IUiModeManagerCallback.aidl
 frameworks_base/core/java/android/app/IOnProjectionStateChangedListener.aidl
 frameworks_base/core/java/android/os/IpcDataCache.java
-# Gap 1's batch 3 (2026-10-29): CaptioningManager, which media3's TrackSelectionParameters and SubtitleView ask
+# CaptioningManager, which media3's TrackSelectionParameters and SubtitleView ask
 # and which reads the captions' secure settings itself; MediaMetricsManager, whose playback session media3's
 # MediaMetricsListener takes, over the local media metrics service (android.media.metrics.LocalMediaMetricsManager),
 # with its interface, its sessions and the events they report.
@@ -2127,7 +2127,7 @@ frameworks_base_types/media/java/android/media/metrics/NetworkEvent.java
 frameworks_base_types/media/java/android/media/metrics/TrackChangeEvent.java
 frameworks_base_types/media/java/android/media/metrics/EditingEndedEvent.java
 frameworks_base_types/media/java/android/media/metrics/MediaItemInfo.java
-# Gap 1's batch 3 (2026-10-29): ShortcutManager, which androidx's ShortcutManagerCompat asks, over the local
+# ShortcutManager, which androidx's ShortcutManagerCompat asks, over the local
 # shortcut service (android.content.pm.LocalShortcutService), with ShortcutInfo, the interface, and AndroidFuture,
 # whose futures carry the answers of a pin request and a result intent.
 frameworks_base/core/java/android/content/pm/ShortcutManager.java
@@ -2201,7 +2201,7 @@ frameworks_base/core/java/android/app/InvalidForegroundServiceTypeException.java
 # ADR-0058 d), texture-view-test: TextureView, which a window drawn in software draws too
 # (framework/patches/textureview-software-layer.patch, its natives android_view_TextureView.cpp).
 frameworks_base/core/java/android/view/TextureView.java
-# Framework breadth F1, ui-types-test: android.gesture, android.sax, six text spans, the text classifier's
+# ui-types-test: android.gesture, android.sax, six text spans, the text classifier's
 # data types with SystemTextClassifierMetadata and EntityConfidence, DateSorter and the WebView statics' classes, the
 # speech result types, and three android.print ids.
 frameworks_base/core/java/android/gesture/Gesture.java
@@ -2319,7 +2319,7 @@ frameworks_base/core/java/android/app/AsyncNotedAppOp.java
 frameworks_base/core/java/android/app/SyncNotedAppOp.java
 modules_utils/java/android/annotation/CurrentTimeMillisLong.java
 
-# Framework breadth F2, f2-types-test: DialogFragment and the other android.app types, ExifInterface,
+# f2-types-test: DialogFragment and the other android.app types, ExifInterface,
 # WallpaperColors with the palette quantizers, AudioProfile and AudioDescriptor, Keyboard, the accessibility gesture
 # description, LiveFolders, SyncStateContract and the 7 health data classes.
 frameworks_base/core/java/android/accessibilityservice/GestureDescription.java
@@ -2549,7 +2549,7 @@ frameworks_base_types/media/java/android/media/RouteListingPreference.java
 frameworks_base_types/media/java/android/media/MediaRouter2Utils.java
 frameworks_base_types/media/java/android/media/EncoderProfiles.java
 frameworks_base_types/telephony/java/com/android/telephony/Rlog.java
-# ADR-0041 gap 4 (b): a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
+# ADR-0041 (b): a requested window's frame (a dialog's, a popup's) as WMS's relayout computes it, on the
 # client as AOSP's WindowLayout does, with the holder of its frames.
 frameworks_base/core/java/android/view/WindowLayout.java
 frameworks_base/core/java/android/window/ClientWindowFrames.java
@@ -2558,7 +2558,7 @@ frameworks_base/core/java/android/window/ClientWindowFrames.java
 frameworks_base/core/java/android/app/UriGrantsManager.java
 frameworks_base/core/java/android/app/GrantedUriPermission.java
 frameworks_base/core/java/android/app/GrantedUriPermission.aidl
-# ADR-0041 gap 4 (b4): Toast and ToastPresenter, which show a toast in a requested window of type TYPE_TOAST
+# ADR-0041 (b4): Toast and ToastPresenter, which show a toast in a requested window of type TYPE_TOAST
 # (2005) with the window token the local notification service gives it; a text toast is drawn in the app's process,
 # where Android's SystemUI draws it.
 frameworks_base/core/java/android/widget/Toast.java
@@ -2674,11 +2674,11 @@ frameworks_base/core/java/android/os/BatteryProperty.java
 frameworks_base/core/java/android/os/IBatteryPropertiesRegistrar.aidl
 frameworks_base/core/java/com/android/internal/app/IBatteryStats.aidl
 
-# SoundPool (the compatibility plan's gap 13): AOSP's Java over our natives (framework/native/android_runtime/
+# SoundPool: AOSP's Java over our natives (framework/native/android_runtime/
 # android_media_SoundPool.cpp), tested by soundpool-test against Android 15.
 frameworks_base_types/media/java/android/media/SoundPool.java
 
-# The text selection's floating action mode (the platform action bar's gap 5, after step 5b): Editor starts it for a
+# The text selection's floating action mode (the platform action bar): Editor starts it for a
 # selection or a long press, with the floating toolbar as a popup window of its own (FloatingToolbar over
 # LocalFloatingToolbarPopup, as Android 15's, no remote popup); the magnifier a handle's drag shows is ours without its
 # picture (framework/java/android/widget/Magnifier.java: AOSP's draws with hwui's SimpleRenderer, and the views draw in
@@ -2687,7 +2687,7 @@ frameworks_base/core/java/com/android/internal/view/FloatingActionMode.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbar.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/FloatingToolbarPopup.java
 frameworks_base/core/java/com/android/internal/widget/floatingtoolbar/LocalFloatingToolbarPopup.java
-# Gap 1's batch A: GameManager, which games and engines ask for the game mode, over the local game
+# GameManager, which games and engines ask for the game mode, over the local game
 # service (android.app.LocalGameManager), with its interfaces and the types they pass.
 frameworks_base/core/java/android/app/GameManager.java
 frameworks_base/core/java/android/app/GameModeConfiguration.java
@@ -2699,7 +2699,7 @@ frameworks_base/core/java/android/app/GameState.aidl
 frameworks_base/core/java/android/app/IGameManagerService.aidl
 frameworks_base/core/java/android/app/IGameModeListener.aidl
 frameworks_base/core/java/android/app/IGameStateListener.aidl
-# Gap 1's batch A, step 2: UsbManager (SDL, Unity and controller libraries ask it) over the local USB
+# UsbManager (SDL, Unity and controller libraries ask it) over the local USB
 # service (android.hardware.usb.LocalUsbManager), with the USB types; DownloadManager, which WebView and updaters ask;
 # UsageStatsManager over the local usage stats service (android.app.usage.LocalUsageStats), with its AIDL and types.
 frameworks_base/core/java/android/hardware/usb/DisplayPortAltModeInfo.aidl
@@ -2738,19 +2738,19 @@ frameworks_base/core/java/android/app/usage/AppStandbyInfo.java
 frameworks_base/core/java/android/app/usage/EventList.java
 frameworks_base/core/java/android/provider/Downloads.java
 frameworks_base/core/java/android/app/usage/AppLaunchEstimateInfo.java
-# Gap 1's batch B: the small services real apps ask at start. RestrictionsManager over a local service
+# The small services real apps ask at start. RestrictionsManager over a local service
 # (android.content.LocalRestrictionsManager) and ConsumerIrManager, which answer as a phone does that has no restrictions
 # provider and no IR emitter; SearchManager and BiometricManager are registered without AIDL (see SystemServiceRegistry).
 frameworks_base/core/java/android/content/RestrictionsManager.java
 frameworks_base/core/java/android/content/IRestrictionsManager.aidl
 frameworks_base/core/java/android/hardware/ConsumerIrManager.java
 frameworks_base/core/java/android/hardware/IConsumerIrService.aidl
-# Gap 1's batch C: DevicePolicyManager as managergen writes it (tools/build-framework.sh) with the written part of
+# DevicePolicyManager as managergen writes it (tools/build-framework.sh) with the written part of
 # framework/managers; the receiver and the info that an app's admin classes extend and read are AOSP's.
 frameworks_base/core/java/android/app/admin/DeviceAdminReceiver.java
 frameworks_base/core/java/android/app/admin/DeviceAdminInfo.java
 
-# Batch C1 (framework breadth, pure Java, by what libraries and old apps name): the secondary display's Presentation,
+# Pure Java: the secondary display's Presentation,
 # the credential manager's request, response and exception types (androidx.credentials names them on Android 15),
 # slices, and MBMS's ServiceInfo with its two subclasses; api-breadth-test loads each. Out for now: SplashScreenView (it
 # pulls the jank monitor), ActivityGroup and LocalActivityManager (the latter pulls the activity thread's server
@@ -2772,7 +2772,7 @@ frameworks_base_types/telephony/java/android/telephony/mbms/FileServiceInfo.java
 frameworks_base_types/telephony/java/android/telephony/mbms/FileInfo.java
 frameworks_base_types/telephony/java/android/telephony/mbms/StreamingServiceInfo.java
 
-# Batch C2 (framework breadth, pure Java, from Android's public API): the MIDI device types, the text-to-speech
+# Pure Java: the MIDI device types, the text-to-speech
 # service's request and callback, the chooser's targets and actions, the provider contracts, the key confirmation types,
 # a conversation status and a blob handle; api-breadth-test loads each.
 frameworks_base_types/media/java/android/media/midi/MidiDeviceInfo.java
@@ -2796,7 +2796,7 @@ frameworks_base/core/java/android/app/people/ConversationStatus.java
 frameworks_base_types/apex/blobstore/framework/java/android/app/blob/BlobHandle.java
 frameworks_base_types/apex/blobstore/framework/java/android/app/blob/XmlTags.java
 
-# Batch AF (the audio effects plan): AOSP's android.media.audiofx over our local effect service (the natives of
+# AOSP's android.media.audiofx over our local effect service (the natives of
 # framework/native/android_runtime/android_media_AudioEffect.cpp): the effect base class and the effects that players
 # create at their start, the three pre-processings, DynamicsProcessing and HapticGenerator (their stubs extend the base
 # class), and Visualizer over its own natives (android_media_Visualizer.cpp).
@@ -2897,7 +2897,7 @@ frameworks_base/core/java/android/hardware/camera2/impl/PhysicalCaptureResultInf
 frameworks_base/core/java/android/hardware/camera2/impl/SetCommand.java
 frameworks_base/core/java/android/hardware/camera2/impl/GetCommand.java
 
-# The framework breadth's batch F (android.text.format, android.widget, android.net, android.telephony): Formatter,
+# android.text.format, android.widget, android.net, android.telephony: Formatter,
 # SearchView with its dialog and suggestions adapter, Proxy, LocalSocket with LocalServerSocket, PhoneNumberUtils
 # and VideoView with the caption renderers it names. Inet4AddressUtils and ProxyUtils of the connectivity module are
 # ours (framework/java/com/android/net/module/util).
@@ -2918,7 +2918,7 @@ frameworks_base_types/media/java/android/media/Cea708CaptionRenderer.java
 frameworks_base_types/media/java/android/media/ClosedCaptionRenderer.java
 frameworks_base_types/media/java/android/media/TtmlRenderer.java
 
-# The framework breadth's batch G (keystore, backup): StrongBoxUnavailableException, KeyStoreException and KeyProtection
+# keystore, backup: StrongBoxUnavailableException, KeyStoreException and KeyProtection
 # that AndroidX Security's EncryptedSharedPreferences and other key code name; BackupManager with BackupAgent,
 # BackupAgentHelper and the two helpers that apps declare in the manifest.
 frameworks_base_types/keystore/java/android/security/KeyStoreException.java
@@ -2966,7 +2966,7 @@ frameworks_base/core/java/android/app/backup/BackupTransport.java
 frameworks_base/core/java/com/android/internal/backup/IBackupTransport.aidl
 frameworks_base/core/java/com/android/internal/backup/ITransportStatusCallback.aidl
 
-# Batch G's media browsing: MediaBrowser with MediaBrowserService, and the sessions they need: MediaSession and
+# Media browsing: MediaBrowser with MediaBrowserService, and the sessions they need: MediaSession and
 # MediaController over a local session service (framework/java/android/media/session).
 frameworks_base_types/media/java/android/media/browse/MediaBrowser.java
 frameworks_base_types/media/java/android/media/browse/MediaBrowser.aidl
@@ -2992,7 +2992,7 @@ frameworks_base_types/media/java/android/media/session/IOnVolumeKeyLongPressList
 frameworks_base_types/media/java/android/media/session/ISession2TokensListener.aidl
 frameworks_base_types/media/java/android/media/IRemoteSessionCallback.aidl
 
-# Batch G's biometric prompt: BiometricPrompt with its crypto object and prompt info over a local authentication service
+# Biometric prompt: BiometricPrompt with its crypto object and prompt info over a local authentication service
 # (framework/java/android/hardware/biometrics/LocalAuthService), as a device without biometric hardware answers.
 frameworks_base/core/java/android/hardware/biometrics/BiometricPrompt.java
 frameworks_base/core/java/android/hardware/biometrics/CryptoObject.java
@@ -3045,7 +3045,7 @@ frameworks_base/core/java/android/hardware/fingerprint/FingerprintEnrollOptions.
 frameworks_base/core/java/android/hardware/biometrics/PromptVerticalListContentView.java
 connectivity_java/framework-t/src/android/net/nsd/NsdServiceInfo.java
 
-# The provider contracts (group 2 of the framework breadth; provider-contracts-test): Browser, CalendarContract,
+# The provider contracts (provider-contracts-test): Browser, CalendarContract,
 # CallLog, VoicemailContract, BlockedNumberContract and E2eeContactKeysManager, with what they name that is not here.
 frameworks_base/core/java/android/provider/Browser.java
 frameworks_base/core/java/android/provider/BrowserContract.java
@@ -3057,7 +3057,7 @@ frameworks_base_types/telecomm/java/android/telecom/Voicemail.java
 frameworks_base/core/java/android/provider/CallLog.java
 frameworks_base/core/java/android/provider/BlockedNumberContract.java
 
-# VpnService (group 1 of the framework breadth, vpn-test): the service class, its consent intent's VpnConfig and the
+# VpnService (vpn-test): the service class, its consent intent's VpnConfig and the
 # interface it asks (IVpnManager, with the types its signatures name; VpnProfile only as AOSP's parcelable
 # declaration, as its IKE and VCN classes are none of an app's business), over the local vpn service.
 frameworks_base/core/java/android/net/VpnService.java
@@ -3068,7 +3068,7 @@ connectivity_java/framework/src/android/net/IpPrefix.java
 connectivity_java/framework/src/android/net/LinkAddress.java
 connectivity_java/framework/src/android/net/RouteInfo.java
 
-# Batch H1 (framework breadth, pure Java, api-coverage's first batch of the remaining 209): the accessibility gesture event,
+# Pure Java: the accessibility gesture event,
 # AssistStructure, the TV input and interactive-app request and response types, the device controls' types and templates,
 # the MBMS callbacks and requests, and the inline content view, with the hidden helpers they pull in (Constants,
 # PooledStringReader/Writer, ControlTemplateWrapper, MbmsUtils and friends, InlinePresentationStyleUtils).
@@ -3140,7 +3140,7 @@ frameworks_base_types/telephony/java/android/telephony/mbms/StreamingServiceCall
 frameworks_base/core/java/android/widget/inline/InlinePresentationSpec.java
 frameworks_base/core/java/com/android/internal/widget/InlinePresentationStyleUtils.java
 
-# Batch H2 (framework breadth, pure Java, api-coverage's next batch): the device policy types (events, policies,
+# Pure Java: the device policy types (events, policies,
 # FreezePeriod, SystemUpdatePolicy), the autofill service's types (Dataset, FillResponse, SaveInfo, the validators,
 # transformations and sanitizers), PhoneNumberFormattingTextWatcher and UiccCardInfo, with the hidden helpers they pull
 # in. Left out: the legacy activity groups (ActivityGroup, TabActivity, LocalActivityManager) and the media route
@@ -3199,7 +3199,7 @@ frameworks_base/core/java/android/service/autofill/VisibilitySetterAction.java
 frameworks_base_types/telephony/java/android/telephony/PhoneNumberFormattingTextWatcher.java
 frameworks_base_types/telephony/java/android/telephony/UiccCardInfo.java
 
-# Batch H3 (framework breadth, pure Java, api-coverage's next batch): the companion device filters (with DeviceFilter,
+# Pure Java: the companion device filters (with DeviceFilter,
 # taken from AOSP instead of generated), the media effect interfaces (Effect, EffectUpdateListener; EffectFactory needs
 # the filter framework's EffectContext), MediaProjectionConfig, TvAdServiceInfo, the MTP types,
 # AppUriAuthenticationPolicy, the identity credential store's types (android.security.identity), MessagePdu and
@@ -3249,7 +3249,7 @@ frameworks_base_types/identity/java/android/security/identity/UnknownAuthenticat
 frameworks_base_types/identity/java/android/security/identity/WritableIdentityCredential.java
 frameworks_base/core/java/android/service/carrier/MessagePdu.java
 
-# SpeechRecognizer (group 3 of the framework breadth, speech-test): the recognizer, its implementation and proxy, and
+# SpeechRecognizer (speech-test): the recognizer, its implementation and proxy, and
 # the AIDL interfaces of the recognition service manager they ask (over the local speech recognition service, which
 # answers as a phone without a recognition service does).
 frameworks_base/core/java/android/speech/SpeechRecognizer.java
@@ -3262,7 +3262,7 @@ frameworks_base/core/java/android/speech/IRecognitionListener.aidl
 frameworks_base/core/java/android/speech/IRecognitionSupportCallback.aidl
 frameworks_base/core/java/android/speech/IModelDownloadListener.aidl
 
-# Batch H4 (framework breadth, pure Java, what api-coverage's last batch holds beyond a hidden member by hand): the
+# Pure Java: the
 # credential provider service's types (android.service.credentials), the quick access wallet's, the UI translation and
 # content capture value types, the spell checker's info and subtype, the telephony data slicing types, CallAudioState,
 # CallAttributes, ImsException, EuiccInfo and VisibleActivityInfo, with the hidden helpers they pull in. Left out and
@@ -3310,23 +3310,23 @@ frameworks_base/core/java/android/view/translation/TranslationResponse.java
 frameworks_base/core/java/android/view/translation/TranslationResponseValue.java
 frameworks_base/core/java/android/view/translation/UiTranslationStateCallback.java
 
-# Batch H5 (framework breadth, pure Java): SliceMetrics with AOSP's own LogMaker (the compile-only stub of
+# Pure Java: SliceMetrics with AOSP's own LogMaker (the compile-only stub of
 # StatusBarNotification's log entry gives way to it). Metrics are written nowhere: our MetricsLogger.write drops them.
 frameworks_base/core/java/android/metrics/LogMaker.java
 frameworks_base/core/java/android/app/slice/SliceMetrics.java
 
-# Batch H5, part 2: ApplicationStartInfo (its proto field ids are a compile-only stub: nothing persists a record) and
+# ApplicationStartInfo (its proto field ids are a compile-only stub: nothing persists a record) and
 # VisualVoicemailService, whose static methods call four hidden members of TelephonyManager (managers/).
 frameworks_base/core/java/android/app/ApplicationStartInfo.java
 frameworks_base_types/telephony/java/android/telephony/VisualVoicemailService.java
 
-# Batch H6 (framework breadth, pure Java, trial): the assist structure and the autofill requests.
+# Pure Java: the assist structure and the autofill requests.
 frameworks_base/core/java/android/app/assist/AssistStructure.java
 frameworks_base/core/java/android/service/autofill/FillContext.java
 frameworks_base/core/java/android/service/autofill/FillRequest.java
 frameworks_base/core/java/android/service/autofill/SaveRequest.java
 
-# Batch H6, part 2: the media route button and its action provider, with the route dialogs they open.
+# The media route button and its action provider, with the route dialogs they open.
 frameworks_base/core/java/android/app/MediaRouteButton.java
 frameworks_base/core/java/android/app/MediaRouteActionProvider.java
 frameworks_base/core/java/com/android/internal/app/MediaRouteChooserDialog.java

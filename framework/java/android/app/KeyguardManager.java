@@ -1,5 +1,5 @@
 /*
- * Ours under AOSP's name (gap 1 of the compatibility plan, batch A): android.app.KeyguardManager, the lock screen's
+ * Ours under AOSP's name: android.app.KeyguardManager, the lock screen's
  * manager. AOSP's version builds a LockPatternUtils, asks the window manager, the trust manager and the notification
  * manager, none of which Minato has. Ours keeps its public API and answers as a phone does that has no secure lock
  * screen, the way the Android emulator (apk-runner-35) does: the keyguard is not showing, the device is not locked and

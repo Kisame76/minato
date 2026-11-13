@@ -1,5 +1,5 @@
 /*
- * The content service (ADR-0045 decisions 2 and 4, gap 13a): the IContentService of Android's ContentService, local
+ * The content service (ADR-0045 decisions 2 and 4): the IContentService of Android's ContentService, local
  * in the app's process, which ServiceManager's table gives as "content", for ContentResolver's observers,
  * notifications and syncs. It is AIDL's Default class, as the input service is: an observer is accepted and never
  * called back, and notifyChange reaches none, a listed gap: no setting changes yet, but the app's own providers'

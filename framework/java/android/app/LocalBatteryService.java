@@ -1,5 +1,5 @@
 /*
- * The battery (gap 1 of the compatibility plan): what system_server's BatteryService tells an app about the battery,
+ * The battery: what system_server's BatteryService tells an app about the battery,
  * kept in the app's process from the host's battery (APKRT_EVENT_BATTERY and APKRT_NR_BATTERY, which the host feeds
  * from UIDevice's batteryLevel and batteryState). As BatteryService.processValuesLocked at android-15.0.0_r1 does on
  * each change of the battery: the power connected or disconnected broadcast when the plug changes, the battery low

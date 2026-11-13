@@ -1,5 +1,5 @@
 /*
- * The power service (ADR-0045 decisions 3 and 4; gap 1 of the compatibility plan, batch 1): IPowerManager of
+ * The power service (ADR-0045 decisions 3 and 4): IPowerManager of
  * system_server, local in the app's process, which ServiceManager's table gives as "power" and PowerManager asks. It
  * answers as Android 15's does for an app on a phone that is on, not saving power and not idle [verified:
  * services-test on apk-runner-35-bare]:

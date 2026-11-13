@@ -1,5 +1,5 @@
 /*
- * The authentication service (gap 1 of the compatibility plan, batch G): IAuthService of system_server, local in the
+ * The authentication service: IAuthService of system_server, local in the
  * app's process, which ServiceManager's table gives as "auth" and AOSP's BiometricPrompt asks. The iPhone has no
  * fingerprint, face or iris sensor an Android app could use (ADR-0045 decision 4 reports them as absent), so the
  * service answers as an Android 15 device without biometric hardware and without a secure lock screen: a prompt that

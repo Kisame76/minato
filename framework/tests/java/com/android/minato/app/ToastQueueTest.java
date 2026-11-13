@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * ADR-0041 gap 4 (b4) on the host's JVM (tools/framework-host-check.sh): the toast queue against a fake host, as
+ * ADR-0041 (b4) on the host's JVM (tools/framework-host-check.sh): the toast queue against a fake host, as
  * Android 15's NotificationManagerService keeps it. The host's calls go into one log, so their order is checked too:
  * one toast shows at a time, for 2 s or 3.5 s, a text toast 333 ms more and one after a text toast 250 ms more; a
  * package queues at most five; a token queued again only changes its duration; a cancel hides and the next shows; an

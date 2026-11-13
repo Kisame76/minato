@@ -1,5 +1,5 @@
 Minato's patch to frameworks/base's media/java/android/media/SoundPool.java at android-15.0.0_r1 (Apache-2.0), the
-compatibility plan's gap 13 (SoundPool): the static initializer loads no libsoundpool.
+SoundPool: the static initializer loads no libsoundpool.
 
 Why: Android's SoundPool natives live in libmedia_jni's neighbour libsoundpool, which the static initializer loads.
 Minato builds no libsoundpool; its SoundPool natives are libandroid_runtime's (framework/native/android_runtime/

@@ -1,7 +1,7 @@
 // The hand file of our AutofillManager (ADR-0039 step c2c3, ADR-0045 decision 3): tools/managergen writes the class
 // from the public API, whose methods log once and return their default, and the members here are the hidden ones
 // that taken AOSP files call. Autofill is off on Minato (ADR-0041 decision 2), as on a device without the autofill
-// service: every Context gives a manager (gap 1, batch 3), as AOSP's registry makes one with a null IAutoFillManager,
+// service: every Context gives a manager, as AOSP's registry makes one with a null IAutoFillManager,
 // and it answers as AOSP's does then (hasAutofillFeature false): off, unsupported, no service, and every call a no-op
 // [verified: system-services-test on apk-runner-35, whose image runs the service, so only "supported" differs].
 // Compose's AndroidAutofill throws where a context gives none.

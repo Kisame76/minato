@@ -1,5 +1,5 @@
 /*
- * The UI mode service (gap 1 of the compatibility plan, batch 3): IUiModeManager of system_server, local in the app's
+ * The UI mode service: IUiModeManager of system_server, local in the app's
  * process, which ServiceManager's table gives as "uimode" and AOSP's UiModeManager asks. It answers as Android 15's
  * UiModeManagerService does for an app on a phone [verified: system-services-test on apk-runner-35]:
  *   - the current mode type is the configuration's, a normal device's (UI_MODE_TYPE_NORMAL) where it has none;

@@ -1,5 +1,5 @@
 /*
- * Ours (the compatibility plan's gap 5, widgets, batch 1): com.google.android.collect.Lists under AOSP's name, whose
+ * Ours (widgets): com.google.android.collect.Lists under AOSP's name, whose
  * folder of frameworks/base is not fetched. ListView's constructor makes its header and footer lists with it, and
  * View's debug dump names it. Android 15's has these two methods [verified: frameworks/base at android-15.0.0_r1].
  */

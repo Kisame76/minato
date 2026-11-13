@@ -1,5 +1,5 @@
 /*
- * The game service (gap 1 of the compatibility plan, batch A): IGameManagerService of system_server, local in the app's
+ * The game service: IGameManagerService of system_server, local in the app's
  * process, which ServiceManager's table gives as "game" and AOSP's GameManager asks. It answers as a phone does for an
  * app that is no game and has no game mode configuration [read: GameManagerService, android-15.0.0_r1; measured by
  * system-services-test on apk-runner-35]: the game mode is GAME_MODE_UNSUPPORTED, there is no game mode info, ANGLE is

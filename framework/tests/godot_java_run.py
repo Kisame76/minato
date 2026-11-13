@@ -5,7 +5,7 @@ tools/android-reference.sh --app <app> runs it on the AVD. app_process starts it
 1290 x 2796 at scale 3, under graphics-run with the session's layers (MINATO_SESSION_LAYERS=1): the SurfaceView of
 Godot's render view gets a layer of its own, on which the Mac's MoltenVK (MINATO_MOLTENVK) or ANGLE (MINATO_ANGLE)
 draws its frames. apk-run's lifecycle taps the window's middle six times, a second apart after the start, on the
-session's input channel, as tools/android-reference.sh taps the AVD's middle while the bench runs (test 2's gap 6):
+session's input channel, as tools/android-reference.sh taps the AVD's middle while the bench runs:
 the bench logs its first touch, in fractions of its viewport, so the line is the same on every screen.
 
 Its log lines with the tag godot that begin "godot-bench: " must be Android 15's (fixtures/expected/<app>.logcat), as

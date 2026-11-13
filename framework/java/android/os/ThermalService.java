@@ -1,5 +1,5 @@
 /*
- * The thermal service (ADR-0045 decisions 3 and 4; gap 1 of the compatibility plan, batch 1): IThermalService of
+ * The thermal service (ADR-0045 decisions 3 and 4): IThermalService of
  * system_server, local in the app's process, which ServiceManager's table gives as "thermalservice" and PowerManager
  * asks. Until step c gives iOS's thermal state (ProcessInfo.thermalState), the status is THERMAL_STATUS_NONE, as on a
  * cool device [verified: services-test on apk-runner-35-bare]. A status listener is kept and told the status at once,

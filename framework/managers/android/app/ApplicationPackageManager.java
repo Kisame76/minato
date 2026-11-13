@@ -741,7 +741,7 @@ class ApplicationPackageManager {
     }
 
     /** The app's own grants; any other package holds nothing, as Android answers for a package it does not know. */
-    // The installer (gap 1's batch 2, the Unity test APK's start asks it): Minato installs the app, no store does, so the app's own
+    // The installer (the Unity test APK's start asks it): Minato installs the app, no store does, so the app's own
     // package has none, as Android 15 answers for an app that adb installed [verified: package-manager-test on
     // apk-runner-35]; any other package is unknown, for which PackageManagerService throws.
 
@@ -768,7 +768,7 @@ class ApplicationPackageManager {
                 android.content.pm.PackageInstaller.PACKAGE_SOURCE_OTHER);
     }
 
-    // A component's enabled state (gap 9, WorkManager's start enables its job service and receivers): kept for the
+    // A component's enabled state (WorkManager's start enables its job service and receivers): kept for the
     // process, where PackageManagerService keeps it in its package settings, which Minato has none of. The default
     // state keeps nothing. The app's own components only; another package is unknown [verified: jobs-test on
     // apk-runner-35]. Intent resolution reads the state (step SV1), and so do service starts (step SV2); getXInfo does
@@ -935,8 +935,8 @@ class ApplicationPackageManager {
     private PackageInstaller mInstaller;
 
     /**
-     * As AOSP's: the one installer of this package manager, over the app's own sessions (the Unity test APK resolve list,
-     * batch E), which LocalPackageInstaller keeps in memory, with their files below the app's cache folder.
+     * As AOSP's: the one installer of this package manager, over the app's own sessions,
+     * which LocalPackageInstaller keeps in memory, with their files below the app's cache folder.
      */
     public PackageInstaller getPackageInstaller() {
         synchronized (this) {

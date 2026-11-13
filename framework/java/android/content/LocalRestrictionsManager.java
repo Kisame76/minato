@@ -1,5 +1,5 @@
 /*
- * The restrictions service (gap 1 of the compatibility plan, batch B): IRestrictionsManager of system_server, local in
+ * The restrictions service: IRestrictionsManager of system_server, local in
  * the app's process, which ServiceManager's table gives as "restrictions" and AOSP's RestrictionsManager asks. It
  * answers as a phone does for an app that no restrictions provider serves [measured on apk-runner-35: no provider,
  * application restrictions an empty Bundle]. Every other call is AIDL's Default answer. Not under com.android.minato,

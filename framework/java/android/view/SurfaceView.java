@@ -63,7 +63,7 @@ public class SurfaceView extends View implements ViewRootImpl.WindowSurfaceCallb
 
     /**
      * The surface's session: c4's surface on the session's window, or, in a requested window, a sub-window of it
-     * (ADR-0041 gap 4 (b3), decision 7), as WMS gives a SurfaceView's surface the sublayer's window: MEDIA below,
+     * (ADR-0041 (b3), decision 7), as WMS gives a SurfaceView's surface the sublayer's window: MEDIA below,
      * MEDIA_OVERLAY above it, PANEL on top, its frame in the session's pixels. The kind is the make's until the remove;
      * a sub-window keeps its make's type, so a new z order takes effect with the next surface.
      */

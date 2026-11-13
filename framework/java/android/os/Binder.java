@@ -86,7 +86,7 @@ public class Binder implements IBinder {
         return binder;
     }
 
-    /** As allowBlocking: ContentProviderClient's provider binder, returned as it is (ADR-0045, gap 13a). */
+    /** As allowBlocking: ContentProviderClient's provider binder, returned as it is (ADR-0045). */
     public static IBinder defaultBlocking(IBinder binder) {
         return binder;
     }
@@ -97,7 +97,7 @@ public class Binder implements IBinder {
     }
 
     /**
-     * @hide A @VintfStability interface's Stub marks its binder (the vibrator HAL's AIDL, gap 1's batch 3); a
+     * @hide A @VintfStability interface's Stub marks its binder (the vibrator HAL's AIDL); a
      * stability that libbinder checks between partitions, of which the one process has none.
      */
     public final void markVintfStability() {

@@ -246,10 +246,10 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** The window's insets controller, a recorder until decision 8's insets (ours, under AOSP's name). */
     private final InsetsController mInsetsController = new InsetsController();
 
-    // A requested window (ADR-0041 gap 4 (b)): a dialog, a popup or another window that is not an activity's, which
+    // A requested window (ADR-0041 (b)): a dialog, a popup or another window that is not an activity's, which
     // asks the session's host for a window of its own (APKRT_REQUEST_WINDOW) at the frame AOSP's WindowLayout gives
     // it, as WMS's relayout computes it. The lowest visible activity's window has the session's window; a translucent
-    // or floating activity's above it is a requested one too (gap 4 (b3), decision 3).
+    // or floating activity's above it is a requested one too (ADR-0041 (b3), decision 3).
     /** The window's request token (SurfaceState.nextToken), 0 for a window on the session's window. */
     private long mRequestToken;
     /** A sub-window's parent window, null for an application window. */
@@ -259,13 +259,13 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** Whether the host was asked for the window (MAKE), until its REMOVE. */
     private boolean mRequestMade;
     /**
-     * Whether the window was taken away with its activity, which is not visible (gap 4 (b3)): no MAKE until its
+     * Whether the window was taken away with its activity, which is not visible (ADR-0041 (b3)): no MAKE until its
      * activity shows again. A sub-window waits for its parent's window instead.
      */
     private boolean mWithdrawn;
     /**
      * Whether the host took the window away at the background (WINDOW_DESTROYED, decision 6): no MAKE until the
-     * session's return (gap 4 (b5a)).
+     * session's return (ADR-0041 (b5a)).
      */
     private boolean mHostTook;
     /** The window's frame in the session's pixels: the whole display for an activity's window. */
@@ -316,7 +316,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * @hide WindowManagerGlobal's (gap 4 (b3)): an activity's own window becomes a requested one of type 1 with the
+     * @hide WindowManagerGlobal's (ADR-0041 (b3)): an activity's own window becomes a requested one of type 1 with the
      * activity's key as its group, as a translucent or floating activity above the lowest visible one has, or a
      * floating one at the bottom. Its window on the session's window, if any, went before (ActivityThread's
      * moveHostTo).
@@ -331,7 +331,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
         requestLayout();
     }
 
-    /** @hide WindowManagerGlobal's (gap 4 (b3)): an activity's own window goes back to the session's window. */
+    /** @hide WindowManagerGlobal's (ADR-0041 (b3)): an activity's own window goes back to the session's window. */
     void useSessionWindow() {
         withdrawRequest();
         mRequestToken = 0;
@@ -341,7 +341,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * @hide WindowManagerGlobal's (gap 4 (b3)): the window goes with its activity, which is not visible, as WMS hides
+     * @hide WindowManagerGlobal's (ADR-0041 (b3)): the window goes with its activity, which is not visible, as WMS
+     * hides
      * the windows of an activity that is not: its request is removed, it loses its surface, and it asks for no other
      * until restoreRequest. A window on the session's window keeps it here; the session's window goes elsewhere.
      */
@@ -364,7 +365,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
 
     /**
-     * @hide WindowManagerGlobal's (gap 4 (b3)): the window's activity shows again, an application window in its
+     * @hide WindowManagerGlobal's (ADR-0041 (b3)): the window's activity shows again, an application window in its
      * activity's group; the next traversal asks for its window.
      */
     void restoreRequest(int group) {
@@ -376,7 +377,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * @hide WindowManagerGlobal's, at WINDOW_DESTROYED (gap 4 (b5a), decision 6): the host took the window away at the
+     * @hide WindowManagerGlobal's, at WINDOW_DESTROYED (ADR-0041 (b5a), decision 6): the host took the window away at
+     * the
      * background or the end; it loses its surface, its SurfaceViews' sub-windows first, and the guest removes the token,
      * as guest_interface.h asks. The window is asked for again at the session's return (hostGivesBack).
      */
@@ -396,7 +398,8 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     }
 
     /**
-     * @hide WindowManagerGlobal's focus (gap 4 (b5a)): the requested window is added, neither withdrawn nor taken by the
+     * @hide WindowManagerGlobal's focus (ADR-0041 (b5a)): the requested window is added, neither withdrawn nor taken by
+     * the
      * host, and its window has not come yet, as at the return, where the windows come back one by one. It has its
      * place for the focus meanwhile, as WMS decides the focus by the windows' order, not by their surfaces.
      */
@@ -813,7 +816,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
      * Without a session the window lays out and draws nothing, as an activity's window without one.
      */
     private void requestHostWindow() {
-        // A withdrawn window waits for its activity, a sub-window for its parent's window (gap 4 (b3)).
+        // A withdrawn window waits for its activity, a sub-window for its parent's window (ADR-0041 (b3)).
         if (mWithdrawn || mHostTook || (mParentRoot != null && !mParentRoot.hasWindowForChildren())) {
             return;
         }
@@ -911,7 +914,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                     callback.windowSurfaceCreated();
                 }
                 if (mRequestToken == 0) {
-                    // The session's window: its sub-windows that waited for it ask for theirs (gap 4 (b3)).
+                    // The session's window: its sub-windows that waited for it ask for theirs (ADR-0041 (b3)).
                     WindowManagerGlobal.getInstance().childrenMayAsk(this);
                 }
             } else {
@@ -2343,7 +2346,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
                 }
                 mTouchesFromDown = false;
             }
-            // The session's touches go to the window that takes them (ADR-0041 gap 4 (b2)).
+            // The session's touches go to the window that takes them (ADR-0041 (b2)).
             if (event instanceof MotionEvent && ((MotionEvent) event).isTouchEvent()) {
                 final ViewRootImpl target = WindowManagerGlobal.getInstance().routeTouch(ViewRootImpl.this,
                         (MotionEvent) event);
@@ -2926,7 +2929,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
 
     /**
      * AOSP's hands an event a WebView did not handle to the synthetic stage; only a WebView provider calls it, through
-     * WebViewClient.onUnhandledInputEvent, and Minato has none (the Unity test APK probe's batch C).
+     * WebViewClient.onUnhandledInputEvent, and Minato has none.
      */
     public void dispatchUnhandledInputEvent(InputEvent event) {
     }
@@ -3053,7 +3056,7 @@ public final class ViewRootImpl implements ViewParent, View.AttachInfo.Callbacks
     /** The window's frame in the display, which the window covers whole. */
     /**
      * As AOSP's: the display frame WindowLayout gives the window, in the session's pixels; without insets (ADR-0041
-     * decision 8) the display's bounds, which a requested window (a dialog, ADR-0041 gap 4 (b)) does not cover.
+     * decision 8) the display's bounds, which a requested window (a dialog, ADR-0041 (b)) does not cover.
      */
     void getDisplayFrame(Rect outFrame) {
         Point size = new Point();

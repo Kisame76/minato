@@ -1,5 +1,5 @@
 /*
- * The input service (ADR-0045 decisions 2, 3 and 6; gap 7a of the Godot survey): the IInputManager of
+ * The input service (ADR-0045 decisions 2, 3 and 6): the IInputManager of
  * InputManagerService, local in the app's process, which ServiceManager's table gives as "input". It is AIDL's Default
  * class, as the display service is. Its answers:
  *   - getInputDeviceIds and getInputDevice: Minato's devices, built with InputDevice.Builder.

@@ -1,5 +1,5 @@
 /*
- * The shortcut service (gap 1 of the compatibility plan, batch 3): IShortcutService of system_server, local in the
+ * The shortcut service: IShortcutService of system_server, local in the
  * app's process, which ServiceManager's table gives as "shortcut" and AOSP's ShortcutManager asks. It keeps the app's
  * dynamic shortcuts as Android 15's ShortcutService does for its publisher [verified: system-services-test on
  * apk-runner-35]:

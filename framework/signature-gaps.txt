@@ -1,11 +1,10 @@
 # The member signatures of framework.jar's classes that name a type neither framework.jar nor the boot jars hold, a
-# compile-only stub or an absent type (tools/signature_types.py, framework-check, retest 8's batch B3). ART resolves
+# compile-only stub or an absent type (tools/signature_types.py, framework-check). ART resolves
 # every declared member's signature when an app calls getDeclaredMethods, getDeclaredFields or getDeclaredConstructors,
-# so each of these classes throws NoClassDefFoundError there, and with it every library that reflects over it (the Unity test APK's
-# retest 9: 70 classes). A line is "<type> <- <class>, <class>..." with the top-level classes by name, or "*", and its
+# so each of these classes throws NoClassDefFoundError there, and with it every library that reflects over it (70 classes in the Unity test APK once). A line is "<type> <- <class>, <class>..." with the top-level classes by name, or "*", and its
 # why after "#": "step b3: <what takes the type>", "stays: <why no app reflects over the class>" or "gap: <what>".
 # A line goes when its type is taken (the check names it "stale"); none is added without its why.
-# Placeholders (placeholder; the Unity test APK retest 11): classes that ship only so that the classes naming them load for
+# Placeholders (placeholder; the Unity test APK): classes that ship only so that the classes naming them load for
 # reflection, each body logging once and throwing UnsupportedOperationException; the graphics ones are those
 # ADR-0058 b) / category 2 replace: SurfaceControl, WindowId, InputTransferToken,
 # TrustedPresentationThresholds, DisplayHashResultCallback, BLASTBufferQueue, ThreadedRenderer, IWindowSession,
@@ -20,21 +19,21 @@ android.app.LocalActivityManager <- android.widget.TabHost  # gap: not taken: it
 android.app.ProfilerInfo <- android.app.IActivityTaskManager, android.app.LocalActivityTaskManager  # gap: not taken: its proto message ProfilerInfoProto is generated from frameworks/base's .proto files, which no step generates yet
 android.app.UiAutomation <- android.app.Instrumentation  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.content.pm.IPackageManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
-android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.hardware.camera2.CameraOfflineSession <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet
+android.hardware.camera2.CameraOfflineSession$CameraOfflineSessionCallback <- android.hardware.camera2.CameraCaptureSession  # gap: not taken yet
 android.media.projection.IMediaProjection <- android.hardware.display.DisplayService, android.hardware.display.IDisplayManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.net.wifi.WifiEnterpriseConfig <- android.net.wifi.WifiConfiguration, android.net.wifi.WifiNetworkSpecifier, android.net.wifi.WifiNetworkSuggestion  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.Credential <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.net.wifi.hotspot2.pps.HomeSp <- android.net.wifi.hotspot2.PasspointConfiguration  # gap: Wi-Fi's configuration types, not taken yet; Minato reports no Wi-Fi network
 android.os.CoolingDevice <- android.os.IThermalService  # gap: not taken: it names android.hardware.thermal's generated HAL type CoolingType
 android.os.PerformanceCollector <- android.app.Instrumentation  # gap: not taken: it calls Process.getElapsedCpuTime, which our Process lacks; only instrumentation tests use it
-android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android.app.INotificationManager, android.app.job.IJobScheduler, android.content.IClipboard, android.content.IContentService, android.hardware.display.IDisplayManager, android.hardware.input.IInputManager, com.android.internal.compat.IPlatformCompat  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.os.PermissionEnforcer <- android.accounts.IAccountAuthenticator, android.app.INotificationManager, android.app.job.IJobScheduler, android.content.IClipboard, android.content.IContentService, android.hardware.display.IDisplayManager, android.hardware.input.IInputManager, com.android.internal.compat.IPlatformCompat  # gap: not taken yet
 android.os.Temperature <- android.os.IThermalEventListener, android.os.IThermalService  # gap: not taken: it names android.hardware.thermal's generated HAL types (TemperatureType, ThrottlingSeverity)
 android.os.storage.IStorageManager <- android.os.StrictMode  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
 android.permission.IPermissionManager <- android.app.ActivityThread, android.app.AppGlobals  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.print.PrintJobInfo <- android.print.PrintJob, android.print.PrintManager  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.print.PrintJobInfo <- android.print.PrintJob, android.print.PrintManager  # gap: not taken yet
 android.service.notification.INotificationListener <- android.app.INotificationManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet (batch B3, sorted from the first scan of 2026-10-09)
+android.telephony.SmsMessage <- android.provider.Telephony  # gap: not taken yet
 android.telephony.data.ApnSetting <- android.telephony.PreciseDataConnectionState  # gap: a data connection's APN, not taken yet; Minato's phone has no SIM
 android.view.ImeBackAnimationController <- android.window.WindowOnBackInvokedDispatcher  # gap: not taken: it needs ImeTracker, SoftInputShowHideReason and BackGestureInterpolator; Minato has no soft keyboard
 android.view.InputMonitor <- android.hardware.input.IInputManager, android.hardware.input.InputManager, android.hardware.input.InputManagerGlobal  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
@@ -45,40 +44,40 @@ android.view.SurfaceSession <- android.view.SurfaceControl  # gap: a placeholder
 android.view.ViewFrameInfo <- android.view.ViewRootImpl  # gap: not taken: it reads InputEvent.INVALID_INPUT_EVENT_ID, which our InputEvent lacks
 android.view.autofill.AutofillPopupWindow <- android.view.autofill.AutofillClientController  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
 android.view.contentcapture.IContentCaptureManager <- android.view.contentcapture.ContentCaptureManager  # gap: not taken: a system AIDL interface whose imports (its parcelables and listeners) no step takes; it matters only for getDeclaredMethods() over the classes that name it, not for lookups by name
-android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
-android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
-android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider, com.android.internal.minato.webkit.WebViewFactoryProviderImpl  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+android.webkit.IWebViewUpdateService <- android.webkit.WebViewFactory  # gap: not taken yet
+android.webkit.PacProcessor <- android.webkit.WebViewFactoryProvider  # gap: not taken yet
+android.webkit.TokenBindingService <- android.webkit.WebViewFactoryProvider, com.android.internal.minato.webkit.WebViewFactoryProviderImpl  # gap: not taken yet
 android.window.SurfaceSyncGroup <- android.view.AttachedSurfaceControl  # gap: not taken: it does not compile beside the taken files yet; it names window, transition or system-service internals that no step takes (trial build of 2026-10-12)
-com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
-com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet (category 1 and batch C's classes, 2026-10-09)
+com.android.internal.app.IAppOpsCallback <- android.hardware.Camera  # gap: not taken yet
+com.android.internal.app.IAppOpsService <- android.hardware.Camera  # gap: not taken yet
 android.media.IAudioService <- android.media.PlayerBase  # stays: a hidden class (getService and sService), which no app reflects over; MediaPlayer's own members name none of these (ADR-0060 e2e1)
 com.android.internal.app.IAppOpsCallback <- android.media.PlayerBase  # stays: as IAudioService (mAppOpsCallback)
 com.android.internal.app.IAppOpsService <- android.media.PlayerBase  # stays: as IAudioService (mAppOps)
 
-# The package installer (the Unity test APK resolve list, batch E) and android.media (the gap sort, categories 1 and 2).
+# The package installer (the Unity test APK resolve list) and android.media (the gap sort, categories 1 and 2).
 android.os.PermissionEnforcer <- android.content.pm.IPackageInstaller, android.content.pm.IPackageInstallerSession  # stays: the Stubs' constructors, which the local installer never runs; no app reflects over a binder interface
 android.content.pm.parsing.PackageLite <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.content.pm.parsing.result.ParseResult <- android.content.pm.PackageInstaller  # stays: readInstallInfo and InstallInfo, a system API of installer apps
 android.hardware.camera2.CameraExtensionCharacteristics <- android.hardware.camera2.CameraManager  # gap: category 3's camera2; without cameras no extension is described
 android.hardware.camera2.params.SessionConfiguration <- android.hardware.camera2.CameraDevice  # gap: category 3's camera2; a CameraDevice comes only from openCamera, and without cameras none opens
 android.media.tv.TvInputInfo <- android.media.tv.TvInputManager  # stays: the TV input manager, which a phone has no service for (getSystemService answers null)
-android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet (batch D 3: IAlarmManager's Stub, which the local alarm service never runs)
+android.os.PermissionEnforcer <- android.app.IAlarmManager  # gap: not taken yet (IAlarmManager's Stub, which the local alarm service never runs)
 android.view.contentcapture.ContentCaptureContext <- android.view.contentcapture.ContentCaptureSession  # stays: content capture is off, no session is ever made (ContentCaptureSession is the API for View's field)
-android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub, which the local vibrator manager service never runs (gap 1, batch 3)
-android.os.PermissionEnforcer <- android.app.IGameManagerService  # stays: IGameManagerService's Stub, which the local game service never runs (gap 1, batch A)
-android.os.PermissionEnforcer <- android.app.usage.IUsageStatsManager, android.hardware.usb.IUsbManager  # stays: their Stubs, which the local usage stats and USB services never run (gap 1, batch A)
-android.os.PermissionEnforcer <- android.hardware.IConsumerIrService  # stays: IConsumerIrService's Stub, which no service runs (gap 1, batch B)
-android.telephony.data.ApnSetting <- android.app.admin.DevicePolicyManager  # gap: DevicePolicyManager's admin policy types, which no step takes; an app that reflects over DevicePolicyManager fails with a NoClassDefFoundError (gap 1, batch C)
-android.app.admin.DevicePolicyResourcesManager <- android.app.admin.DevicePolicyManager  # gap: DevicePolicyManager's admin policy types, which no step takes; an app that reflects over DevicePolicyManager fails with a NoClassDefFoundError (gap 1, batch C)
+android.os.PermissionEnforcer <- android.os.IVibratorManagerService  # stays: IVibratorManagerService's Stub, which the local vibrator manager service never runs
+android.os.PermissionEnforcer <- android.app.IGameManagerService  # stays: IGameManagerService's Stub, which the local game service never runs
+android.os.PermissionEnforcer <- android.app.usage.IUsageStatsManager, android.hardware.usb.IUsbManager  # stays: their Stubs, which the local usage stats and USB services never run
+android.os.PermissionEnforcer <- android.hardware.IConsumerIrService  # stays: IConsumerIrService's Stub, which no service runs
+android.telephony.data.ApnSetting <- android.app.admin.DevicePolicyManager  # gap: DevicePolicyManager's admin policy types, which no step takes; an app that reflects over DevicePolicyManager fails with a NoClassDefFoundError
+android.app.admin.DevicePolicyResourcesManager <- android.app.admin.DevicePolicyManager  # gap: DevicePolicyManager's admin policy types, which no step takes; an app that reflects over DevicePolicyManager fails with a NoClassDefFoundError
 android.location.GnssMeasurement <- android.location.GnssMeasurementsEvent  # gap: GNSS raw measurements (ADR-0063 step 1b), not taken; the local location service delivers none
 android.location.GnssMeasurementCorrections <- android.location.ILocationManager, android.location.LocationManager  # gap: injectGnssMeasurementCorrections, a system API (ADR-0063 step 1b), not taken
 android.os.PermissionEnforcer <- android.location.ILocationManager  # stays: ILocationManager's Stub, which the local location service never runs; no app reflects over a binder interface
 android.os.PermissionEnforcer <- android.app.IUiModeManager  # stays: IUiModeManager's Stub, which the local UI mode service never runs; no app reflects over a binder interface
 android.app.appsearch.GenericDocument <- android.content.pm.ShortcutInfo  # gap: createFromGenericDocument, AppSearch's document (a mainline module's type); Minato has no AppSearch
-android.bluetooth.le.TransportDiscoveryData <- android.bluetooth.le.AdvertiseData  # gap: a hardware or call side type that no step takes (services batch E): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.bluetooth.le.AdvertisingSetCallback <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes (services batch E): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.bluetooth.le.AdvertisingSetParameters <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes (services batch E): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.bluetooth.le.PeriodicAdvertisingParameters <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes (services batch E): an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.bluetooth.le.TransportDiscoveryData <- android.bluetooth.le.AdvertiseData  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.bluetooth.le.AdvertisingSetCallback <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.bluetooth.le.AdvertisingSetParameters <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.bluetooth.le.PeriodicAdvertisingParameters <- android.bluetooth.le.BluetoothLeAdvertiser  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
 android.bluetooth.BluetoothActivityEnergyInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
 android.os.BluetoothBatteryStats <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
 android.os.PermissionEnforcer <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
@@ -91,17 +90,17 @@ android.os.health.HealthStatsParceler <- com.android.internal.app.IBatteryStats 
 android.telephony.ModemActivityInfo <- com.android.internal.app.IBatteryStats  # stays: IBatteryStats' Stub and Proxy, which the local battery stats service never runs; no app reflects over a binder interface
 android.media.AudioPlaybackCaptureConfiguration <- android.media.AudioRecord  # gap: AudioRecord.Builder.setAudioPlaybackCaptureConfig, capturing other apps' playback, which needs a MediaProjection that Minato does not offer (ADR-0064)
 android.media.MediaSyncEvent <- android.media.AudioRecord  # gap: startRecording(MediaSyncEvent), a deprecated API for synchronising a recording with a player's session, which Minato logs and ignores (ADR-0064)
-android.telecom.CallEventCallback <- android.telecom.TelecomManager  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the manager's methods fails with a NoClassDefFoundError
-android.media.midi.MidiInputPort <- android.media.midi.MidiDevice  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.media.midi.MidiOutputPort <- android.media.midi.MidiDevice  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.media.projection.IMediaProjection <- android.media.projection.MediaProjection  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.nfc.NdefMessage <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.nfc.NfcAntennaInfo <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.nfc.NfcEvent <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.nfc.Tag <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
-android.nfc.WlcListenerDeviceInfo <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.telecom.CallEventCallback <- android.telecom.TelecomManager  # gap: a hardware or call side type that no step takes: an app that reflects over the manager's methods fails with a NoClassDefFoundError
+android.media.midi.MidiInputPort <- android.media.midi.MidiDevice  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.media.midi.MidiOutputPort <- android.media.midi.MidiDevice  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.media.projection.IMediaProjection <- android.media.projection.MediaProjection  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.nfc.NdefMessage <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.nfc.NfcAntennaInfo <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.nfc.NfcEvent <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.nfc.Tag <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
+android.nfc.WlcListenerDeviceInfo <- android.nfc.NfcAdapter  # gap: a hardware or call side type that no step takes: an app that reflects over the class's methods fails with a NoClassDefFoundError
 
-# Batch G's biometric prompt.
+# Biometric prompt.
 android.os.PermissionEnforcer <- android.hardware.biometrics.IAuthService, android.hardware.biometrics.ITestSession  # stays: the Stubs' mEnforcer field; no app reflects over a Stub of the authentication service
 android.app.appsearch.BatchResultCallback <- android.app.appsearch.AppSearchSession, android.app.appsearch.EnterpriseGlobalSearchSession, android.app.appsearch.GlobalSearchSession  # gap: AppSearch's sessions, requests and results are not written (AppSearchManager's own members load); no app reflects over the session classes
 android.app.appsearch.GetByDocumentIdRequest <- android.app.appsearch.AppSearchSession, android.app.appsearch.EnterpriseGlobalSearchSession, android.app.appsearch.GlobalSearchSession  # gap: AppSearch's sessions, requests and results are not written (AppSearchManager's own members load); no app reflects over the session classes
@@ -120,6 +119,6 @@ android.health.connect.datatypes.AggregationType <- android.health.connect.Aggre
 android.health.connect.datatypes.DataOrigin <- android.health.connect.AggregateRecordsRequest, android.health.connect.changelog.ChangeLogTokenRequest  # gap: Health Connect's data types are not written (HealthConnectManager's own members load); no app reflects over its request and response classes
 android.health.connect.datatypes.Metadata <- android.health.connect.datatypes.Record  # gap: Health Connect's data types are not written (HealthConnectManager's own members load); no app reflects over its request and response classes
 com.android.internal.net.VpnProfile <- android.net.IVpnManager  # stays: provisionVpnProfile and startLegacyVpn are no app API (VpnProfile's IKE and VCN classes are not taken); no app reflects over the hidden interface
-android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads (batch H4); no app is one on Minato
-android.telecom.CallControlCallback <- android.telecom.TelecomManager  # gap: a hardware or call side type that no step takes (services batch B): an app that reflects over the manager's methods fails with a NoClassDefFoundError
-android.view.inputmethod.InlineSuggestionsRequest <- android.service.autofill.FillRequest  # gap: the inline suggestions request is not taken yet (text input gap 11, the IME inline family)
+android.service.voice.VoiceInteractionSession$ActivityId <- android.service.voice.VisibleActivityInfo  # stays: getActivityId, which only a voice interaction service reads; no app is one on Minato
+android.telecom.CallControlCallback <- android.telecom.TelecomManager  # gap: a hardware or call side type that no step takes: an app that reflects over the manager's methods fails with a NoClassDefFoundError
+android.view.inputmethod.InlineSuggestionsRequest <- android.service.autofill.FillRequest  # gap: the inline suggestions request is not taken yet (the IME inline family)

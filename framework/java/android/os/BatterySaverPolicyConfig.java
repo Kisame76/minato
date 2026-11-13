@@ -5,7 +5,7 @@ import com.android.minato.services.Unwritten;
 /**
  * Placeholder (the Unity test APK retest 11): our class under AOSP's
  * hidden name, which only has to load, since a class apps reflect over names it; every body logs once and throws
- * UnsupportedOperationException. Before, a compile-only stub (ADR-0045 gap 1, batch 1): the battery saver's policy,
+ * UnsupportedOperationException. Before, a compile-only stub (ADR-0045): the battery saver's policy,
  * which PowerManager's full and adaptive policy system APIs and IPowerManager's Stub and Proxy take; they need
  * DEVICE_POWER or POWER_SAVER, which no app holds.
  */

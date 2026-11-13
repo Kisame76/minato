@@ -1,5 +1,5 @@
 /*
- * Ours under AOSP's name (gap 1 of the compatibility plan, batch G): the part of the AndroidKeyStore provider that
+ * Ours under AOSP's name: the part of the AndroidKeyStore provider that
  * android.hardware.biometrics.CryptoObject asks, the keystore's operation handle of an initialized Signature, Cipher or
  * Mac, which a biometric prompt hands the authentication service to bind an authentication to one operation. Minato has
  * no AndroidKeyStore provider (no keystore service runs), so no primitive is backed by it: what AOSP does for a

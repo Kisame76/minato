@@ -1,5 +1,5 @@
 /*
- * The settings provider (ADR-0045 decision 4, gap 13a; Godot's stop 10): Android's SettingsProvider, local in the
+ * The settings provider (ADR-0045 decision 4; Godot's stop 10): Android's SettingsProvider, local in the
  * app's process, which ActivityThread.acquireProvider gives for the authority "settings" as system_server publishes
  * Android's. Settings' NameValueCache calls it (GET_, PUT_ and DELETE_ of the three tables), and ContentResolver's
  * queries and writes of a table's URI reach it too. It answers as the tag's SettingsProvider does [verified: its
@@ -98,7 +98,7 @@ public final class SettingsProvider extends ContentProvider {
             byte[] bytes = new byte[8];
             new SecureRandom().nextBytes(bytes);
             androidId = HexEncoding.encodeToString(bytes, false);
-            Log.w(TAG, "No android_id from the host: a random one for this start (ADR-0045, gap 13a)");
+            Log.w(TAG, "No android_id from the host: a random one for this start (ADR-0045)");
         }
         SettingsProvider provider = new SettingsProvider(androidId);
         ProviderInfo info = new ProviderInfo();

@@ -2,10 +2,10 @@
  * Our SystemServiceRegistry, under AOSP's name (ADR-0045 decision 2): the services a context gives, by name and by
  * class, each made once per context as the tag's CachedServiceFetcher keeps them in ContextImpl's mServiceCache, or
  * once per call where the tag's fetcher is static (the input method manager's forContext). It replaces ContextImpl's
- * two lists of the eight services it had (gap 1 of the compatibility plan, batch 1) and adds the activity, display,
+ * two lists of the eight services it had and adds the activity, display,
  * power, audio and connectivity services, with power exemptions, which PowerManager asks, the notification service
- * (batch 2), the job scheduler (gap 9), and the vibrator with its manager and the UI mode, captioning, media
- * metrics, autofill and shortcut managers (batch 3), and the battery manager. A name or class without an entry is
+ *, the job scheduler, and the vibrator with its manager and the UI mode, captioning, media
+ * metrics, autofill and shortcut managers, and the battery manager. A name or class without an entry is
  * logged once and gives null,
  * as the tag's onServiceNotFound does; so does a service whose local binder the table lacks
  * (ServiceNotFoundException). AOSP's registry would load the mainline modules' classes and register 141 services;
@@ -118,7 +118,7 @@ final class SystemServiceRegistry {
     private static final ArrayMap<Class<?>, String> NAMES = new ArrayMap<>();
     private static final ArrayMap<String, Fetcher> FETCHERS = new ArrayMap<>();
     private static int sCacheSize;
-    /** The vibrator's name, which the API deprecates for the vibrator manager's but still gives (gap 1, batch 3). */
+    /** The vibrator's name, which the API deprecates for the vibrator manager's but still gives. */
     @SuppressWarnings("deprecation")
     private static final String VIBRATOR_SERVICE = Context.VIBRATOR_SERVICE;
 
@@ -170,7 +170,6 @@ final class SystemServiceRegistry {
         // The process's manager, without an input method (ADR-0043 step d)), as the tag's forContext.
         register(Context.INPUT_METHOD_SERVICE, InputMethodManager.class, false,
                 ctx -> InputMethodManager.forContext(ctx.getOuterContext()));
-        // Gap 1, batch 1.
         cached(Context.ACTIVITY_SERVICE, ActivityManager.class,
                 ctx -> new ActivityManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
         cached(Context.DISPLAY_SERVICE, DisplayManager.class, ctx -> new DisplayManager(ctx.getOuterContext()));
@@ -185,15 +184,15 @@ final class SystemServiceRegistry {
         cached(Context.AUDIO_SERVICE, AudioManager.class, ctx -> new AudioManager((Context) (Object) ctx));
         cached(Context.CONNECTIVITY_SERVICE, ConnectivityManager.class,
                 ctx -> new ConnectivityManager(ctx.getOuterContext()));
-        // Gap 1, batch 2: as the tag's, over the dialog theme of the app's target SDK.
+        // As the tag's, over the dialog theme of the app's target SDK.
         cached(Context.NOTIFICATION_SERVICE, NotificationManager.class, ctx -> new NotificationManager(
                 new ContextThemeWrapper(ctx.getOuterContext(), dialogTheme(ctx.getOuterContext())),
                 ctx.mMainThread.getHandler()));
-        // Gap 1: a phone without a SIM (ADR-0045 decision 4), as the tag's constructor takes the outer context.
+        // A phone without a SIM (ADR-0045 decision 4), as the tag's constructor takes the outer context.
         cached(Context.TELEPHONY_SERVICE, TelephonyManager.class, ctx -> new TelephonyManager(ctx.getOuterContext()));
         // The gap sort's category 2: as the tag's, on a device without cameras.
         cached(Context.CAMERA_SERVICE, CameraManager.class, ctx -> new CameraManager(ctx.getOuterContext()));
-        // Gap 1: as the tag's, over the local clipboard.
+        // As the tag's, over the local clipboard.
         cached(Context.CLIPBOARD_SERVICE, ClipboardManager.class,
                 ctx -> new ClipboardManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
         // Retest 12: the app's and the system's languages (Helpshift), as the tag's over the outer context.
@@ -201,7 +200,7 @@ final class SystemServiceRegistry {
         // As the tag's: the text classification manager, whose classifier finds nothing.
         cached(Context.TEXT_CLASSIFICATION_SERVICE, TextClassificationManager.class,
                 ctx -> new TextClassificationManager(ctx.getOuterContext()));
-        // Services batch B (gap 1): ours under the tag's names, answering as a phone does that has none of the hardware
+        // Ours under the tag's names, answering as a phone does that has none of the hardware
         // and grants an app none of the permissions (services-b-test).
         cached(Context.MEDIA_SESSION_SERVICE, MediaSessionManager.class,
                 ctx -> new MediaSessionManager(ctx.getOuterContext()));
@@ -225,28 +224,28 @@ final class SystemServiceRegistry {
         // Retest 8's batch B2: as the tag's, over the local account service.
         cached(Context.ACCOUNT_SERVICE, AccountManager.class, ctx -> new AccountManager(ctx.getOuterContext(),
                 IAccountManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ACCOUNT_SERVICE))));
-        // Gap 9: as JobSchedulerFrameworkInitializer's, over the local scheduler.
+        // As JobSchedulerFrameworkInitializer's, over the local scheduler.
         cached(Context.JOB_SCHEDULER_SERVICE, JobScheduler.class, ctx -> new JobSchedulerImpl(ctx.getOuterContext(),
                 IJobScheduler.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.JOB_SCHEDULER_SERVICE))));
-        // Batch D 3: as JobSchedulerFrameworkInitializer's, over the local alarm service.
+        // As JobSchedulerFrameworkInitializer's, over the local alarm service.
         cached(Context.ALARM_SERVICE, AlarmManager.class, ctx -> new AlarmManager(
                 IAlarmManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.ALARM_SERVICE)),
                 ctx.getOuterContext()));
-        // Batch 3: ours under AOSP's names, over the local vibrator manager service.
+        // Ours under AOSP's names, over the local vibrator manager service.
         cached(Context.VIBRATOR_MANAGER_SERVICE, VibratorManager.class,
                 ctx -> new SystemVibratorManager((Context) (Object) ctx));
         cached(VIBRATOR_SERVICE, Vibrator.class, ctx -> new SystemVibrator((Context) (Object) ctx));
-        // Batch 3: as the tag's, over the local UI mode service.
+        // As the tag's, over the local UI mode service.
         cached(Context.UI_MODE_SERVICE, UiModeManager.class, ctx -> new UiModeManager(ctx.getOuterContext()));
-        // Batch 3: as the tag's; the captioning manager reads the captions' settings itself.
+        // As the tag's; the captioning manager reads the captions' settings itself.
         cached(Context.CAPTIONING_SERVICE, CaptioningManager.class,
                 ctx -> new CaptioningManager(ctx.getOuterContext()));
-        // Batch 3: as the tag's where the device has no autofill service.
+        // As the tag's where the device has no autofill service.
         cached(Context.AUTOFILL_MANAGER_SERVICE, AutofillManager.class,
                 ctx -> new AutofillManager(ctx.getOuterContext()));
-        // Batch 3: as the tag's, over the local shortcut service.
+        // As the tag's, over the local shortcut service.
         cached(Context.SHORTCUT_SERVICE, ShortcutManager.class, ctx -> new ShortcutManager(ctx.getOuterContext()));
-        // Batch 3: as the tag's, over the local media metrics service.
+        // As the tag's, over the local media metrics service.
         cached(Context.MEDIA_METRICS_SERVICE, MediaMetricsManager.class, ctx -> new MediaMetricsManager(
                 IMediaMetricsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.MEDIA_METRICS_SERVICE)),
                 ctx.getUserId()));
@@ -260,20 +259,20 @@ final class SystemServiceRegistry {
         // ADR-0063: as AOSP's, over the local location service.
         cached(Context.LOCATION_SERVICE, LocationManager.class, ctx -> new LocationManager(ctx.getOuterContext(),
                 ILocationManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.LOCATION_SERVICE))));
-        // Gap 1, batch A: as the tag's, over the local game service.
+        // As the tag's, over the local game service.
         cached(Context.GAME_SERVICE, GameManager.class,
                 ctx -> new GameManager(ctx.getOuterContext(), ctx.mMainThread.getHandler()));
-        // Gap 1, batch A: ours under AOSP's name, on a device without a secure lock screen (see KeyguardManager).
+        // Ours under AOSP's name, on a device without a secure lock screen (see KeyguardManager).
         cached(Context.KEYGUARD_SERVICE, KeyguardManager.class, ctx -> new KeyguardManager(ctx.getOuterContext()));
-        // Gap 1, batch A step 2: as the tag's, over the local USB service.
+        // As the tag's, over the local USB service.
         cached(Context.USB_SERVICE, UsbManager.class, ctx -> new UsbManager(ctx,
                 IUsbManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USB_SERVICE))));
-        // Gap 1, batch A step 2: as the tag's.
+        // As the tag's.
         cached(Context.DOWNLOAD_SERVICE, DownloadManager.class, ctx -> new DownloadManager(ctx.getOuterContext()));
-        // Gap 1, batch A step 2: as the tag's, over the local usage stats service.
+        // As the tag's, over the local usage stats service.
         cached(Context.USAGE_STATS_SERVICE, UsageStatsManager.class, ctx -> new UsageStatsManager(ctx.getOuterContext(),
                 IUsageStatsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.USAGE_STATS_SERVICE))));
-        // Gap 1, batch B: as the tag's, over the local services of the small managers.
+        // As the tag's, over the local services of the small managers.
         cached(Context.RESTRICTIONS_SERVICE, RestrictionsManager.class, ctx -> new RestrictionsManager(ctx,
                 IRestrictionsManager.Stub.asInterface(ServiceManager.getServiceOrThrow(Context.RESTRICTIONS_SERVICE))));
         // Generated, as managergen writes the public API of a manager with no hand file: answers of a phone with no
@@ -283,10 +282,10 @@ final class SystemServiceRegistry {
         cached(Context.CONSUMER_IR_SERVICE, ConsumerIrManager.class, ctx -> new ConsumerIrManager(ctx));
         // Ours under AOSP's name, a phone without a biometric sensor (see BiometricManager).
         cached(Context.BIOMETRIC_SERVICE, BiometricManager.class, ctx -> new BiometricManager(ctx.getOuterContext()));
-        // Gap 1, batch C: ours under AOSP's name, a device with no admin, owner or managed profile.
+        // Ours under AOSP's name, a device with no admin, owner or managed profile.
         cached(Context.DEVICE_POLICY_SERVICE, DevicePolicyManager.class,
                 ctx -> new DevicePolicyManager(ctx.getOuterContext()));
-        // Gap 1, batch D: ours under AOSP's name, generated with the written part of framework/managers
+        // Ours under AOSP's name, generated with the written part of framework/managers
         // (WallpaperManager answers for an app without wallpaper permissions; LauncherApps names the app's own package
         // only).
         cached(Context.WALLPAPER_SERVICE, WallpaperManager.class, ctx -> new WallpaperManager(ctx.getOuterContext()));

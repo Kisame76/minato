@@ -4,9 +4,9 @@
  * flag has the default its caller passes, as on a device whose DeviceConfig holds no override. The text classifier's
  * settings read it at every text change (TextClassificationConstants), and ActivityThread's core settings at the start
  * (CoreSettingsObserver's entries). Writing a flag takes WRITE_DEVICE_CONFIG, which no app holds. Settings.Config
- * takes its names from here too, which ADR-0045's gap 13a had as a compile-only stub: the sync modes, with Android 15's
+ * takes its names from here too, which ADR-0045 had as a compile-only stub: the sync modes, with Android 15's
  * values, BadConfigException and MonitorCallback [verified: ConfigInfrastructure at android-15.0.0_r1]. AbsListView
- * listens to the content capture namespace (gap 5).
+ * listens to the content capture namespace.
  */
 package android.provider;
 

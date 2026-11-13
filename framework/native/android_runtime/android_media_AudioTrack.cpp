@@ -1,4 +1,4 @@
-// Ours (the compatibility plan's gap 13, the Unity test APK probe: FMOD's output thread): the natives of our AudioTrack
+// Ours (the Unity test APK probe: FMOD's output thread): the natives of our AudioTrack
 // (framework/managers/android/media/AudioTrack.java), which on Android stand on libaudioclient's AudioTrack and the
 // audio server. A track keeps the frames it was given in a buffer of its own, as the server's shared memory holds
 // them, and plays them on a float stream of libaaudio in callback mode, converting each encoding as the mixer does.

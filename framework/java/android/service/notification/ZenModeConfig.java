@@ -7,7 +7,7 @@ import com.android.minato.services.Unwritten;
 /**
  * Placeholder (the Unity test APK retest 11): our class under AOSP's
  * hidden name, which only has to load, since a class apps reflect over names it; every body logs once and throws
- * UnsupportedOperationException. Before, a compile-only stub (ADR-0045 gap 1, batch 2): Do Not Disturb's configuration
+ * UnsupportedOperationException. Before, a compile-only stub (ADR-0045): Do Not Disturb's configuration
  * and its rules, which INotificationManager's Stub and Proxy pass and NotificationManager's zen rules read; Minato has
  * no Do Not Disturb, and its notification service grants no policy access.
  */

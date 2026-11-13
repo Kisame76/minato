@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Which window each of the task's activities has (ADR-0041 gap 4 (b3), the plan's decision 3), in plain Java so that
+ * Which window each of the task's activities has (ADR-0041 (b3), the plan's decision 3), in plain Java so that
  * the host's JVM tests it. As Android 15's ensureActivitiesVisible: from the top down every activity that is not
  * finishing is visible until the first one that occludes the ones below it, as ActivityRecord.occludesParent has it
  * (its theme has neither windowIsTranslucent nor windowIsFloating, or setTranslucent made it opaque). The lowest

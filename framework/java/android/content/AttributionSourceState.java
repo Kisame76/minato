@@ -1,5 +1,5 @@
 /*
- * AttributionSource's payload (ADR-0045, gap 13a): the class aidl --lang=java generates from frameworks/native's
+ * AttributionSource's payload (ADR-0045): the class aidl --lang=java generates from frameworks/native's
  * libs/permission/aidl/android/content/AttributionSourceState.aidl at android-15.0.0_r1 [verified: our aidl on that
  * file], which the fetch lacks. AOSP's AttributionSource, which framework.jar takes since ContentProvider's transport
  * names it in every call, stands on it. Its fields and its parcel are the structured parcelable's, in the AIDL's order.

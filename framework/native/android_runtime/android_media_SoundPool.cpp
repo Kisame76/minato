@@ -1,4 +1,4 @@
-// Ours (the compatibility plan's gap 13, SoundPool): the natives of AOSP's android.media.SoundPool
+// Ours (SoundPool): the natives of AOSP's android.media.SoundPool
 // (frameworks/base/media/jni/soundpool at android-15.0.0_r1, which stands on libaudioclient's AudioTrack, binder
 // memory and a thread pool, none of which Minato has). The rules are AOSP's, read from its SoundPool.cpp,
 // SoundManager.cpp, StreamManager.cpp and Stream.cpp [from reading, checked by soundpool-test against Android 15]:

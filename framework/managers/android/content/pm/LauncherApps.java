@@ -1,4 +1,4 @@
-// The written part of LauncherApps (gap 1 of the compatibility plan, batch D), which tools/managergen joins with the
+// The written part of LauncherApps, which tools/managergen joins with the
 // API's methods. Ours under AOSP's name: AOSP's asks the launcher apps service of system_server (60 methods over the
 // shortcut and package services). The answers are those of apk-runner-35 (Android 15) for an app that is no launcher:
 // it holds no shortcut host permission, the owner's profile is the only one, its own launcher activities come from the

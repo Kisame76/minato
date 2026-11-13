@@ -10,7 +10,7 @@ beside the run, converted again only for a changed library and gone with a remov
 keeps start()'s command as it was. Run with stand-ins for apk-convert and apk-run. And start() with the graphics
 front libs (ADR-0041 a)), libvulkan's too, since every start preloads them as public libraries (ADR-0040 decision
 3): each goes into /system/lib64 as a container, from tools/build-front-libs.sh's folder. And start()'s tzdata module
-(the compatibility plan's gap 21): bionic's tzdata at the top and in versioned/8 with a tz_version of its release,
+: bionic's tzdata at the top and in versioned/8 with a tz_version of its release,
 the tag's lookups and ICU's resources of the same release; a release without them stops the start."""
 import os
 import stat
@@ -248,7 +248,7 @@ with tempfile.TemporaryDirectory() as scratch:
         with open(path, "w") as handle:
             handle.write(os.path.basename(path))
     # Bionic's tzdata, whose header names its IANA release, and the tzdata module's other sources (the compatibility
-    # plan's gap 21): the tag's lookups and icu-data's ICU resources by release.
+    # ): the tag's lookups and icu-data's ICU resources by release.
     bionic_tzdata = os.path.join(inputs["bionic-system"], "usr", "share", "zoneinfo", "tzdata")
     with open(bionic_tzdata, "wb") as handle:
         handle.write(b"tzdata2026c\0" + b"zones")

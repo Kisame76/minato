@@ -1,5 +1,5 @@
 Minato's patch to frameworks/base's core/java/android/widget/Toast.java at android-15.0.0_r1 (Apache-2.0),
-ADR-0041 gap 4 (b4): Toast's TN hands its presenter no IAccessibilityManager.
+ADR-0041 (b4): Toast's TN hands its presenter no IAccessibilityManager.
 
 Why: framework.jar has no IAccessibilityManager, as Minato runs no accessibility service (ADR-0041), and our
 ToastPresenter asks the process's AccessibilityManager instead (toastpresenter-without-an-accessibility-service.patch).

@@ -7,12 +7,12 @@
  * getService does for a service that does not exist, and is logged once per name. The table's first entry is
  * "display", DisplayManagerGlobal's (ADR-0041 a)), the second "platform_compat", CompatChanges' (ADR-0039 step c2e),
  * the third "input", InputManagerGlobal's (ADR-0045, the input service), the fourth "content", ContentResolver's
- * (ADR-0045, gap 13a), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
+ * (ADR-0045), the fifth "device_identifiers", Build.getSerial's (ADR-0039 step c2d3), the sixth
  * "activity_task", ActivityTaskManager's (ADR-0039 step b3.5b2-1), the seventh "activity", ActivityManager's
- * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's (gap 1, batch 1), "user",
- * UserManager's (gap 1, batch 1b), "notification", NotificationManager's (gap 1, batch 2), "jobscheduler",
- * JobScheduler's (gap 9), "alarm", AlarmManager's (batch D 3), "vibrator_manager", the vibrators' (gap 1, batch 3),
- * "uimode", UiModeManager's, "media_metrics", MediaMetricsManager's, and "shortcut", ShortcutManager's (batch 3),
+ * (ADR-0045 decision 5, step d2), then "power" and "thermalservice", PowerManager's, "user",
+ * UserManager's, "notification", NotificationManager's, "jobscheduler",
+ * JobScheduler's, "alarm", AlarmManager's, "vibrator_manager", the vibrators',
+ * "uimode", UiModeManager's, "media_metrics", MediaMetricsManager's, and "shortcut", ShortcutManager's,
  * and "batteryproperties" and "batterystats", BatteryManager's (the battery); App's services join it.
  * A name of ABSENT, a service Minato does not have by decision, gives null without the log line.
  */

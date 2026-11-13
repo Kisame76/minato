@@ -1,5 +1,5 @@
 /*
- * The backup service (gap 1 of the compatibility plan, batch G): IBackupManager of system_server, local in the app's
+ * The backup service: IBackupManager of system_server, local in the app's
  * process, which ServiceManager's table gives as "backup" and AOSP's BackupManager asks. Minato has no backup
  * transport and no restore: an app's data changed notifications are taken and dropped, which is what the emulator
  * (apk-runner-35) does to an app that has no transport to hand them to [verified: batch-g-test: dataChanged() ends

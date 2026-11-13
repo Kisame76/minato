@@ -44,7 +44,7 @@ no thread catches ends with SIGKILL from Android's handler, 137 (128 + 9) throug
 crash-test).
 
 With --android-id, the app starts with ActivityThread's --android-id, the value its settings provider gives as
-android_id, as the host gives it (ADR-0045, gap 13a).
+android_id, as the host gives it (ADR-0045).
 
 With --obb <file>, once or more, the file lies in the app's OBB folder before the start, as a user or the library puts
 one there (ADR-0049 test 8).

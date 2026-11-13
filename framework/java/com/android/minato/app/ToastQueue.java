@@ -3,7 +3,7 @@ package com.android.minato.app;
 import java.util.ArrayList;
 
 /**
- * The process's toast queue (ADR-0041 gap 4 (b4)), in plain Java so that the host's JVM tests it, as Android 15's
+ * The process's toast queue (ADR-0041 (b4)), in plain Java so that the host's JVM tests it, as Android 15's
  * NotificationManagerService keeps its queue (enqueueToast, showNextToastLocked, cancelToastLocked,
  * scheduleDurationReachedLocked at android-15.0.0_r1):
  * <ul>

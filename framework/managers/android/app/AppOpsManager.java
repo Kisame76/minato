@@ -35,13 +35,13 @@ class AppOpsManager {
      */
     public static final int _NUM_OP = 149;
 
-    /** @hide As AOSP's: the ops Settings' write checks ask by number (gap 13a); appopsgen checks them. */
+    /** @hide As AOSP's: the ops Settings' write checks ask by number; appopsgen checks them. */
     public static final int OP_WRITE_SETTINGS = 23;
 
     /** @hide */
     public static final int OP_SYSTEM_ALERT_WINDOW = 24;
 
-    /** @hide As AOSP's: the op the legacy Camera watches for its shutter sound (the Unity test APK probe's batch C). */
+    /** @hide As AOSP's: the op the legacy Camera watches for its shutter sound. */
     public static final int OP_PLAY_AUDIO = 28;
 
     /** @hide As AOSP's: the ops Environment's legacy storage checks ask by number (step c1). */

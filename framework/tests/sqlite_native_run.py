@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The guest's libsqlite.so test on the Mac (compatibility plan, gap 7): sqlite-native-test
+"""The guest's libsqlite.so test on the Mac: sqlite-native-test
 (framework/tests/native/sqlite_native_test.c) opens the library with dlopen in the guest on our loader and prints what
 SQLite and Android's functions in it answer, which must be Android 15's (fixtures/expected/sqlite-native-test.txt).
 

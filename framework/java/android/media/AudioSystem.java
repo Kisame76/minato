@@ -1,5 +1,5 @@
 // The written part of AudioSystem (the F4g slice of ADR-0064): the stream types and limits that were a compile-only
-// stub (gap 1, gap 13: Android 15's natives return the limits, android_media_AudioSystem.cpp [read]), and the plain
+// stub (Android 15's natives return the limits, android_media_AudioSystem.cpp [read]), and the plain
 // Java of AOSP's AudioSystem that names devices: the error codes, the native device types and their names, as
 // android-15.0.0_r1 has them, verbatim from "Error codes" to the device names. The natives of the audio server are
 // not here; the audio manager step owns them.

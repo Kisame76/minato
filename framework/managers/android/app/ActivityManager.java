@@ -135,7 +135,7 @@ class ActivityManager {
         return false;
     }
 
-    // Gap 1 of the compatibility plan, batch 1: the manager SystemServiceRegistry gives, with decision 4's answers that
+    // The manager SystemServiceRegistry gives, with decision 4's answers that
     // need no iOS. The process is the app's only one and in front; the memory is the device's, from /proc/meminfo.
 
     /**
@@ -270,7 +270,7 @@ class ActivityManager {
 
     /** The API's ctors, as AOSP's, which start an entry in front, and the hidden annotation of its importance. */
     public static class RunningAppProcessInfo {
-        /** @hide As AOSP's, without its IntDef: ApplicationExitInfo names the type (batch E of the Unity test APK list). */
+        /** @hide As AOSP's, without its IntDef: ApplicationExitInfo names the type. */
         @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
         public @interface Importance {}
 

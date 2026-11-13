@@ -1,5 +1,5 @@
 /*
- * The job scheduler (ADR-0045: jobs and alarms kept, none run; gap 9 of the compatibility plan): IJobScheduler of
+ * The job scheduler (ADR-0045: jobs and alarms kept, none run): IJobScheduler of
  * system_server, local in the app's process, which ServiceManager's table gives as "jobscheduler" and
  * android.app.JobSchedulerImpl asks. It answers as Android 15's JobSchedulerService does for its app [verified:
  * jobs-test on apk-runner-35-bare, and JobSchedulerService.JobSchedulerStub and scheduleAsPackage at the tag]:
@@ -10,8 +10,8 @@
  *     app may keep 151 jobs, and the next one is refused with Android's message;
  *   - the pending jobs, one, the reason, cancel by ID, in a namespace, and all are answered from what is kept.
  * The jobs live as long as the process, where Android keeps the persisted ones across boots (ours come back at the
- * app's next start), and they run while it lives (the compatibility plan's
- * decision 6): a daemon thread starts a job when its minimum latency has passed and its constraints hold, or its
+ * app's next start), and they run while it lives: a daemon thread starts a job when its minimum latency has passed and
+ * its constraints hold, or its
  * deadline has passed [measured: run-test on apk-runner-35: a job without a constraint starts within milliseconds, one
  * with an unmet constraint at its deadline, with isOverrideDeadlineExpired], by binding the app's JobService and
  * calling startJob, and ends it when the service calls jobFinished (a rescheduled one waits for its backoff, a

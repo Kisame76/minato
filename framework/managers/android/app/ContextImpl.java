@@ -7,8 +7,8 @@
 // external folders through Environment's one emulated volume (framework/patches). Step c2c2 adds the theme and the
 // LayoutInflater, as the tag's ContextImpl and SystemServiceRegistry give them, so that a view can be made. Step c2c3
 // adds an activity's context, with its token and its own Resources, the window manager and the display: an
-// activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045's
-// gap 13a adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider. Step SV2
+// activity's context is a UI context associated with display 0, the application's is not, as on Android. ADR-0045
+// adds the ContentResolver, the tag's ApplicationContentResolver over ActivityThread.acquireProvider. Step SV2
 // adds the started services: startService, startForegroundService and stopService, through LocalActiveServices, and
 // step SV3 the bound ones: bindService and unbindService.
 import android.content.AttributionSource;
@@ -258,7 +258,7 @@ class ContextImpl {
     }
 
     /**
-     * The context's service of {@code name}, from SystemServiceRegistry (ADR-0045 decision 2, gap 1), made once per
+     * The context's service of {@code name}, from SystemServiceRegistry (ADR-0045 decision 2), made once per
      * context as the tag's CachedServiceFetcher keeps them; a name without one is logged once and gives null.
      */
     public Object getSystemService(String name) {
@@ -709,7 +709,7 @@ class ContextImpl {
         return FileUtils.listOrEmpty(getDatabasesDir());
     }
 
-    // The app's own databases (the compatibility plan's gap 7), as the tag's ContextImpl opens and deletes them.
+    // The app's own databases, as the tag's ContextImpl opens and deletes them.
     public SQLiteDatabase openOrCreateDatabase(String name, int mode, CursorFactory factory) {
         return openOrCreateDatabase(name, mode, factory, null);
     }

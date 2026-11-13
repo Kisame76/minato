@@ -1,4 +1,4 @@
-// The written part of WallpaperManager (gap 1 of the compatibility plan, batch D), which tools/managergen joins with
+// The written part of WallpaperManager, which tools/managergen joins with
 // the API's methods. Ours under AOSP's name: AOSP's asks the wallpaper service of system_server and keeps a bitmap
 // decoder and the wallpaper engine's callbacks, none of which Minato has, and no launcher or lock screen draws a
 // wallpaper on Minato. The answers are those of apk-runner-35 (Android 15) for an app without wallpaper permissions:

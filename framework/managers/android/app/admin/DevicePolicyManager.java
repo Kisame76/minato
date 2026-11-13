@@ -1,4 +1,4 @@
-// The written part of DevicePolicyManager (gap 1 of the compatibility plan, batch B), which tools/managergen joins with
+// The written part of DevicePolicyManager, which tools/managergen joins with
 // the API's methods. Ours under AOSP's name: AOSP's 13,000 lines ask the device policy service of system_server (the
 // 150-method IDevicePolicyManager and about 60 admin types), none of which Minato has, and no admin, device owner,
 // profile owner or managed profile exists on Minato. The generated methods answer as a device with none of them,

@@ -59,7 +59,7 @@ public class DecorView extends FrameLayout {
     private int mImeBottom;
 
     /**
-     * As AOSP's for a floating window's WRAP_CONTENT (ADR-0041 gap 4 (b)): the theme's fixed width and height, in
+     * As AOSP's for a floating window's WRAP_CONTENT (ADR-0041 (b)): the theme's fixed width and height, in
      * portrait the minor width and major height, and then its minimum width, a fraction of the screen's width in dp,
      * as a dialog gets them. Without insets (ADR-0041 decision 8) a floating window has no floating insets.
      */

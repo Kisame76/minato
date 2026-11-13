@@ -1,4 +1,4 @@
-// The written part of AudioDeviceInfo (gap 13, the Unity test APK probe: FMOD lists the outputs before it builds its
+// The written part of AudioDeviceInfo (the Unity test APK: FMOD lists the outputs before it builds its
 // AudioTrack), which tools/managergen joins with the API's methods. Android's wraps an audio port of the audio server;
 // ours is a device AudioManager.getDevices makes: its type and ID, a sink or a source. The product name of a built-in
 // device is Build.MODEL's property, as AOSP's getProductName gives Build.MODEL for a port without a name [from

@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * ADR-0041 gap 4 (b3) on the host's JVM (tools/framework-host-check.sh): which window each of the task's activities
+ * ADR-0041 (b3) on the host's JVM (tools/framework-host-check.sh): which window each of the task's activities
  * has, as the plan's decision 3 and Android 15's ensureActivitiesVisible give it. From the top down every activity
  * that is not finishing is visible until the first that occludes the ones below it; the lowest visible one has the
  * session's window, unless it floats or has a requested window already, and every other visible one a requested
