@@ -151,8 +151,10 @@ bool prepare(App &app, const Paths &paths, const std::string &run) {
                              "libandroid.so", "libnativewindow.so", "libz.so"}) {
         convert(paths.bionic / name, system_libraries, name);
     }
-    // The audio libraries (ADR-0036), where they are built: only the audio apps need them.
-    for (const char *name : {"libaaudio.so", "libOpenSLES.so"}) {
+    // The audio libraries (ADR-0036) and the SDL swap override, where they are built: only some apps need them. The
+    // loader preloads libminato-sdl.so into every program with libc, as in the shipped /system, so its preload wires
+    // libc's minato_activity_paused (runtime/src/dl.cpp preload_sdl_swap) for any app that reads it.
+    for (const char *name : {"libaaudio.so", "libOpenSLES.so", "libminato-sdl.so"}) {
         if (fs::exists(paths.bionic / name)) convert(paths.bionic / name, system_libraries, name);
     }
     convert(library, app_libraries, "lib" + app.name + ".so");

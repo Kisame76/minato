@@ -1,0 +1,7 @@
+I/activity-paused-test: onCreate: paused=0
+I/activity-paused-test: onResume: paused=0
+I/activity-paused-test: onPause: paused=1
+I/activity-paused-test: onStop: paused=1
+I/activity-paused-test: onResume: paused=0
+I/activity-paused-test: onPause: paused=1
+I/activity-paused-test: onStop: paused=1

@@ -401,6 +401,12 @@ add_library(mouse-native-test SHARED apps/mouse-native-test/main.c)
 target_compile_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_options(mouse-native-test PRIVATE --target=aarch64-none-linux-android35)
 target_link_libraries(mouse-native-test PRIVATE android log)
+# activity-paused-test (the SDL swap override's production path, runtime.activity_paused): a NativeActivity
+# without native_app_glue that logs libc.so's minato_activity_paused() at each lifecycle callback.
+add_library(activity-paused-test SHARED apps/activity-paused-test/main.c)
+target_compile_options(activity-paused-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_options(activity-paused-test PRIVATE --target=aarch64-none-linux-android35)
+target_link_libraries(activity-paused-test PRIVATE android log)
 # data-in-text-test and its five libraries from suite/libdit.S: data inside .text (literal pools, jump tables, real code
 # that looks like data), once with a .symtab (libdit-sym.so) and four times stripped, with the dynamic relocations as
 # the linker writes them by default (libdit-strip.so), plain RELA with the addends (libdit-rela.so, the form of API 28

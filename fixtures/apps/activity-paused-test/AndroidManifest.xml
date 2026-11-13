@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- activity-paused-test: a NativeActivity (no native_app_glue) that logs minato_activity_paused() per lifecycle
+     callback, for the behavioural test runtime.activity_paused. Packed by make-apk. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.activitypaused"
+    android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
+  <application android:label="Activity Paused Test" android:hasCode="false"
+      android:extractNativeLibs="false">
+    <activity android:name="android.app.NativeActivity" android:exported="true">
+      <meta-data android:name="android.app.lib_name" android:value="activity-paused-test"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

@@ -955,6 +955,14 @@ if(APK_HOST_BUILD)
       ${case})
     set_tests_properties(${name} PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   endforeach()
+  # The SDL swap override's production path: the same host plays start, background and foreground for
+  # activity-paused-test and checks that minato_activity_paused() reads 0 while resumed and 1 from onPause/onStop.
+  add_executable(activity_paused_test tests/activity_paused_test.cpp)
+  target_link_libraries(activity_paused_test PRIVATE app_host)
+  add_test(NAME runtime.activity_paused COMMAND activity_paused_test
+    "${CMAKE_CURRENT_BINARY_DIR}/activity_paused_test_scratch" "${APK_FIXTURES_DIR}" "${APK_BIONIC_DIR}"
+    "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/fixtures/expected")
+  set_tests_properties(runtime.activity_paused PROPERTIES TIMEOUT 120 SKIP_REGULAR_EXPRESSION "^skipped:")
   # ADR-0036's choreographer-test: the same host plays the frame clock for choreographer-test and compares
   # its log with Android 15's (fixtures/expected/choreographer-test.logcat).
   add_executable(choreographer_test tests/choreographer_test.cpp)
