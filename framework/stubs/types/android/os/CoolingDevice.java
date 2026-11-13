@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1), never in framework.jar: the thermal HAL's cooling device, which
+ * Compile-only stub (ADR-0045), never in framework.jar: the thermal HAL's cooling device, which
  * IThermalService's Stub and Proxy parcel; the local thermal service lists none.
  */
 public final class CoolingDevice implements android.os.Parcelable {

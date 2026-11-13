@@ -2,7 +2,7 @@ package android.hardware.usb.V1_0;
 
 /**
  * Compile-only stub, never in framework.jar: the constants of the USB HAL 1.0 (a HIDL type Minato does not have) that
- * UsbPort reads. javac inlines them; no USB port exists in Minato, so no value reaches a run (gap 1, batch A).
+ * UsbPort reads. javac inlines them; no USB port exists in Minato, so no value reaches a run.
  */
 public final class Constants {
     public static final class PortDataRole {

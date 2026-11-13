@@ -1,7 +1,7 @@
 package android.app.job;
 
 /**
- * Compile-only stub (the framework breadth, gap 9), never in framework.jar: the proto of
+ * Compile-only stub, never in framework.jar: the proto of
  * frameworks/proto_logging's stats/enums/app/job/job_enums.proto, whose InternalStopReasonEnum values JobParameters
  * names and its switch needs as constants. The numbers are the proto's.
  */

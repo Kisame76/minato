@@ -5,9 +5,9 @@ import android.net.Uri;
 import android.os.RemoteException;
 
 /**
- * Compile-only stub (ADR-0045, gap 13a), never in framework.jar: the URI grants service's AIDL interface, with the
+ * Compile-only stub (ADR-0045), never in framework.jar: the URI grants service's AIDL interface, with the
  * three methods ContentResolver's persisted URI permissions call, and the check Icon's loadDrawable makes for a URI of
- * another app (gap 1, batch 2).
+ * another app.
  */
 public interface IUriGrantsManager {
     void takePersistableUriPermission(Uri uri, int modeFlags, String toPackage, int userId) throws RemoteException;

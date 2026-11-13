@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1), never in framework.jar: the proto enums of os/enums.proto, whose wake
+ * Compile-only stub (ADR-0045), never in framework.jar: the proto enums of os/enums.proto, whose wake
  * lock levels PowerManager's level constants take as theirs, and its plug types and charging policies, which
  * BatteryManager's take (the battery); javac inlines the values, as AOSP's build does.
  */

@@ -1,4 +1,4 @@
-// Hidden members of the public API's compile-only stub (ADR-0045 gap 1, batch 1b), which tools/managergen joins with
+// Hidden members of the public API's compile-only stub (ADR-0045), which tools/managergen joins with
 // it: UserManager.createProfileForUser's shared accounts, a system API that needs MANAGE_USERS or CREATE_USERS.
 class AccountManager {
     /** @hide */

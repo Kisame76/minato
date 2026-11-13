@@ -1,7 +1,8 @@
 package android.service.notification;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: an assistant's adjustment of a notification, which INotificationManager's Stub and Proxy pass and
+ * Compile-only stub (ADR-0045), never in framework.jar: an assistant's adjustment of a notification, which
+ * INotificationManager's Stub and Proxy pass and
  * NotificationManager's assistant calls name.
  */
 public final class Adjustment implements android.os.Parcelable {

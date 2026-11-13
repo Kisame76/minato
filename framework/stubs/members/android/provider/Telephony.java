@@ -1,4 +1,4 @@
-// Hidden members of the public API's compile-only stub (ADR-0045, gap 13a), which tools/managergen joins with it:
+// Hidden members of the public API's compile-only stub (ADR-0045), which tools/managergen joins with it:
 // Settings.Global's IMS keys are SimInfo's column names; javac inlines them, so they carry AOSP's values.
 class Telephony {
     /** @hide */

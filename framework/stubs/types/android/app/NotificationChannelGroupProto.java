@@ -1,7 +1,7 @@
 package android.app;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: the proto of
+ * Compile-only stub (ADR-0045), never in framework.jar: the proto of
  * core/proto/android/app/notification_channel_group.proto, whose field IDs NotificationChannelGroup.dumpDebug
  * writes; javac inlines them. Each ID is ProtoStream's: count single (1 << 40) or repeated (2 << 40), the field's
  * type << 32, its number.

@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1), never in framework.jar: a Duration in a parcel, which PowerManager's
+ * Compile-only stub (ADR-0045), never in framework.jar: a Duration in a parcel, which PowerManager's
  * battery discharge prediction reads; the local power service gives no prediction, so PowerManager answers null.
  */
 public final class ParcelDuration implements android.os.Parcelable {

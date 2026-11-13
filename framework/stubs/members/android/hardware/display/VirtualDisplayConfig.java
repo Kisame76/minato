@@ -1,4 +1,4 @@
-// Hidden members of the public API's compile-only stub (ADR-0045 gap 1, batch 1), which tools/managergen joins with
+// Hidden members of the public API's compile-only stub (ADR-0045), which tools/managergen joins with
 // it: DisplayManager's virtual displays set a unique ID and the display to mirror on the builder.
 class VirtualDisplayConfig {
     public static final class Builder {

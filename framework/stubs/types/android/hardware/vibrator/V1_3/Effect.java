@@ -1,7 +1,7 @@
 package android.hardware.vibrator.V1_3;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: the vibrator HAL's predefined effects, which
+ * Compile-only stub (ADR-0045), never in framework.jar: the vibrator HAL's predefined effects, which
  * VibrationEffect's constants are; javac inlines them, with the HAL's values (android.hardware.vibrator's Effect at
  * android-15.0.0_r1).
  */

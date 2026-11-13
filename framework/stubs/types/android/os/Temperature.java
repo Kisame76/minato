@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1), never in framework.jar: the thermal HAL's temperature, which
+ * Compile-only stub (ADR-0045), never in framework.jar: the thermal HAL's temperature, which
  * IThermalService's Stub and Proxy parcel and PowerManager's THERMAL_STATUS_ constants take their values from
  * (ThrottlingSeverity's at android-15.0.0_r1); the local thermal service lists no temperatures.
  */

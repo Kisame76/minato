@@ -1,7 +1,7 @@
 package android.app;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: the notification history, which INotificationManager's Stub and
+ * Compile-only stub (ADR-0045), never in framework.jar: the notification history, which INotificationManager's Stub and
  * Proxy pass and only the system reads.
  */
 public final class NotificationHistory implements android.os.Parcelable {

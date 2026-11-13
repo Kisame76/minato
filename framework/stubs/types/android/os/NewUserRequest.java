@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1b), never in framework.jar: UserManager.createUser's request, a system
+ * Compile-only stub (ADR-0045), never in framework.jar: UserManager.createUser's request, a system
  * API that needs MANAGE_USERS or CREATE_USERS, which no app holds.
  */
 public final class NewUserRequest {

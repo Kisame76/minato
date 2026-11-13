@@ -1,6 +1,6 @@
-// Hidden members of the public API's compile-only stub (the compatibility plan's gap 5, widgets, batch 1), which
+// Hidden members of the public API's compile-only stub (widgets), which
 // tools/managergen joins with it: the collection views' remote adapter (RemoteViewsAdapter), which only an app widget
-// host fills; and Notification.Builder's content views (ADR-0045 gap 1, batch 2).
+// host fills; and Notification.Builder's content views (ADR-0045).
 import android.app.PendingIntent;
 import android.app.RemoteInput;
 import android.content.Context;

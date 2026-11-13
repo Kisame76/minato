@@ -2,7 +2,7 @@ package android.service;
 
 /**
  * Compile-only stub, never in framework.jar: the proto enum whose six USB endpoint constants UsbConstants copies
- * (values as UsbConstants' comments give them). javac inlines them (gap 1, batch A).
+ * (values as UsbConstants' comments give them). javac inlines them.
  */
 public final class ServiceProtoEnums {
     public static final int USB_ENDPOINT_DIR_OUT = 0;

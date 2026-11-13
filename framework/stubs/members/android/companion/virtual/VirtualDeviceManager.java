@@ -18,7 +18,7 @@ class VirtualDeviceManager {
         throw new RuntimeException("stub");
     }
 
-    // TextToSpeech's, for a virtual device's audio session (ADR-0045, gap 13b).
+    // TextToSpeech's, for a virtual device's audio session (ADR-0045).
     /** @hide */
     public int getAudioPlaybackSessionId(int deviceId) {
         throw new RuntimeException("stub");

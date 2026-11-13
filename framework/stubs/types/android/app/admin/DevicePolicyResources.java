@@ -1,9 +1,9 @@
 package android.app.admin;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1b), never in framework.jar: the keys of the device policy's updatable
- * resources, which UserManager's badges and labels of a work profile and Notification.Builder's profile badge (gap 1,
- * batch 2) look up through DevicePolicyManager; javac inlines them, with their values at android-15.0.0_r1. Minato
+ * Compile-only stub (ADR-0045), never in framework.jar: the keys of the device policy's updatable
+ * resources, which UserManager's badges and labels of a work profile and Notification.Builder's profile badge
+ * look up through DevicePolicyManager; javac inlines them, with their values at android-15.0.0_r1. Minato
  * has no work profile, so no lookup runs.
  */
 public final class DevicePolicyResources {

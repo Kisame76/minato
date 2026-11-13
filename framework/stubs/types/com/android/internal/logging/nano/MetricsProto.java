@@ -3,7 +3,7 @@ package com.android.internal.logging.nano;
 /**
  * Compile-only stub (ADR-0043 step d)), never in framework.jar: the metrics categories, which protoc generates from
  * metrics_constants.proto. javac inlines them, so these values, not the proto's, are what our MetricsLogger and
- * StatusBarNotification's log entry (ADR-0045 gap 1, batch 2) and SliceMetrics' (H5) get; none writes anything.
+ * StatusBarNotification's log entry (ADR-0045) and SliceMetrics' (H5) get; none writes anything.
  */
 public final class MetricsProto {
     public static final class MetricsEvent {

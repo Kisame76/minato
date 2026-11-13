@@ -1,7 +1,7 @@
 package android.hardware.vibrator.V1_0;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: the vibrator HAL's effect strengths, which
+ * Compile-only stub (ADR-0045), never in framework.jar: the vibrator HAL's effect strengths, which
  * VibrationEffect names; javac inlines them, with the HAL's values.
  */
 public final class EffectStrength {

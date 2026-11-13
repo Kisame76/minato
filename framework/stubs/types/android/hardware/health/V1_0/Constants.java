@@ -1,7 +1,7 @@
 package android.hardware.health.V1_0;
 
 /**
- * Compile-only stub (the battery, gap 1 of the compatibility plan), never in framework.jar: the health HAL's HIDL
+ * Compile-only stub (the battery), never in framework.jar: the health HAL's HIDL
  * constants, which BatteryManager's public constants take; javac puts their values into BatteryManager, so nothing
  * loads this class. The values are Android 15's (core/api/current.txt's BatteryManager).
  */

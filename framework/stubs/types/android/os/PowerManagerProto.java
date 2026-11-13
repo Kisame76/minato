@@ -1,7 +1,7 @@
 package android.os;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 1), never in framework.jar: the proto of core/proto/android/os/
+ * Compile-only stub (ADR-0045), never in framework.jar: the proto of core/proto/android/os/
  * powermanager.proto, whose WakeLock field IDs PowerManager.WakeLock.dumpDebug writes; javac inlines them. Each ID is
  * ProtoStream's: count single (1 << 40), the field's type << 32, its number.
  */

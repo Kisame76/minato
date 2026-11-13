@@ -3,7 +3,7 @@ package android.content.pm;
 import android.app.appsearch.GenericDocument;
 
 /**
- * Compile-only stub (gap 1, batch 3), never in framework.jar: a shortcut as AppSearch stores it, which
+ * Compile-only stub, never in framework.jar: a shortcut as AppSearch stores it, which
  * ShortcutInfo.createFromGenericDocument converts. Minato has no AppSearch.
  */
 public class AppSearchShortcutInfo {

@@ -1,7 +1,7 @@
 package android.media;
 
 /**
- * Compile-only stub (ADR-0045 gap 1, batch 2), never in framework.jar: the players' base class, whose stream type check
+ * Compile-only stub (ADR-0045), never in framework.jar: the players' base class, whose stream type check
  * Notification.Builder's deprecated setSound(Uri, int) asks.
  */
 public abstract class PlayerBase {

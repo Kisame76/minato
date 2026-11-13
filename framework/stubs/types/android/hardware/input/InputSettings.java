@@ -2,7 +2,7 @@ package android.hardware.input;
 
 /**
  * Compile-only stub (ADR-0045, the input service), never in framework.jar: the input settings, which read
- * Settings.System, gap 13 of the Godot survey. javac inlines the pointer speeds, AOSP's values.
+ * Settings.System. javac inlines the pointer speeds, AOSP's values.
  */
 public final class InputSettings {
     public static final int MIN_POINTER_SPEED = -7;

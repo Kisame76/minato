@@ -2,8 +2,7 @@ package android.hardware.usb.gadget;
 
 /**
  * Compile-only stub, never in framework.jar: the USB gadget HAL's speed constants (an AIDL type Minato does not have)
- * that UsbManager switches on. javac inlines them; no USB port exists in Minato, so no speed reaches a run (gap 1,
- * batch A).
+ * that UsbManager switches on. javac inlines them; no USB port exists in Minato, so no speed reaches a run.
  */
 public final class UsbSpeed {
     public static final int UNKNOWN = -1;
