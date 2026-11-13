@@ -173,6 +173,22 @@ add_library(fake-sdl2 SHARED suite/libfake-sdl2.c)
 add_library(fake-activity-paused SHARED suite/libfake-activity-paused.c)
 add_executable(sdl-swap-test suite/sdl-swap-test.c)
 target_link_libraries(sdl-swap-test PRIVATE fake-sdl2 fake-activity-paused dl)
+# sdl-static-swap-test and the app library with SDL 2 linked in, its dynamic API's stubs called directly from the same
+# library (-Bsymbolic: plain branches, no imports), as Ren'Py's (the SDL swap override, runtime/tests/sdl_swap_run.py).
+add_library(fake-sdl2-static SHARED suite/libfake-sdl2-static.c suite/libfake-sdl2-static-app.c)
+target_link_libraries(fake-sdl2-static PRIVATE dl)
+target_link_options(fake-sdl2-static PRIVATE -Wl,-Bsymbolic)
+add_executable(sdl-static-swap-test suite/sdl-static-swap-test.c)
+target_link_libraries(sdl-static-swap-test PRIVATE fake-sdl2-static fake-activity-paused)
+# The same with a swap stub of another shape (FAKE_ODD_STUB: the table's entry called with a frame instead of jumped
+# to), whose dynamic API table the override leaves as SDL fills it.
+add_library(fake-sdl2-odd SHARED suite/libfake-sdl2-static.c suite/libfake-sdl2-static-app.c)
+target_compile_definitions(fake-sdl2-odd PRIVATE FAKE_ODD_STUB)
+target_link_libraries(fake-sdl2-odd PRIVATE dl)
+target_link_options(fake-sdl2-odd PRIVATE -Wl,-Bsymbolic)
+add_executable(sdl-odd-swap-test suite/sdl-static-swap-test.c)
+target_compile_definitions(sdl-odd-swap-test PRIVATE PROGRAM="sdl-odd-swap-test")
+target_link_libraries(sdl-odd-swap-test PRIVATE fake-sdl2-odd fake-activity-paused)
 # mono-switch-test and the two libraries that stand in for Mono and for a library that only borrows its mode name (the
 # Mono switch, runtime/tests/mono_switch_run.py): the app imports the names, or looks them up with dlsym.
 add_library(fake-mono SHARED suite/libfake-mono.c)

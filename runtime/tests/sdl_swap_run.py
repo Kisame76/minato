@@ -8,6 +8,11 @@ argument "dlsym") in five states, with libfake-activity-paused.so standing in fo
   - without libminato-sdl.so in /system/lib64: fixtures/expected/sdl-swap-test.out, as Android prints it;
   - with it: only "paused, no context current" answers 0; a swap that fails with a context current, or while the
     activity runs, keeps SDL's -1.
+The same five flips by sdl-static-swap-test, whose library has SDL 2 linked in and calls the swap's dynamic API stub
+directly, as Ren'Py's librenpython.so does (fixtures/expected/sdl-static-swap-test.out): no import reaches that call,
+so the runtime names libminato-sdl.so in SDL_DYNAMIC_API, SDL's own way to fill its table from another library. With
+"import" the program calls the same stub through its import: both ways meet, and the swap still answers 0 once.
+sdl-odd-swap-test's library has a swap stub of another shape: its table stays as SDL fills it, as on Android.
 Prints "skipped: ..." while the fixture or the library is not built.
 
 Usage: sdl_swap_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work> <expected>
@@ -17,9 +22,12 @@ import os
 import subprocess
 import sys
 
-FIXTURES = ["sdl-swap-test", "libfake-sdl2.so", "libfake-activity-paused.so"]
+FIXTURES = ["sdl-swap-test", "libfake-sdl2.so", "libfake-activity-paused.so", "sdl-static-swap-test",
+            "libfake-sdl2-static.so", "sdl-odd-swap-test", "libfake-sdl2-odd.so"]
+PROGRAMS = ["sdl-swap-test", "sdl-static-swap-test", "sdl-odd-swap-test"]
+# What the runtime sets in the guest's environment for SDL 2's dynamic API.
+DYNAMIC_API = "SDL_DYNAMIC_API=libminato-sdl.so"
 LIBRARY = "libminato-sdl.so"
-DROPPED = "sdl-swap-test: paused, no context current: swap 0"
 
 
 def convert(apk_convert, elf, container):
@@ -39,13 +47,17 @@ def main():
         if not os.path.exists(path):
             print(f"skipped: {path} is not built (tools/build-fixtures.sh)")
             return
-    with open(expected) as file:
-        android = file.read().splitlines()
-    paused_none = [index for index, line in enumerate(android) if "paused, no context current:" in line]
-    if len(paused_none) != 1:
-        raise SystemExit(f"{expected} lacks the one line of the paused flip without a context")
-    overridden = list(android)
-    overridden[paused_none[0]] = DROPPED
+    outputs = {}
+    for program in PROGRAMS:
+        path = os.path.join(os.path.dirname(expected), program + ".out")
+        with open(path) as file:
+            android = file.read().splitlines()
+        paused_none = [index for index, line in enumerate(android) if "paused, no context current:" in line]
+        if len(paused_none) != 1:
+            raise SystemExit(f"{path} lacks the one line of the paused flip without a context")
+        overridden = list(android)
+        overridden[paused_none[0]] = f"{program}: paused, no context current: swap 0"
+        outputs[program] = (android, overridden)
 
     system = os.path.join(work, "system-lib64")
     tmp = os.path.join(work, "data-local-tmp")
@@ -72,20 +84,28 @@ def main():
             os.symlink(os.path.join(system, name), link)
     has_library = os.path.exists(os.path.join(bionic_lib, LIBRARY))
 
-    def run(arguments, libraries):
+    def run(program, arguments, libraries, environment):
         command = [apk_run, "--mount", f"/data/local/tmp={tmp}", "--mount", f"/system={bionic_system}",
                    "--libraries", f"/system/lib64={libraries}", "--cwd", "/data/local/tmp", "--argv0",
-                   "./sdl-swap-test", "--env", "LD_LIBRARY_PATH=/data/local/tmp",
-                   os.path.join(work, "sdl-swap-test.dylib"), *arguments]
+                   f"./{program}", "--env", "LD_LIBRARY_PATH=/data/local/tmp", *environment,
+                   os.path.join(work, program + ".dylib"), *arguments]
         return subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=60)
 
     failures = []
-    for arguments in ([], ["dlsym"]):
-        for libraries, lines, label in ((without, android, "without the library"),
-                                        (system, overridden if has_library else android, "with the library")):
-            result = run(arguments, libraries)
+    cases = (("sdl-swap-test", []), ("sdl-swap-test", ["dlsym"]), ("sdl-static-swap-test", []),
+             ("sdl-static-swap-test", ["import"]), ("sdl-odd-swap-test", []))
+    for program, arguments in cases:
+        android, overridden = outputs[program]
+        if program == "sdl-odd-swap-test":
+            overridden = android
+        for libraries, environment, lines, label in (
+                (without, [], android, "without the library"),
+                (system, ["--env", DYNAMIC_API], overridden if has_library else android, "with the library")):
+            result = run(program, arguments, libraries, environment)
             if result.returncode != 0 or result.stdout.splitlines() != lines:
-                failures.append(f"{' '.join(arguments) or 'import'} {label}: exit status {result.returncode}, stdout "
+                way = ' '.join(arguments) or ('import' if program == "sdl-swap-test" else 'direct call')
+                failures.append(f"{program} {way} {label}: exit status "
+                                f"{result.returncode}, stdout "
                                 f"{result.stdout.splitlines()}, expected {lines}, stderr's end "
                                 f"{result.stderr.splitlines()[-5:]}")
     if not has_library:
@@ -94,8 +114,9 @@ def main():
         print(f"FAIL: {failure}")
     if failures:
         sys.exit(1)
-    print("sdl swap override: a swap that fails while paused with no context current answers 0, by import and by "
-          "dlsym; every other answer is SDL's")
+    print("sdl swap override: a swap that fails while paused with no context current answers 0, by import, by dlsym "
+          "and through SDL's dynamic API, once where both meet; a stub of another shape and every other answer are "
+          "SDL's")
 
 
 if __name__ == "__main__":

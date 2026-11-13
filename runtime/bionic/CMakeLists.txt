@@ -359,11 +359,12 @@ apk_bionic_unit(apk_luajit SOURCES "${android_sources}/luajit.c" INCLUDES ${andr
 apk_bionic_library(libminato-luajit UNITS apk_luajit NEEDED libc)
 
 # libminato-sdl.so (the SDL swap override): the wrapper of SDL_GL_SwapWindow that answers 0 for a swap that fails in
-# SDL's context backup at a pause, which the loader preloads when it is among the system's libraries
-# (runtime/android/sdl.c).
+# SDL's context backup at a pause, which SDL 2's dynamic API loads where the runtime names it in SDL_DYNAMIC_API, and
+# which the loader preloads, for the name, when it is among the system's libraries (runtime/android/sdl.c). libdl for
+# the asking SDL's own SDL_DYNAPI_entry.
 apk_bionic_unit(apk_sdl SOURCES "${android_sources}/sdl.c" INCLUDES ${android_includes}
   CFLAGS -Wall -Wextra STRICT)
-apk_bionic_library(libminato-sdl UNITS apk_sdl NEEDED libc)
+apk_bionic_library(libminato-sdl UNITS apk_sdl NEEDED libc libdl)
 
 # libminato-mono.so (the Mono switch, ADR-0071 decision 3): the wrapper of mono_jit_set_aot_mode that hands Mono the
 # interpreter's mode, which the loader preloads when it is among the system's libraries (runtime/android/mono.c).

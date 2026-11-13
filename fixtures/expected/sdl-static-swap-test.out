@@ -1,0 +1,5 @@
+sdl-static-swap-test: running, context current: swap 0
+sdl-static-swap-test: running, no context current: swap -1 (The specified window has not been made current)
+sdl-static-swap-test: paused, context current, surface lost: swap -1 (unable to show color buffer)
+sdl-static-swap-test: paused, no context current: swap -1 (The specified window has not been made current)
+sdl-static-swap-test: paused, context current: swap 0
