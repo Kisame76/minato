@@ -153,6 +153,10 @@ if(APK_HOST_BUILD)
   add_test(NAME tools.docs_check COMMAND "${PROJECT_SOURCE_DIR}/tools/tests/docs_check_test.sh")
   # tools/swift-sil-check.sh on a package of its own: a race only the SIL passes find is RED and named.
   add_test(NAME tools.swift_sil_check COMMAND "${PROJECT_SOURCE_DIR}/tools/tests/swift_sil_check_test.sh")
+  # The text Minato shows: no dashes, no "game", no decision numbers (tools/ui-strings-check.py), and its own test.
+  add_test(NAME tools.ui_strings COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/ui-strings-check.py")
+  add_test(NAME tools.ui_strings_check
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/ui-strings-check-test.py")
   # The source archive of the parts under the GPL-2.0 with the Classpath Exception and its SOURCE.txt (ADR-0033).
   add_test(NAME release.source_archive
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/source-archive-test.py")
