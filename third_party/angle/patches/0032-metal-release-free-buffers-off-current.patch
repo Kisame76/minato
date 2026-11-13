@@ -1,0 +1,159 @@
+Release a Metal context's free buffers once another context is current on its thread (Minato, patch 0032).
+
+Why: the buffer manager and its free list are a context's own (ContextMtl::mBufferManager). Ren'Py's display reset
+during a pause makes a new context on its render thread (pygame_sdl2's recreate_gl_context), loads its whole scene in
+it and, once SDL makes the old context current again, never makes the new one current again nor destroys it. Its free
+list, filled by the load up to patch 0029's 64 MiB, stayed with it: about 48 MiB more per return that raced in the
+Simulator (where Metal's buffers are shared memory), never shrinking. Upstream's collection runs only while the
+context is current (120 switches, 5000 commits or 64 MiB more allocated).
+Now onUnMakeCurrent notes the context for its thread. When another context is made current on that thread, the noted
+one is current nowhere: the buffers the GPU is done with move to its free list and the free list goes down to
+kMaxIdleFreeBytes (1 MiB), the largest first, as patch 0029 trims. Made current again first (an app or wrapper that
+lets its context go at each frame's end), it keeps its free list: no buffer is made again per frame. A context made
+current on any thread, or destroyed, leaves the notes. Buffers the GPU still uses stay in use.
+Test: graphics/tests/angle_context_trim.mm (D, sharing C's objects, fills its free list past 32 MiB with 8 MiB
+buffers; C made current: at most 1 MiB; D current again draws and clears; D let go and made current again keeps at
+least 32 MiB; no context, then C: at most 1 MiB).
+Upstream: could go upstream (a context current nowhere keeps no free buffers; cheap at a context switch).
+Remove: when upstream frees an idle context's free list or the race's context goes away.
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_manager.h b/src/libANGLE/renderer/metal/mtl_buffer_manager.h
+--- a/src/libANGLE/renderer/metal/mtl_buffer_manager.h
++++ b/src/libANGLE/renderer/metal/mtl_buffer_manager.h
+@@ -86,6 +86,10 @@
+ 
+     void incrementNumContextSwitches();
+     void incrementNumCommandBufferCommits();
++    // Minato (patch 0032): the context is no longer current; its free buffers go, but kMaxIdleFreeBytes of the
++    // smallest.
++    void releaseFreeBuffers(ContextMtl *contextMtl);
++    static constexpr size_t kMaxIdleFreeBytes = 1024 * 1024;
+ 
+   private:
+     typedef std::vector<mtl::BufferRef> BufferList;
+@@ -100,7 +104,7 @@
+     void freeUnusedBuffers(ContextMtl *contextMtl);
+     void addBufferRefToFreeLists(mtl::BufferRef &bufferRef);
+     void collectGarbage(GCReason reason);
+-    void trimFreeLists();
++    void trimFreeLists(size_t limit);
+ 
+     BufferList mInUseBuffers;
+ 
+diff --git a/src/libANGLE/renderer/metal/mtl_buffer_manager.mm b/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
+--- a/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
++++ b/src/libANGLE/renderer/metal/mtl_buffer_manager.mm
+@@ -65,14 +65,23 @@
+     // context switches, 5000 commits or 64 MiB more allocated. Keep at most kMaxFreeBytes of them.
+     if (mFreeBytes > kMaxFreeBytes)
+     {
+-        trimFreeLists();
++        trimFreeLists(kMaxFreeBytes);
+     }
+ }
+ 
+-void BufferManager::trimFreeLists()
++void BufferManager::releaseFreeBuffers(ContextMtl *contextMtl)
+ {
++    // Minato (patch 0032): a context that is current nowhere uses none of its free buffers, and one that is never
++    // made current again (Ren'Py's display reset during a pause) kept them all. Buffers the GPU still uses stay in
++    // use until the context is current again.
++    freeUnusedBuffers(contextMtl);
++    trimFreeLists(kMaxIdleFreeBytes);
++}
++
++void BufferManager::trimFreeLists(size_t limit)
++{
+     // The largest free buffers go first: the small ones are the ones a frame makes again and again.
+-    while (mFreeBytes > kMaxFreeBytes)
++    while (mFreeBytes > limit)
+     {
+         BufferMap *largestMap = nullptr;
+         for (int i = 0; i < kNumCachedStorageModes; ++i)
+diff --git a/src/libANGLE/renderer/metal/ContextMtl.mm b/src/libANGLE/renderer/metal/ContextMtl.mm
+--- a/src/libANGLE/renderer/metal/ContextMtl.mm
++++ b/src/libANGLE/renderer/metal/ContextMtl.mm
+@@ -11,6 +11,9 @@
+ 
+ #include <TargetConditionals.h>
+ #include <cstdint>
++#include <mutex>
++#include <thread>
++#include <unordered_map>
+ 
+ #include "GLSLANG/ShaderLang.h"
+ #include "common/debug.h"
+@@ -46,6 +49,29 @@
+ 
+ namespace
+ {
++// Minato (patch 0032): per thread, the context last let go there whose free buffers wait for another context to be
++// made current on that thread. A context made current again on any thread, or destroyed, leaves the map.
++std::mutex &PendingFreeBuffersMutex()
++{
++    static std::mutex *mutex = new std::mutex;
++    return *mutex;
++}
++
++std::unordered_map<std::thread::id, ContextMtl *> &PendingFreeBuffers()
++{
++    static auto *pending = new std::unordered_map<std::thread::id, ContextMtl *>;
++    return *pending;
++}
++
++void ForgetPendingFreeBuffers(ContextMtl *contextMtl)
++{
++    auto &pending = PendingFreeBuffers();
++    for (auto iter = pending.begin(); iter != pending.end();)
++    {
++        iter = iter->second == contextMtl ? pending.erase(iter) : std::next(iter);
++    }
++}
++
+ #if TARGET_OS_OSX
+ // Unlimited triangle fan buffers
+ constexpr uint32_t kMaxTriFanLineLoopBuffersPerFrame = 0;
+@@ -238,6 +264,10 @@
+ 
+ void ContextMtl::onDestroy(const gl::Context *context)
+ {
++    {
++        std::lock_guard<std::mutex> lock(PendingFreeBuffersMutex());
++        ForgetPendingFreeBuffers(this);
++    }
+     mTriFanIndexBuffer.destroy(this);
+     mLineLoopIndexBuffer.destroy(this);
+     mLineLoopLastSegmentIndexBuffer.destroy(this);
+@@ -1407,6 +1437,20 @@
+         GetImplAs<QueryMtl>(query)->onContextMakeCurrent(context);
+     }
+     mBufferManager.incrementNumContextSwitches();
++    {
++        // Minato (patch 0032): current again, its free buffers stay; the one let go last on this thread, if it is
++        // another context, now is current nowhere and its free buffers go.
++        std::lock_guard<std::mutex> lock(PendingFreeBuffersMutex());
++        ForgetPendingFreeBuffers(this);
++        auto &pending = PendingFreeBuffers();
++        auto iter     = pending.find(std::this_thread::get_id());
++        if (iter != pending.end())
++        {
++            ContextMtl *released = iter->second;
++            pending.erase(iter);
++            released->mBufferManager.releaseFreeBuffers(released);
++        }
++    }
+     return checkCommandBufferError();
+ }
+ angle::Result ContextMtl::onUnMakeCurrent(const gl::Context *context)
+@@ -1422,6 +1466,12 @@
+     {
+         GetImplAs<QueryMtl>(query)->onContextUnMakeCurrent(context);
+     }
++    // Minato (patch 0032): its free buffers go once another context is made current on this thread; made current
++    // again first (an app letting its context go at each frame's end), it keeps them.
++    {
++        std::lock_guard<std::mutex> lock(PendingFreeBuffersMutex());
++        PendingFreeBuffers()[std::this_thread::get_id()] = this;
++    }
+     return checkCommandBufferError();
+ }
+ 
