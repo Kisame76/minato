@@ -60,11 +60,11 @@ All notable changes to Minato are documented in this file. The format follows
   and the memory of their windows' images is given back then, as on Android
 - Textures and other graphics objects an app deletes on the way to the background, with no graphics context current,
   are freed when its context is current again, instead of staying until the app quits. Android drops such deletes;
-  iOS limits an app's memory, so Minato runs them. Tested on the Mac; the memory across many returns is not yet
-  checked on the iPhone
+  iOS limits an app's memory, so Minato runs them. Tested on the Mac and on the iPhone, where a Ren'Py game's memory
+  stays flat after its first return
 - An app that makes a new graphics context while it pauses and then goes back to its old one no longer leaves the new
   context's memory behind: its free buffers, up to 64 MiB, are given back once another context is current, so the
-  memory after a return is lower. Measured on the Mac and in the Simulator; not yet checked on the iPhone
+  memory after a return is lower. Measured on the Mac, in the Simulator and on the iPhone
 - An app that draws its window on the CPU, as ordinary Android views do, no longer makes Minato quit when its picture
   updates while the on-screen keyboard is up; tested on the Mac, not yet checked on the iPhone
 - Apps written in Java or Kotlin are optimized once, right after you close them the first time ("Optimizing", which
