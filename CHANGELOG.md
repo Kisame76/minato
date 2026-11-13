@@ -6,6 +6,8 @@ All notable changes to Minato are documented in this file. The format follows
 
 ## Unreleased
 
+## 1.0.0-beta.1 - 2026-11-13
+
 ### Added
 
 - SoundPool, which many games play their effects through, with WAV, Ogg Vorbis, MP3, AAC and FLAC files

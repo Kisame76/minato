@@ -13,11 +13,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "2"
     # A beta's label beside the version, "Beta 1" for v1.0.0-beta.1, which tools/release.sh sets (docs/RELEASING.md);
     # empty for a final version and for builds between releases.
-    MINATO_RELEASE_LABEL: ""
+    MINATO_RELEASE_LABEL: "Beta 1"
     # Personal Team ID; tools/deploy.sh passes it in, empty is fine for the Simulator.
     DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
 
