@@ -400,7 +400,7 @@ struct SessionBridgeTests {
     }
 
     /// An app that ends with the focus keeps its window and open gate through onPause, as on Android; the gate closes
-    /// after the focus's post, and the window goes before onNativeWindowDestroyed (App's c6 host fixes).
+    /// after the focus's post, and the window goes before onNativeWindowDestroyed (the c6 host fixes).
     @Test(arguments: [Lifecycle.Event.quit, .finish])
     func anEndKeepsTheWindowUntilTheFocusIsGoneAndWaitsForOnDestroy(end: Lifecycle.Event) {
         let host = FakeHost()

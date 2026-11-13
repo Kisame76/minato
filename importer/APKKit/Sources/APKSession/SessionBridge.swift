@@ -701,7 +701,7 @@ public struct SessionBridge: Sendable {
     ///   closed, since `native_app_glue`'s onPause waits for an app thread that may wait at the closed gate (ADR-0029,
     ///   decision 15): at the background and the menu's Quit before onPause, and for an app that ends with the focus,
     ///   whose onPause comes first with the gate still open as on Android, before onNativeWindowDestroyed (changed by
-    ///   App's c6 host fixes);
+    ///   the c6 host fixes);
     /// - the surfaces' windows go with the window's, and at onDestroy those made in the background; their gates follow
     ///   the window's (ADR-0043 c4).
     private mutating func apply(_ callbacks: [Lifecycle.Callback], host: SessionHost,

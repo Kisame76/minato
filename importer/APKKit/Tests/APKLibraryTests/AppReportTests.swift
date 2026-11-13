@@ -5,7 +5,7 @@ import Testing
 
 @testable import APKLibrary
 
-/// ADR-0070, the App's part 4: the app report's text and the issue form's URL from fixed entries, every prefilled
+/// ADR-0070, part 4: the app report's text and the issue form's URL from fixed entries, every prefilled
 /// dropdown value one of the options .github/ISSUE_TEMPLATE/app-report.yml lists, and MinatoVersion's two forms.
 @Suite("App report")
 struct AppReportTests {

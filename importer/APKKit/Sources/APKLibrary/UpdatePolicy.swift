@@ -136,9 +136,9 @@ public struct ImportResult: Sendable, Equatable {
     /// The installed OBBs an asking import would replace with other bytes, by name, which the question about
     /// `otherOBB` names (ADR-0049 c2).
     public var otherOBBs: [String] = []
-    /// The installed OBBs a picked one replaced, by name, for App's note (ADR-0049 d).
+    /// The installed OBBs a picked one replaced, by name, for the note (ADR-0049 d).
     public var replacedOBBs: [String] = []
-    /// Picked OBBs that could not go in, each with why, for App's alert (ADR-0049 d); they go with their unit.
+    /// Picked OBBs that could not go in, each with why, for the alert (ADR-0049 d); they go with their unit.
     public var refusedOBBs: [IgnoredFile] = []
 
     /// The version a question lists for this import, with what it warns about; nil where it does not ask.

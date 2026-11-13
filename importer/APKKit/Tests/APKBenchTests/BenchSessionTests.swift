@@ -3,7 +3,7 @@ import Testing
 
 @testable import APKBench
 
-/// ADR-0041 d), the App's part: drawables.csv and session.csv of a recorded session (-recordSession).
+/// ADR-0041 d: drawables.csv and session.csv of a recorded session (-recordSession).
 @Suite("BenchSession")
 struct BenchSessionTests {
     static func record() -> BenchSessionRecord {

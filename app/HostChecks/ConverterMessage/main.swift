@@ -2,7 +2,7 @@ import APKConvert
 import Foundation
 
 // tools/converter-message-check.sh's check of app/Sources/Signing/ConverterError.swift: a refusal longer than a
-// kilobyte reaches the app whole through the buffer the app hands APKConvert, as the Unity test APK sitting 14's x18
+// kilobyte reaches the app whole through the buffer the app hands APKConvert, as a Unity test APK's x18
 // refusal did not (cut at 1,024 bytes). Arguments: the ELF file the converter refuses, a container path.
 
 var failures = 0

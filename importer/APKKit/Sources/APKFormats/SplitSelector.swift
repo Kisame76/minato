@@ -26,7 +26,7 @@ public struct DeviceProfile: Sendable, Equatable {
     }
 
     /// An iPhone: arm64-v8a, the density the guest is told (`runtime/android/configuration.cpp:214`), its
-    /// preferred languages, the texture formats of the GLES and Vulkan paths [inferred: ASTC and ETC2], with
+    /// preferred languages, the texture formats of the GLES and Vulkan paths (assumed: ASTC and ETC2), with
     /// ETC1, which ETC2 decoders read (the decision), and the features Minato's PackageManager reports, with
     /// the OpenGL ES version its sessions give (ADR-0049 decision 2's follow-up); `vulkan` says whether they have
     /// a Vulkan driver.

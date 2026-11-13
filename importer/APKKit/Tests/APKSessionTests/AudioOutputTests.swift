@@ -61,7 +61,7 @@ struct AudioOutputTests {
         #expect(output.opened(1, mode: .none) == [.preferIOBuffer(0.020), .activate, .startEngine, .publishOutput])
     }
 
-    /// A stream's burst is fixed at its open (Runtime's c1), so the IO buffer shrinks for a LOW_LATENCY stream
+    /// A stream's burst is fixed at its open (by the runtime), so the IO buffer shrinks for a LOW_LATENCY stream
     /// but never grows while streams are open: a burst would outgrow the rings of the streams opened on it.
     @Test func aLowLatencyStreamShortensTheIOBufferUntilTheLastStreamCloses() {
         var output = AudioOutput()

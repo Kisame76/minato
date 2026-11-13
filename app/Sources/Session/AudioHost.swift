@@ -7,7 +7,7 @@ import os
 
 private let log = Logger(subsystem: "io.github.kisame76.minato", category: "audio")
 
-/// Where the host's news about the guest's streams goes: Runtime's `libaaudio` (ADR-0036, decision 6).
+/// Where the host's news about the guest's streams goes: the runtime's `libaaudio` (ADR-0036, decision 6).
 protocol AudioStreamEventSink: AnyObject, Sendable {
     /// A reroute changed the hardware's rate or burst: these streams are DISCONNECTED. On the host's queue.
     func disconnected(_ streams: [UInt64])
@@ -345,7 +345,7 @@ final class AudioHost: @unchecked Sendable {
     }
 }
 
-/// The host's news goes to Runtime's `libaaudio`, whose error callbacks follow; the Debug build also logs it
+/// The host's news goes to the runtime's `libaaudio`, whose error callbacks follow; the Debug build also logs it
 /// for session-check. session-check's own streams are no runtime handles, which the runtime ignores.
 final class RuntimeAudioSink: AudioStreamEventSink {
     func disconnected(_ streams: [UInt64]) {

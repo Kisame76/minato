@@ -1,6 +1,6 @@
 import Foundation
 
-/// Minato's version as About and the app report show it (ADR-0070, the App's part 1): "1.0.0 (Beta 1)" for a
+/// Minato's version as About and the app report show it (ADR-0070, part 1): "1.0.0 (Beta 1)" for a
 /// release, whose label tools/release.sh sets, and "1.0.0 (build 7)" without a label, a developer's build.
 public struct MinatoVersion: Sendable, Equatable {
     public let short: String

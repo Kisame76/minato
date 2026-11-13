@@ -4,7 +4,7 @@ import Foundation
 /// - the installer's own parse first (ApkLiteParseUtils.java:569-625). It finds a level by namespace and name, and reads
 ///   it as text: the raw string, else the typed value as TypedValue.coerceToString writes it (XmlBlock.java:281-301).
 ///   Integer.parseInt makes the text a number, and any other text is a codename. That the install runs this parse is
-///   [inferred]: PackageInstallerSession and pm are in services/, which is not checked out;
+///   assumed: PackageInstallerSession and pm are in services/, which is not checked out;
 /// - then the package parser's (ParsingPackageUtils.java:1640-1720). It finds a level by resource ID, as
 ///   RetrieveAttributes walks the attributes (AttributeResolution.cpp:352-420), and reads it as a TypedArray: a string
 ///   is a codename, TYPE_NULL and @null are absent, and any other type gives its data.

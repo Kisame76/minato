@@ -293,7 +293,7 @@ enum Texts {
         }
     }
 
-    /// Installed OBBs an import would replace with other contents (ADR-0049 c2), by name, in App's words.
+    /// Installed OBBs an import would replace with other contents (ADR-0049 c2), by name, in Minato's words.
     static func otherExpansionFiles(_ names: [String]) -> String {
         let quoted = names.map { "“\($0)”" }
         return switch quoted.count {
@@ -306,7 +306,7 @@ enum Texts {
         }
     }
 
-    // MARK: - OBBs (ADR-0049 d), in App's words
+    // MARK: - OBBs (ADR-0049 d), in Minato's words
 
     /// The question about an OBB no app takes by its name, or the alert where no app can take one.
     static func obbQuestion(_ question: OBBQuestion) -> (title: String, message: String) {

@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Synchronization
 
-/// Game mode's part of the kept session log (ADR-0070, the App's part 3): the guest's log, its stderr in logcat's tag
+/// Game mode's part of the kept session log (ADR-0070, part 3): the guest's log, its stderr in logcat's tag
 /// format, which the runtime hands it as descriptor 2, goes through a pipe that a thread of its own copies to the
 /// session's raw log and on to where descriptor 2 went before, the debugger's console or session-check's file. At the
 /// program's end, a crash's too, the runtime's log drain lets the thread copy what is left; at the session's end the

@@ -6,7 +6,7 @@ import Darwin
 import SwiftUI
 
 extension BenchmarkMode {
-    /// -recordSession <package> (ADR-0041 d), the App's part: the library's app runs in game mode's session in
+    /// -recordSession <package> (ADR-0041 d), in the app: the library's app runs in game mode's session in
     /// this process, with its drawables recorded from before its start to its end. The files go to
     /// tmp/benchmark/session-<package>/, where tools/record-session.sh fetches them.
     static let recordSession: String? = {

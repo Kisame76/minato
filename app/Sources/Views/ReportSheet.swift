@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Report a Problem (ADR-0070, the App's part 2): the report as editable text, and the line that it goes into a
+/// Report a Problem (ADR-0070, part 2): the report as editable text, and the line that it goes into a
 /// public issue, so that the user reads and trims it first. By default it names the engine, the Android versions,
 /// Minato's version and what went wrong, not the app (the user's rule); naming the app and adding the last
 /// session's log are the user's own switches, and the text shows exactly what they add. "Open GitHub" copies it

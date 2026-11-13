@@ -959,7 +959,7 @@ public actor Library {
         return results
     }
 
-    /// The unit's OBBs no app takes yet, by file name, for App's question (ADR-0049 decision 5); none while a set of the
+    /// The unit's OBBs no app takes yet, by file name, for the question (ADR-0049 decision 5); none while a set of the
     /// unit waits for its own answer, as its OBBs wait with it.
     public func obbsWaitingForAnApp(inUnit unit: URL) -> [String] {
         guard let files = try? Self.files(inUnit: unit), files.allSatisfy(Self.isOBB) else { return [] }
@@ -976,7 +976,7 @@ public actor Library {
         rmdir(unit.path) // only once nothing else waits in it
     }
 
-    /// The apps a picked OBB can go to, by their names as App's question lists them: those ready or needing their
+    /// The apps a picked OBB can go to, by their names as the question lists them: those ready or needing their
     /// splits, never an incompatible one or a file's entry, which is invalid, nor one whose versionCode names
     /// no OBB, which could not take the file.
     public func appsForOBBs() -> [LibraryEntry] {

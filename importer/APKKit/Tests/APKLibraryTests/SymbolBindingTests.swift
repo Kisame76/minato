@@ -5,7 +5,7 @@ import Testing
 @testable import APKLibrary
 
 /// ADR-0055, step a4: which undefined symbols of a library nothing defines, and which only a stub does, binding as
-/// linker64 does (breadth first through what the library needs; Runtime's rules for versions).
+/// linker64 does (breadth first through what the library needs; the runtime's rules for versions).
 @Suite("Symbol binding")
 struct SymbolBindingTests {
     typealias Reference = ELFSymbols.Reference

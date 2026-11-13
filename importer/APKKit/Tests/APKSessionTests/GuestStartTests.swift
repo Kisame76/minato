@@ -193,7 +193,7 @@ struct GuestStartTests {
         #expect(Self.javaStart(sha256: "") == nil)
     }
 
-    /// app_process64 with the harness's arguments: the manifest names the Application class (App's c1.1), and the
+    /// app_process64 with the harness's arguments: the manifest names the Application class (step c1.1), and the
     /// version's signers.json gives PackageManager the app's signatures (ADR-0039 b3.5b1).
     @Test func startsAppProcessWithTheHarnesssArguments() {
         let start = Self.javaStart()

@@ -142,7 +142,7 @@ struct OBBImportTests {
 
     @Test func aFolderUnderItsNameRefusesThePickedOBB() async throws {
         // c2's case for a pick: the app put a folder under main 2's name, so the file cannot go in; the result says why
-        // for App's alert, the installed main 1 stays, and the file goes with its unit.
+        // for the alert, the installed main 1 stays, and the file goes with its unit.
         let sandbox = try Sandbox()
         defer { sandbox.remove() }
         let library = try Library(paths: sandbox.paths)
@@ -241,7 +241,7 @@ struct OBBImportTests {
         let waitingForSplits = try #require(try await library.importUnit(
             Sets.unit(["b.apk": SplitAPK.make(package: "org.example.b", manifestSplitRequired: true)], in: sandbox.paths)).first?.entry)
         #expect(waitingForSplits.state == .needsSplits)
-        // By display name, as App's question lists them, one that waits for its splits too.
+        // By display name, as the question lists them, one that waits for its splits too.
         #expect(await library.appsForOBBs().map(\.displayName) == [another, waitingForSplits, ready].map(\.displayName).sorted())
         #expect(sandbox.exists(unit.appendingPathComponent("level.obb")))
         #expect(try await library.scanUnits().map(\.lastPathComponent) == [unit.lastPathComponent])

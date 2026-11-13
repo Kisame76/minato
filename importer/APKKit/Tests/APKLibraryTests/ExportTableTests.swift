@@ -3,7 +3,7 @@ import Testing
 
 @testable import APKLibrary
 
-/// The guest's export table (ADR-0055, step a4; Runtime's format): per library its NEEDED names and its exported
+/// The guest's export table (ADR-0055, step a4; the runtime's format): per library its NEEDED names and its exported
 /// symbols with their versions, and which are stubs.
 @Suite("Export table")
 struct ExportTableTests {

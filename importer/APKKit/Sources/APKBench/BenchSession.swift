@@ -1,4 +1,4 @@
-/// A recorded session (ADR-0041 d), the App's part): a library app run in the benchmark build with
+/// A recorded session (ADR-0041 d): a library app run in the benchmark build with
 /// -recordSession <package>, its drawables recorded from before the guest's start to its end. One row of
 /// session.csv: run.csv's conditions without the fields of a BenchRun, and the recording's own counts.
 public struct BenchSessionRecord: Equatable, Sendable {

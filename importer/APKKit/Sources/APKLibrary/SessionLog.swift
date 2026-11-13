@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// The kept session log (ADR-0070, the App's part 3): game mode writes the session's guest log to
+/// The kept session log (ADR-0070, part 3): game mode writes the session's guest log to
 /// `<package>.log` in Library/Caches/session-logs, and keeps its last 200 lines in `<package>.txt` at the session's
 /// end and, after a crash, at the next start, for a report. The raw file is rotated to `<package>.log.old` past
 /// `rotateBytes`, so a talkative app fills at most two of them. Minato's own lines (`ownTag`) outlast the 200.

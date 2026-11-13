@@ -112,7 +112,7 @@ struct LastSessionTests {
     }
 
     /// A program that ends through the end handler ends as an exit, a quit or a kill of itself, whose report a
-    /// self-kill makes 137 (Runtime's ADR-0028 decision 5, as Godot ends its process): no crash, so nothing is shown.
+    /// self-kill makes 137 (ADR-0028 decision 5, as Godot ends its process): no crash, so nothing is shown.
     @Test func anEndThroughTheEndHandlerShowsNothingEvenAfterAKill() throws {
         let descriptor = store.begin(Self.session)
         try #require(descriptor >= 0)

@@ -126,7 +126,7 @@ enum NativeFindings {
         }
     }
 
-    /// The definition in `library` that `reference` binds to (Runtime's rules, from bionic's linker), if any.
+    /// The definition in `library` that `reference` binds to (the rules of bionic's linker), if any.
     fileprivate static func definition(of reference: ELFSymbols.Reference, in library: ExportTable.Library)
         -> ExportTable.Definition? {
         guard let definitions = library.symbols[reference.name] else { return nil }

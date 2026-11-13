@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks that a converter refusal longer than a kilobyte reaches the app whole (app/Sources/Signing/ConverterError.swift;
-# The Unity test APK sitting 14's x18 refusal was cut at the 1,024-byte buffer): builds APKConvert's library for macOS into
+# a Unity test APK's x18 refusal was cut at the 1,024-byte buffer): builds APKConvert's library for macOS into
 # build/native/macos-app, writes an ELF whose first of 40 LOAD segments does not fit 4 KiB pages, so that the refusal
 # lists all 40, and runs app/HostChecks/ConverterMessage/main.swift with the app's buffer against a 64 KiB one.
 # Usage: tools/converter-message-check.sh

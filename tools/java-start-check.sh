@@ -3942,7 +3942,7 @@ if screen and screen != "1290 2796":
     reference = reference.replace("layout: decor 1290 x 2796", f"layout: decor {width} x {height}")
 elif not screen:
     print("note    no screenshot of the device: the decor's size stays Android's 1290 x 2796")
-# At Home the focus goes before onPause, ADR-0032 decision 7's named departure (App's c6 host fixes): iOS takes the
+# At Home the focus goes before onPause, ADR-0032 decision 7's named departure (the c6 host fixes): iOS takes the
 # focus at willDeactivate, before it tells of the background. Android's other lines and their order stay.
 wanted = reference.splitlines()
 for i in range(len(wanted) - 1):

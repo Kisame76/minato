@@ -1262,7 +1262,7 @@ final class GameSession {
     }
 
     /// Whether the frame clock runs: the lifecycle's rule for the app's kind (ADR-0041, decision 2), a Java app's
-    /// frames while the scene is in the foreground (App's c6 host fixes), and none once the channel broke.
+    /// frames while the scene is in the foreground (the c6 host fixes), and none once the channel broke.
     private var framesRun: Bool {
         let javaApp = entry.report?.startsOnJavaPath == true
         return !bridge.isBroken && bridge.lifecycle.framesRun(javaApp: javaApp)

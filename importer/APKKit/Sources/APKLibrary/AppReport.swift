@@ -1,7 +1,7 @@
 import APKKit
 import Foundation
 
-/// The app report of Report a Problem (ADR-0070, the App's parts 2 and 3): plain text about Minato, the iPhone and
+/// The app report of Report a Problem (ADR-0070, parts 2 and 3): plain text about Minato, the iPhone and
 /// the app, its status and compatibility issues in Get Info's words, how its last session ended and that session's
 /// kept log, and the URL of the issue form `app-report.yml` with the fields it can fill. The report itself goes by
 /// the clipboard, as a URL holds only a few KB, and the form's source stays the user's. Nothing names a path.

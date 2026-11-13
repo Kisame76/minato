@@ -3,7 +3,7 @@ import Testing
 
 @testable import APKLibrary
 
-/// ADR-0070, the App's part 3: game mode keeps the last 200 lines of a session's guest log in
+/// ADR-0070, part 3: game mode keeps the last 200 lines of a session's guest log in
 /// Library/Caches/session-logs/<package>.txt, at the session's end and, after a crash, at the next start.
 @Suite("Session log")
 struct SessionLogTests {
