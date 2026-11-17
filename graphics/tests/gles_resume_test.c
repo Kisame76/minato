@@ -55,6 +55,15 @@
    the reload are done, ANGLE's color textures must be the start's again, plus at most race_own (16) for each race's
    context, which lives on with its own state.
 
+   With ",renpy" after the size (graphics.gles_resume_renpy, with ",background": the Ren'Py anim game's own order on
+   a return without the race) R loads the set as Ren'Py 8.5.3's GL2 renderer does on Android (renpy_load.h: draw.fbo,
+   a pixel unpack buffer per upload, a draw into draw.fbo, every mip level made, glCopyTexImage2D of level 0,
+   glGenerateMipmap, the temporary deleted; renpy-load-test holds that order against Android 15), instead of the plain
+   uploads above, and the scene then draws every texture once to the window. At each return on_resize deletes draw.fbo,
+   its renderbuffers and the program (quit_fbo, the shader cache's clear) and makes them again before the reset
+   deletes and reloads the set. The check is the same. Not with ",race": the race's context would need its own draw.fbo
+   (framebuffers are not shared).
+
    With MINATO_RESUME_DIAG set (the iPhone run; not the Mac check, whose output is byte-compared) the host's memory
    line (MINATO_TEST_GRAPHICS_LINE) prints depth=<n> on stderr before the background, after the backup released,
    after the first return and after the third, and the backup and restore durations are printed too, for the
@@ -72,6 +81,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "renpy_load.h"
 #include "test_control.h"
 
 enum { width = 64, height = 48, kept_textures = 3, returns = 3, set_most = 1000, race_own = 16 };
@@ -103,6 +113,7 @@ static GLuint kept[kept_textures];
 static int set_size;  /* MINATO_RESUME_SET: Ren'Py's set, 0 without */
 static int free_in_background;  /* ",background": the set deleted after the backup, with no context current */
 static int race;                /* ",race": Ren'Py's display reset with no context current, in a new context */
+static int renpy_loader;        /* ",renpy": Ren'Py's own loader and draw.fbo (the header's last paragraph) */
 static EGLContext raced[returns];  /* the race's contexts, which nothing makes current again (pygame keeps them) */
 static GLuint set[set_most];
 static uint64_t set_start;  /* ANGLE's color textures with the set made, at the start */
@@ -144,11 +155,29 @@ static double now_ms(void) {
 }
 static const char *ok(EGLBoolean value) { return value == EGL_TRUE ? "EGL_TRUE" : "EGL_FALSE"; }
 
+/* ",renpy": draw.fbo and its program (renpy_load.h), made at the start and again at each return; the set through
+   load_gltexture, then the scene's draw of each texture to the window when `sampled`. */
+static struct renpy_draw renpy;
+static void renpy_load_set(int sampled) {
+    static unsigned char pixels[renpy_side * renpy_side * 4];
+    for (int i = 0; i < set_size; i++) {
+        set[i] = renpy_load_texture(&renpy, pixels, NULL, NULL);
+    }
+    renpy_load_end(width, height);
+    for (int i = 0; i < set_size && sampled; i++) {
+        renpy_draw_ftl(&renpy, set[i]);
+    }
+}
+
 /* Ren'Py's loader: the set's RGBA textures of 64 x 64 with data, mipmapped, each sampled once by a copy (not in a
-   context current without a surface, which has no framebuffer to copy from). */
+   context current without a surface, which has no framebuffer to copy from); with ",renpy" Ren'Py's own path. */
 static void load_set_sampled(int sampled);
 static void load_set(void) { load_set_sampled(1); }
 static void load_set_sampled(int sampled) {
+    if (renpy_loader) {
+        renpy_load_set(sampled);
+        return;
+    }
     static unsigned char pixels[64 * 64 * 4];
     glGenTextures(set_size, set);
     for (int i = 0; i < set_size; i++) {
@@ -184,6 +213,9 @@ static void *render_thread(void *argument) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
     if (set_size > 0) {
+        if (renpy_loader) {
+            renpy_init_fbo(&renpy, width, height);  /* gl2draw's init with on_resize(first=True) */
+        }
         load_set();
         eglSwapBuffers(display, surface);
         set_start = color_textures(0);
@@ -264,6 +296,11 @@ static void *render_thread(void *argument) {
                "%u %u %u %u; swap %s\n", r + 1, surface != EGL_NO_SURFACE ? "S2" : "none", ok(restored),
                eglGetError(), yn(fresh != UNWRITTEN), pixel[0], pixel[1], pixel[2], pixel[3], ok(swapped[r]));
         if (set_size > 0 && surface != EGL_NO_SURFACE) {
+            if (renpy_loader) {
+                /* on_resize(full_reset=True): quit_fbo and the shader cache's clear, then init_fbo and its load. */
+                renpy_quit_fbo(&renpy);
+                renpy_init_fbo(&renpy, width, height);
+            }
             /* Ren'Py's full reset: the set deleted, one call each (none left after a free in the background, whose
                cleanup emptied the loader); then its scene loaded again. */
             for (int i = 0; i < set_size && !free_in_background; i++) {
@@ -291,6 +328,11 @@ static void *render_thread(void *argument) {
                 printf("return %d R: after the race, the reset in the restored context: the set deleted, gone from "
                        "ANGLE's color textures: %s; loaded again, as many as at the start: %s (the race's contexts "
                        "may keep %d of their own each)\n", r + 1, gone, again, race_own);
+            } else if (renpy_loader) {
+                printf("return %d R: Ren'Py's on_resize: draw.fbo and its program made again, the set %s, gone from "
+                       "ANGLE's color textures: %s; loaded again through Ren'Py's loader, as many as at the start: "
+                       "%s\n", r + 1, free_in_background ? "deleted with no context current before the return"
+                                                         : "deleted", gone, again);
             } else if (free_in_background) {
                 printf("return %d R: the set deleted with no context current, then the same context current again on "
                        "the same thread: gone from ANGLE's color textures: %s; loaded again, as many as at the start: "
@@ -328,11 +370,13 @@ int main(void) {
     const char *set_text = getenv("MINATO_RESUME_SET");
     const uint64_t set_value =
         set_text != NULL ? (uint64_t)atoi(set_text) | (strstr(set_text, ",background") != NULL ? 1ull << 32 : 0) |
-                               (strstr(set_text, ",race") != NULL ? 1ull << 33 : 0)
+                               (strstr(set_text, ",race") != NULL ? 1ull << 33 : 0) |
+                               (strstr(set_text, ",renpy") != NULL ? 1ull << 34 : 0)
                          : minato_test(MINATO_TEST_RESUME_SET, 0, 0, 0);
     set_size = (int)(set_value & 0xffffffffu);
     free_in_background = (set_value >> 32) & 1;
     race = (set_value >> 33) & 1;
+    renpy_loader = ((set_value >> 34) & 1) && !race;
     set_size = set_size < 0 ? 0 : set_size > set_most ? set_most : set_size;
     create_window create = (create_window)dlsym(dlopen("libnativewindow.so", RTLD_NOW), "minato_ANativeWindow_create");
 

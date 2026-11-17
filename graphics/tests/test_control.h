@@ -53,8 +53,8 @@ enum minato_test_command {
     MINATO_TEST_COLOR_TEXTURES, /* the color textures ANGLE holds now (its memory line's color= count, patch 0015);
                                    UINT64_MAX without the line */
     MINATO_TEST_RESUME_SET,     /* the host's MINATO_RESUME_SET: the set's size, 0 without, bit 32 for a
-                                   ",background" after it and bit 33 for a ",race" (gles_resume_test's set: the guest
-                                   has not the Mac's environment) */
+                                   ",background" after it, bit 33 for a ",race" and bit 34 for a ",renpy"
+                                   (gles_resume_test's set: the guest has not the Mac's environment) */
 };
 
 #ifndef __APPLE__

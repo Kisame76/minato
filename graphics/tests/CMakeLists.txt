@@ -706,6 +706,15 @@ if(TARGET minato_graphics_host)
     # restore (graphics/egl/deferred.c, for iOS's memory limit), so ANGLE's color textures come back to the start's.
     add_guest_test(gles_resume_free gles-resume-test gles_resume_free_test "${gles_system_libraries}" ${with_angle}
       "MINATO_RESUME_SET=set:600,background")
+    # The same with Ren'Py's own loader (",renpy", gles_resume_test.c): draw.fbo, a pixel unpack buffer per upload,
+    # glCopyTexImage2D into a texture with every mip level made, glGenerateMipmap, the temporary deleted, and draw.fbo
+    # made again at each return, in the anim game's order without the race: the set it deleted must leave ANGLE.
+    add_guest_test(gles_resume_renpy gles-resume-test gles_resume_renpy_test "${gles_system_libraries}" ${with_angle}
+      "MINATO_RESUME_SET=set:600,background,renpy")
+    # Ren'Py's loader alone (renpy_load.h), the order graphics.gles_resume_renpy loads by, in a pbuffer: its readbacks
+    # and what it leaves alive by glIs*, against Android 15's answers (the same program as a shell program on the
+    # emulator).
+    add_guest_test(renpy_load renpy-load-test renpy_load_test "${gles_system_libraries}" ${with_angle})
     # The same returns with the race Ren'Py meets one frame after SDL's backup (",race"): its display reset makes a
     # new context with none current and loads the set there, and the old context comes back at the return. libEGL
     # makes that context share the old one's objects (the backup share), so no second set stays alive.

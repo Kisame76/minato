@@ -164,7 +164,7 @@ static uint64_t control(uint64_t command, uint64_t a, uint64_t b, uint64_t c) {
             }
             const uint64_t size = strtoull(set, NULL, 10) & 0xffffffffu;
             return size | (strstr(set, ",background") != NULL ? 1ull << 32 : 0) |
-                   (strstr(set, ",race") != NULL ? 1ull << 33 : 0);
+                   (strstr(set, ",race") != NULL ? 1ull << 33 : 0) | (strstr(set, ",renpy") != NULL ? 1ull << 34 : 0);
         }
         default:
             fprintf(stderr, "test control: no command %llu\n", (unsigned long long)command);

@@ -281,6 +281,12 @@ target_compile_options(buffer-queue-test PRIVATE -Wall -Wextra -Wno-unguarded-av
 add_executable(ahb-image-test "${tests}/ahb_image_test.c")
 target_link_libraries(ahb-image-test PRIVATE EGL GLESv3 nativewindow)
 target_compile_options(ahb-image-test PRIVATE -Wall -Wextra)
+# renpy-load-test: Ren'Py 8.5.3's texture loader (graphics/tests/renpy_load.h), linked as an app links libEGL and
+# libGLESv3, so that it also runs as a shell program on the emulator (Android 15's answers).
+add_executable(renpy-load-test "${tests}/renpy_load_test.c")
+target_include_directories(renpy-load-test PRIVATE "${tests}")
+target_link_libraries(renpy-load-test PRIVATE EGL GLESv3)
+target_compile_options(renpy-load-test PRIVATE -Wall -Wextra)
 # ADR-0041 a1: gles1-front-test, linked as an app links libGLESv1_CM.
 add_executable(gles1-front-test "${tests}/gles1_front_test.c")
 target_link_libraries(gles1-front-test PRIVATE EGL GLESv1_CM)

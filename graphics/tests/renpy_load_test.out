@@ -1,0 +1,16 @@
+ready: initialized: yes, a config: yes, current: yes, GL_NO_ERROR
+start: init_fbo: draw.fbo complete: yes, its 1 x 1 twin complete: yes, the FTL program linked: yes, error 0x0
+start: texture 1: level 0 reads 200 40 120 255, level 5 (1 x 1) reads 200 40 120 255, error 0x0
+start: texture 2: level 0 reads 10 250 60 255, level 5 (1 x 1) reads 10 250 60 255, error 0x0
+start: texture 3: level 0 reads 90 90 255 255, level 5 (1 x 1) reads 90 90 255 255, error 0x0
+start: alive: kept textures 3 of 3, temporaries 0, pixel unpack buffers 0, draw.fbo's framebuffers 2 and renderbuffers 2, its program: yes, error 0x0
+start: the scene's draw of texture 3 to the window reads 90 90 255 255, error 0x0
+return: quit_fbo: draw.fbo's framebuffers alive 0, renderbuffers 0, its program deleted while in use still a program: yes, error 0x0
+return: init_fbo: draw.fbo complete: yes, its 1 x 1 twin complete: yes, the FTL program linked: yes, error 0x0
+return: the set deleted: kept textures alive 0 of 3, error 0x0
+return: texture 1: level 0 reads 200 40 120 255, level 5 (1 x 1) reads 200 40 120 255, error 0x0
+return: texture 2: level 0 reads 10 250 60 255, level 5 (1 x 1) reads 10 250 60 255, error 0x0
+return: texture 3: level 0 reads 90 90 255 255, level 5 (1 x 1) reads 90 90 255 255, error 0x0
+return: alive: kept textures 3 of 3, temporaries 0, pixel unpack buffers 0, draw.fbo's framebuffers 2 and renderbuffers 2, its program: yes, the program quit_fbo deleted still a program: no, error 0x0
+return: the scene's draw of texture 3 to the window reads 90 90 255 255, error 0x0
+done
