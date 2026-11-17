@@ -7,7 +7,9 @@
 // above the minSdk). Per rate: 30 callbacks to settle, the period as the median of the last 16 intervals,
 // then 600 frames in three blocks of 200, a frame on every first, second and third callback, each presented 1, 2
 // and 3 periods after its callback's frame time, so the times asked for rise by 1, 2 and 3 periods. Each frame
-// clears the window to a color of its own.
+// clears the window to a color of its own. PRESENT_TEST_BLOCK in the environment (1 to 200) makes the blocks smaller:
+// the Mac's harness (graphics/tests/app_test.mm), which judges the calls, the lines and present.csv but not the
+// timing, asks for 50; Android and the iPhone have no such variable and run the 200.
 // The app's tag ("present-gles" or "present-vulkan") logs what every Android 15 device answers alike: whether the
 // extension is there, and per rate the frames, the times the API took and the presents that succeeded. Its tag with
 // "-device" logs the periods, Vulkan's refresh duration and how many past timings came. present.csv in
@@ -71,6 +73,11 @@ static struct {
     int times[kRates], presents[kRates];
     struct row rows[kRows];
 } test;
+
+// The frames of a block (kBlock unless PRESENT_TEST_BLOCK asks for fewer), of a rate and of the run.
+static int block = kBlock;
+#define FRAMES (3 * block)
+#define ROWS (kRates * FRAMES)
 
 static struct {
     EGLDisplay display;
@@ -315,7 +322,7 @@ static void collect_timings(void) {
         const VkResult result = vk.past_timing(vk.device, vk.swapchain, &count, timings);
         for (uint32_t index = 0; index < count; ++index) {
             const uint32_t id = timings[index].presentID;
-            if (id >= 1 && id <= kRows) test.rows[id - 1].past = timings[index];
+            if (id >= 1 && id <= (uint32_t)ROWS) test.rows[id - 1].past = timings[index];
         }
         if (result != VK_INCOMPLETE) return;
     }
@@ -442,11 +449,11 @@ static void finish(void) {
     if (test.vulkan && test.extension) {
         vkDeviceWaitIdle(vk.device);
         collect_timings();
-        for (int frame = 0; frame < kRows; ++frame) timed += test.rows[frame].past.presentID != 0;
-        DEVICE("past timings: %d of %d frames", timed, kRows);
+        for (int frame = 0; frame < ROWS; ++frame) timed += test.rows[frame].past.presentID != 0;
+        DEVICE("past timings: %d of %d frames", timed, ROWS);
     }
     for (int rate = 0; rate < kRates; ++rate) {
-        LOG("rate %d: %d frames presented 1, 2 and 3 periods on, %d times taken, %d presents", rates[rate], kFrames,
+        LOG("rate %d: %d frames presented 1, 2 and 3 periods on, %d times taken, %d presents", rates[rate], FRAMES,
             test.times[rate], test.presents[rate]);
     }
     char path[512];
@@ -455,7 +462,7 @@ static void finish(void) {
     if (file != NULL) {
         fprintf(file, "api,rate,interval,frame,frame_time_ns,asked_ns,timeline0_ns,present_id,desired_ns,actual_ns,"
                       "earliest_ns,margin_ns\n");
-        for (int frame = 0; frame < kRows; ++frame) {
+        for (int frame = 0; frame < ROWS; ++frame) {
             const struct row *row = &test.rows[frame];
             fprintf(file, "%s,%d,%d,%d,%lld,%lld,%lld,%u,%llu,%llu,%llu,%llu\n", test.vulkan ? "vulkan" : "gles",
                     row->rate, row->interval, frame, (long long)row->frame_time, (long long)row->asked,
@@ -476,7 +483,7 @@ static void draw(int64_t frame_time, int64_t timeline0) {
     const int frame = test.frames++;
     test.rows[frame] = (struct row){rates[test.rate], test.interval, frame_time, asked, timeline0, {0}};
     if (test.vulkan ? frame_vulkan(frame, asked) : frame_gles(frame, asked)) ++test.presents[test.rate];
-    if (++test.block_frames < kBlock) return;
+    if (++test.block_frames < block) return;
     test.block_frames = 0;
     test.callbacks = 0;
     if (++test.interval <= 3) return;
@@ -592,6 +599,8 @@ __attribute__((visibility("default"))) void ANativeActivity_onCreateVulkan(ANati
 // The frames come from the choreographer's callbacks inside ALooper_pollOnce.
 void android_main(struct android_app *app) {
     test.app = app;
+    const char *asked_block = getenv("PRESENT_TEST_BLOCK");
+    if (asked_block != NULL && atoi(asked_block) >= 1 && atoi(asked_block) <= kBlock) block = atoi(asked_block);
     app->onAppCmd = on_command;
     test.choreographer = AChoreographer_getInstance();
     if (test.choreographer == NULL) LOG("no AChoreographer");

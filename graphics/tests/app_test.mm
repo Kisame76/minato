@@ -34,10 +34,12 @@
 //   says "windows 2, failures 0", and activity-host ended with status 0.
 // - present-gles and present-vulkan (<mode> present), ADR-0041 test 3: present-test's library, which asks for its
 //   presents' times. The start with the frame clock; the app's frames at 60 and then 120 frames a second until its
-//   own ANativeActivity_finish; the App's quit. It passes when the window counted 1200 presents, the requests were
-//   FRAME_RATE 60, FRAME_RATE 120 and FINISH, onNativeWindowDestroyed and onDestroy were answered within 500 ms, the
-//   app's lines are fixtures/expected/<app>.logcat, Android 15's, and its present.csv holds the frames in order
-//   with each time asked for its interval of periods after the frame time. Timing is judged on the iPhone only.
+//   own ANativeActivity_finish; the App's quit. Timing is judged on the iPhone only, so the Mac asks for blocks of
+//   present_block frames (PRESENT_TEST_BLOCK in the app's environment) where Android and the iPhone run 200. It passes
+//   when the window counted 6 blocks of presents, the requests were FRAME_RATE 60, FRAME_RATE 120 and FINISH,
+//   onNativeWindowDestroyed and onDestroy were answered within 500 ms, the app's lines are
+//   fixtures/expected/<app>.logcat, Android 15's, with the Mac's counts in place of its 600 a rate, and its
+//   present.csv holds the frames in order with each time asked for its interval of periods after the frame time.
 // - bench-gles and bench-vulkan (<mode> bench:<load>), ADR-0037 a): the parity benchmark's APKs from
 //   tools/build-bench.sh (<fixtures build>), their manifests in graphics/bench/android (<expected>). bench.conf asks
 //   for 120 Hz, the load, 9 s and the CRC of frame 1000, which the scene also draws and presents once before its
@@ -734,8 +736,12 @@ void play_live(const std::string &app, Capture &capture) {
     ::dprintf(report, "%s", device_lines.c_str());
 }
 
-/// present.csv of present-gles or present-vulkan: a row per frame in order, 600 at 60 and then 600 at 120 frames a
-/// second, each rate in blocks of 200 at the intervals 1, 2 and 3, the frame times rising, each time asked for its
+/// present-test's frames a block on the Mac (PRESENT_TEST_BLOCK; Android's and the iPhone's runs: 200), a rate (three
+/// blocks) and the run (two rates).
+constexpr int present_block = 50, present_rate_frames = 3 * present_block, present_frames = 2 * present_rate_frames;
+
+/// present.csv of present-gles or present-vulkan: a row per frame in order, a rate's frames at 60 and then at 120
+/// frames a second, each rate in blocks at the intervals 1, 2 and 3, the frame times rising, each time asked for its
 /// interval times the rate's period after its frame time, the period within 1 % of the clock's, and each frame's
 /// timeline 0 (ADR-0041 decision 11) a whole number of periods after its frame time, within 1 % of a period. A past
 /// timing that came gives the frame the time it asked for back as its desiredPresentTime, as Android's do, though
@@ -755,7 +761,8 @@ void check_present_csv(const fs::path &path) {
         std::vector<std::string> fields;
         std::istringstream values(line);
         for (std::string value; std::getline(values, value, ',');) fields.push_back(value);
-        const int rate = rows < 600 ? 60 : 120, interval = 1 + rows % 600 / 200;
+        const int rate = rows < present_rate_frames ? 60 : 120,
+                  interval = 1 + rows % present_rate_frames / present_block;
         if (fields.size() != 12 || fields[1] != std::to_string(rate) || fields[2] != std::to_string(interval) ||
             fields[3] != std::to_string(rows)) {
             fail("present.csv row " + std::to_string(rows) + " is " + line);
@@ -763,7 +770,7 @@ void check_present_csv(const fs::path &path) {
         }
         const long long frame_time = std::stoll(fields[4]), asked = std::stoll(fields[5]),
                         timeline0 = std::stoll(fields[6]);
-        if (rows % 600 == 0) period = (asked - frame_time) / interval;
+        if (rows % present_rate_frames == 0) period = (asked - frame_time) / interval;
         const double periods = static_cast<double>(timeline0 - frame_time) / static_cast<double>(period);
         if (frame_time <= previous || asked - frame_time != interval * period ||
             std::abs(static_cast<double>(period) * rate / 1e9 - 1) > 0.01 || periods < 0.99 ||
@@ -779,7 +786,9 @@ void check_present_csv(const fs::path &path) {
         }
         previous = frame_time;
     }
-    if (rows != 1200) fail("present.csv has " + std::to_string(rows) + " rows, not 1200");
+    if (rows != present_frames) {
+        fail("present.csv has " + std::to_string(rows) + " rows, not " + std::to_string(present_frames));
+    }
 }
 
 /// present-gles and present-vulkan (ADR-0041 test 3): the start with the frame clock, the app's frames at 60 and then
@@ -812,14 +821,17 @@ void play_present(const std::string &app, const fs::path &expected, const fs::pa
     ::dprintf(report, "host: presents counted: %llu; %d ticks; requests: %s\n",
               static_cast<unsigned long long>(counted), vsync.ticks.load(), requests.c_str());
     ::dprintf(report, "host: onNativeWindowDestroyed answered in %.1f ms, onDestroy in %.1f ms\n", destroyed, destroy);
-    if (counted != 1200) fail("the window counted " + std::to_string(counted) + " presents, not 1200");
+    if (counted != present_frames) {
+        fail("the window counted " + std::to_string(counted) + " presents, not " + std::to_string(present_frames));
+    }
     check_answer(destroyed, "onNativeWindowDestroyed");
     check_answer(destroy, "onDestroy");
     if (requests != "[FRAME_RATE 60][FRAME_RATE 120][FINISH]") fail("the requests were " + requests);
     const std::string app_lines = lines_with(log, "I/" + app + ": ");
-    if (app_lines != read_text(expected / (app + ".logcat"))) {
-        fail("the app's lines differ from Android 15's:\n" + app_lines);
-    }
+    // Android 15's lines count 600 frames, times and presents a rate; the Mac's run has present_rate_frames.
+    const std::string android = std::regex_replace(read_text(expected / (app + ".logcat")), std::regex(R"(\b600\b)"),
+                                                   std::to_string(present_rate_frames));
+    if (app_lines != android) fail("the app's lines differ from Android 15's:\n" + app_lines);
     check_present_csv(data / "files" / "present.csv");
     ::dprintf(report, "%s", lines_with(log, "I/" + app + "-device: ").c_str());
 }
@@ -1136,7 +1148,9 @@ int main(int argc, char **argv) {
     const char *const arguments[] = {"/system/bin/activity-host", "--package", package.c_str(), "--apk",
                                      apk_argument.c_str(), "--library", app.c_str(), "--function", function.c_str(),
                                      nullptr};
-    const char *const environment[] = {library_path.c_str(), nullptr};
+    // present-test's smaller blocks on the Mac (its timing is judged on the iPhone).
+    const std::string block_entry = "PRESENT_TEST_BLOCK=" + std::to_string(present_block);
+    const char *const environment[] = {library_path.c_str(), present ? block_entry.c_str() : nullptr, nullptr};
     const fs::path container = scratch / "system-bin" / "activity-host.dylib";
     // ADR-0066 step 4: the FPS unlock before the program, as the App's session sets it.
     if (unlock != 0 && apkrt_set_frame_rate_unlock(unlock) != 0) fail("the runtime refused the unlock");
