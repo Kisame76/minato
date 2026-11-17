@@ -62,6 +62,8 @@ runs-test system libraries=libruns-lib.so
 dl-test system libraries=libdl-plugin.so,libdl-helper.so,libdl-global.so,libdl-broken.so,libdl-unresolved.so
 # A library opened with dlopen finds its own definition of a name libc.so also has (ADR-0040 test 2, ADR-0033 e1).
 dl-own-test system libraries=libdl-own.so
+# dl_iterate_phdr's module walk: names through DT_STRTAB and DT_SONAME, the ELF header and the build ID.
+phdr-walk-test system libraries=libphdr-walk.so
 signal-test system
 # SIGKILL to its own process, as Android's Process.killProcess(Process.myPid()) sends it (ADR-0028, changed
 # 2026-10-07): the shell shows 128 + 9.
@@ -130,10 +132,14 @@ svc-immediate-test system
 x18-caspalt-test system
 # A vector store with sp as base and x18 as post-index, in a stripped library.
 x18-st2-test system
+# Byte loads through x18 after the thread slept, in four forms, in a library.
+x18-sleep-test system libraries=libx18-sleep.so
 # Per-thread nice values, as Process.setThreadPriority and getThreadPriority use them.
 priority-test system
 # memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
 memfd-test system
+# A library's own JIT: executable memory in three shapes, its code where given, its interpreter where refused.
+jit-fallback-test system
 # The NDK's ASharedMemory, on ashmem on Android 15 and on memfd_create in Minato.
 sharedmem-test system
 # The network interfaces an app sees: getifaddrs, the names and indexes, and the ifreq ioctls.
@@ -142,6 +148,9 @@ ifaddrs-test system
 route-test system
 # Android's libstdc++.so, the NDK's "system" C++ runtime: new, delete and the guards of a static.
 stdcxx-test system
+# C++ exceptions thrown and caught across two libraries that share libc++_shared.so: by type, by a base type through
+# a vtable, by ... with a rethrow, and through an exception_ptr.
+cxx-cross-test system libraries=libcxx-catcher.so,libcxx-thrower.so,libc++_shared.so
 # libsync, libamidi, libbinder_ndk, libneuralnetworks and libOpenMAXAL, which Minato has nothing behind.
 # Runtime-only: on Android 15 the program prints the same lines (two runs of apk-runner-35), but libbinder_ndk and
 # NNAPI log seven lines when they load, which Minato's libraries do not.
@@ -162,6 +171,8 @@ property-test system runtime-only
 # The CPU features a program learns (ADR-0047 a and c), the device's own: shown, and on the Mac compared with the
 # bits its sysctl gives by runtime.hwcap_fixture.
 hwcap-test system measures
+# The address space of dlopen of a 100 MiB library and of 64 threads with Android's default attributes (a benchmark).
+va-footprint-test system libraries=libva-big.so measures
 # What the instructions of ADR-0047 decision 3's features do at EL0 (b1), the device's own: shown, and on the Mac
 # compared with what its sysctl lets one expect by runtime.el0_check_fixture.
 el0-check system measures

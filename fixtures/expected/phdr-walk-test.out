@@ -1,0 +1,8 @@
+modules: 3 or more
+named modules read: 2 or more
+libphdr-walk.so: found by its DT_SONAME
+libc.so: found by its DT_SONAME
+ELF header at the own library's first segment: yes
+build ID: 20 bytes
+dladdr base is dlpi_addr: yes
+marker: 42

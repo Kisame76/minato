@@ -1,0 +1,6 @@
+runtime_error by its type: released the throw site (thrower), released the callback (catcher), released the call (thrower), caught runtime_error "runtime error from the thrower"
+Fault by std::exception: released the throw site (thrower), released the callback (catcher), released the call (thrower), caught std::exception "fault from the thrower"
+Fault by its own type: released the throw site (thrower), released the callback (catcher), released the call (thrower), caught Fault, code 7
+int by ..., rethrown: released the throw site (thrower), released the callback (catcher), released the call (thrower), caught by ..., rethrowing, caught the int 42 in the third frame
+runtime_error kept and rethrown: released the throw site (thrower), released the callback (catcher), released the call (thrower), caught it again from an exception_ptr: "runtime error from the thrower"
+done: 0

@@ -140,6 +140,11 @@ add_library(dl-own SHARED suite/libdl-own.c)
 target_compile_options(dl-own PRIVATE -fsemantic-interposition)
 add_executable(dl-own-test suite/dl-own-test.c)
 target_link_libraries(dl-own-test PRIVATE dl)
+# phdr-walk-test and libphdr-walk.so: dl_iterate_phdr's module walk, each module's name through DT_STRTAB and
+# DT_SONAME, the ELF header and the build ID, as a crash reporter or an engine reads them at its start.
+add_library(phdr-walk SHARED suite/libphdr-walk.c)
+add_executable(phdr-walk-test suite/phdr-walk-test.c)
+target_link_libraries(phdr-walk-test PRIVATE phdr-walk dl)
 add_executable(signal-test suite/signal-test.c)
 # kill-self-test: SIGKILL to its own process, as Process.killProcess(Process.myPid()) sends it (ADR-0028).
 add_executable(kill-self-test suite/kill-self-test.c)
@@ -328,6 +333,9 @@ target_link_options(x18-st2-test PRIVATE -Wl,-s)
 add_executable(priority-test suite/priority-test.c)
 # memfd-test: memfd_create and its seals, as libcutils' ashmem uses them once sys.use_memfd is on.
 add_executable(memfd-test suite/memfd-test.c)
+# jit-fallback-test: a library's own JIT in the three shapes of executable memory (RWX anonymous, RW then RX, a memfd
+# mapped twice); each runs its code where given and its interpreter where refused, with the same output.
+add_executable(jit-fallback-test suite/jit-fallback-test.c)
 # sharedmem-test: the NDK's ASharedMemory, on ashmem on Android 15 and on memfd_create in Minato.
 add_executable(sharedmem-test suite/sharedmem-test.c)
 target_link_libraries(sharedmem-test PRIVATE android)
@@ -335,11 +343,35 @@ target_link_libraries(sharedmem-test PRIVATE android)
 add_executable(ifaddrs-test suite/ifaddrs-test.c)
 # route-test: the routes an app reads, RTM_GETROUTE's dump, lo's lines and Android's layout (ADR-0054 c3).
 add_executable(route-test suite/route-test.c)
+# va-footprint-test and libva-big.so: the address space of dlopen of a 100 MiB library and of 64 parked threads with
+# Android's default attributes, from /proc/self/stat (a benchmark).
+add_library(va-big SHARED suite/libva-big.S)
+# The ASM link rule of the NDK's toolchain is empty.
+set_target_properties(va-big PROPERTIES LINKER_LANGUAGE C)
+add_executable(va-footprint-test suite/va-footprint-test.c)
+target_link_libraries(va-footprint-test PRIVATE dl)
 # stdcxx-test: Android's libstdc++.so, which ANDROID_STL=system links, in place of the NDK's libc++.
 add_executable(stdcxx-test suite/stdcxx-test.cpp)
 target_compile_options(stdcxx-test PRIVATE -std=gnu++20 -fno-exceptions -fno-rtti)
 target_link_options(stdcxx-test PRIVATE -nostdlib++)
 target_link_libraries(stdcxx-test PRIVATE stdc++ dl)
+# cxx-cross-test, libcxx-thrower.so and libcxx-catcher.so: C++ exceptions thrown and caught across two libraries
+# that share the NDK's libc++_shared.so (copied next to them), as an app with several C++ libraries ships them.
+set(ndk_libcxx_shared "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-android/libc++_shared.so")
+if(NOT EXISTS "${ndk_libcxx_shared}")
+  message(FATAL_ERROR "cxx-cross-test: no ${ndk_libcxx_shared}")
+endif()
+configure_file("${ndk_libcxx_shared}" "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libc++_shared.so" COPYONLY)
+add_library(cxx-thrower SHARED suite/libcxx-thrower.cpp)
+add_library(cxx-catcher SHARED suite/libcxx-catcher.cpp)
+foreach(library cxx-thrower cxx-catcher)
+  target_compile_options(${library} PRIVATE -std=gnu++20 -fexceptions -frtti)
+  target_link_options(${library} PRIVATE -nostdlib++)
+  target_link_libraries(${library} PRIVATE "${ndk_libcxx_shared}")
+endforeach()
+target_link_libraries(cxx-catcher PRIVATE cxx-thrower)
+add_executable(cxx-cross-test suite/cxx-cross-test.c)
+target_link_libraries(cxx-cross-test PRIVATE cxx-catcher)
 # unbacked-libs-test: the NDK libraries with nothing behind them in Minato, which an app may name in NEEDED.
 add_executable(unbacked-libs-test suite/unbacked-libs-test.c)
 target_link_libraries(unbacked-libs-test PRIVATE sync amidi binder_ndk neuralnetworks OpenMAXAL)
@@ -481,6 +513,13 @@ target_link_libraries(data-in-text-test PRIVATE dit-sym dit-strip dit-rela dit-r
 add_executable(x18-test suite/x18-test.c suite/x18-test.S)
 # x18-stress: eight threads with x18 islands under SIGUSR1 from the main thread.
 add_executable(x18-stress suite/x18-stress.c suite/x18-stress.S)
+# x18-sleep-test and libx18-sleep.so: byte loads through x18 after the thread slept, in four forms, as a library that
+# keeps a table's base in x18 reads them.
+add_library(x18-sleep SHARED suite/libx18-sleep.S)
+# The ASM link rule of the NDK's toolchain is empty.
+set_target_properties(x18-sleep PROPERTIES LINKER_LANGUAGE C)
+add_executable(x18-sleep-test suite/x18-sleep-test.c)
+target_link_libraries(x18-sleep-test PRIVATE x18-sleep)
 # c-rename-test: a function option (c) renames whole (ADR-0020); runtime-only -- it is ABI-correct only after
 # conversion, so it runs through apk-run but not natively (fixtures/tests.txt).
 add_executable(c-rename-test suite/c-rename-test.c suite/c-rename-test.S)

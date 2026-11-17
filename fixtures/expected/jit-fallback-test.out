@@ -1,0 +1,5 @@
+rwx anonymous: 42
+rw, then rx: 42
+memfd mapped twice: 42
+every refusal EACCES: yes
+plain mapping after: writable
