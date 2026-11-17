@@ -33,6 +33,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <semaphore>
 #include <string>
 #include <thread>
@@ -435,74 +436,79 @@ void run_opensl(const Case &c) {
 
 constexpr double kRates[] = {8000, 11025, 22050, 24000, 44100, 48000};
 
-TEST(aaudio_data_callback_hands_the_host_the_signal_at_every_rate_format_and_channel_count) {
-    for (const double rate : kRates) {
-        for (const Format format : {Format::f32, Format::i16}) {
-            for (const std::int32_t channels : {1, 2}) run_aaudio_callback({"aaudio-callback", format, channels, rate});
-        }
+// Every case plays in real time, so each path takes the pairs, not the whole product: every rate with both formats,
+// the channel count alternating so that each rate has both counts and each format has both counts over the rates.
+// `play` runs one case of a path.
+template <typename Play>
+void every_pair(const char *path, Format first, Format second, Play play) {
+    for (std::size_t index = 0; index < std::size(kRates); ++index) {
+        const std::int32_t channels = index % 2 == 0 ? 1 : 2;
+        play(Case{path, first, channels, kRates[index]});
+        play(Case{path, second, 3 - channels, kRates[index]});
     }
+}
+
+TEST(aaudio_data_callback_hands_the_host_the_signal_at_every_rate_format_and_channel_count) {
+    every_pair("aaudio-callback", Format::f32, Format::i16, [](const Case &c) { run_aaudio_callback(c); });
     run_aaudio_callback({"aaudio-callback", Format::f32, 6, 24000});
 }
 
 TEST(aaudio_blocking_write_hands_the_host_the_signal_at_every_rate_format_and_channel_count) {
-    for (const double rate : kRates) {
-        for (const Format format : {Format::f32, Format::i16}) {
-            for (const std::int32_t channels : {1, 2}) run_aaudio_write({"aaudio-write", format, channels, rate});
-        }
-    }
+    every_pair("aaudio-write", Format::f32, Format::i16, [](const Case &c) { run_aaudio_write(c); });
     run_aaudio_write({"aaudio-write", Format::f32, 6, 48000});
 }
 
 TEST(opensl_buffer_queue_hands_the_host_the_signal_at_every_rate_format_and_channel_count) {
-    for (const double rate : kRates) {
-        for (const Format format : {Format::u8, Format::i16}) {
-            for (const std::int32_t channels : {1, 2}) run_opensl({"opensl-queue", format, channels, rate});
-        }
-    }
+    every_pair("opensl-queue", Format::u8, Format::i16, [](const Case &c) { run_opensl(c); });
 }
 
 // MARK: - The clocks
 
 TEST(aaudio_clocks_advance_at_the_rate_one_per_frame) {
-    for (const double rate : {11025.0, 24000.0, 44100.0}) {
-        for (const std::int32_t channels : {1, 2}) {
-            use_fake_host();
-            const Case c{"aaudio-clock", Format::f32, channels, rate};
-            // The signal outlasts the measurement window below, so the clock keeps advancing across the whole window.
-            const Signal signal = make_signal(c.format, channels, rate, static_cast<std::int64_t>(rate * 4));
-            CallbackFeed state{&signal};
-            AAudioStream *stream = open_aaudio(c, feed, &state);
-            const Opened opened = last_opened();
-            Consumer consumer(opened.handle, rate, channels);
-            CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
-            std::this_thread::sleep_for(300ms);  // let the stream settle before the first sample
-            const auto wall_a = std::chrono::steady_clock::now();
-            const std::int64_t read_a = AAudioStream_getFramesRead(stream);
-            std::int64_t position_a = 0, time_a = 0;
-            const bool stamp_a = AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &position_a, &time_a) == AAUDIO_OK;
-            // A multi-second window: a single short window can catch the consumer briefly behind under load and read
-            // low, so measure over ~3 s, where a bounded transient is a small fraction. Rate from the stamps' deltas.
-            std::this_thread::sleep_for(3'000ms);
-            const std::int64_t read_b = AAudioStream_getFramesRead(stream);
-            const auto wall_b = std::chrono::steady_clock::now();
-            std::int64_t position_b = 0, time_b = 0;
-            const bool stamp_b = AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &position_b, &time_b) == AAUDIO_OK;
-            const double wall_seconds = std::chrono::duration<double>(wall_b - wall_a).count();
-            const double read_rate = static_cast<double>(read_b - read_a) / wall_seconds;  // frames per second
-            const double stamp_rate = time_b > time_a ? static_cast<double>(position_b - position_a) * 1e9 /
-                                                            static_cast<double>(time_b - time_a)
-                                                      : 0;
-            std::fprintf(stderr,
-                         "audio-matrix: aaudio clocks %dch %5.0f Hz: framesRead %.0f frames/s over %.2f s, timestamp "
-                         "%.0f frames/s (stamps %d %d), framesWritten %lld\n",
-                         channels, rate, read_rate, wall_seconds, stamp_rate, stamp_a, stamp_b,
-                         static_cast<long long>(AAudioStream_getFramesWritten(stream)));
-            CHECK(std::fabs(read_rate - rate) <= rate * 0.08);
-            if (stamp_a && stamp_b) CHECK(std::fabs(stamp_rate - rate) <= rate * 0.05);
-            CHECK(AAudioStream_getFramesWritten(stream) >= read_b);
-            consumer.stop();
-            CHECK(AAudioStream_close(stream) == AAUDIO_OK);
-        }
+    // Each rate once, the channel count alternating: the clocks do not depend on the count, and a case takes 3.3 s.
+    struct ClockCase {
+        double rate;
+        std::int32_t channels;
+    };
+    for (const ClockCase clock : {ClockCase{11025, 1}, ClockCase{24000, 2}, ClockCase{44100, 1}}) {
+        const double rate = clock.rate;
+        const std::int32_t channels = clock.channels;
+        use_fake_host();
+        const Case c{"aaudio-clock", Format::f32, channels, rate};
+        // The signal outlasts the measurement window below, so the clock keeps advancing across the whole window.
+        const Signal signal = make_signal(c.format, channels, rate, static_cast<std::int64_t>(rate * 4));
+        CallbackFeed state{&signal};
+        AAudioStream *stream = open_aaudio(c, feed, &state);
+        const Opened opened = last_opened();
+        Consumer consumer(opened.handle, rate, channels);
+        CHECK(AAudioStream_requestStart(stream) == AAUDIO_OK);
+        std::this_thread::sleep_for(300ms);  // let the stream settle before the first sample
+        const auto wall_a = std::chrono::steady_clock::now();
+        const std::int64_t read_a = AAudioStream_getFramesRead(stream);
+        std::int64_t position_a = 0, time_a = 0;
+        const bool stamp_a = AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &position_a, &time_a) == AAUDIO_OK;
+        // A multi-second window: a single short window can catch the consumer briefly behind under load and read
+        // low, so measure over ~3 s, where a bounded transient is a small fraction. Rate from the stamps' deltas.
+        std::this_thread::sleep_for(3'000ms);
+        const std::int64_t read_b = AAudioStream_getFramesRead(stream);
+        const auto wall_b = std::chrono::steady_clock::now();
+        std::int64_t position_b = 0, time_b = 0;
+        const bool stamp_b = AAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &position_b, &time_b) == AAUDIO_OK;
+        const double wall_seconds = std::chrono::duration<double>(wall_b - wall_a).count();
+        const double read_rate = static_cast<double>(read_b - read_a) / wall_seconds;  // frames per second
+        const double stamp_rate = time_b > time_a ? static_cast<double>(position_b - position_a) * 1e9 /
+                                                        static_cast<double>(time_b - time_a)
+                                                  : 0;
+        std::fprintf(stderr,
+                     "audio-matrix: aaudio clocks %dch %5.0f Hz: framesRead %.0f frames/s over %.2f s, timestamp "
+                     "%.0f frames/s (stamps %d %d), framesWritten %lld\n",
+                     channels, rate, read_rate, wall_seconds, stamp_rate, stamp_a, stamp_b,
+                     static_cast<long long>(AAudioStream_getFramesWritten(stream)));
+        CHECK(std::fabs(read_rate - rate) <= rate * 0.08);
+        if (stamp_a && stamp_b) CHECK(std::fabs(stamp_rate - rate) <= rate * 0.05);
+        CHECK(AAudioStream_getFramesWritten(stream) >= read_b);
+        consumer.stop();
+        CHECK(AAudioStream_close(stream) == AAUDIO_OK);
     }
 }
 

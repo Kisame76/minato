@@ -36,6 +36,8 @@ of its signals must have been handled while the main thread collected, so that t
 during ART's stop-the-world.
 --gc <collector> checks that ART's start line, "Using CollectorType<collector> GC.", names that collector, as
 app_process runs an app with CMS (ADR-0033 decision 5); the run gets a folder of its own.
+--rc-only marks a run that a release candidate's check makes and the standard check leaves out: it prints
+"skipped: ..." unless the environment has MINATO_RC_CHECKS=1.
 Prints "skipped: ..." while dalvikvm, the jar, the library, Conscrypt's files, the added jars or the front libs are
 missing, or the guest system lacks the public libraries' list that libnativeloader reads at start
 (tools/build-bionic.sh).
@@ -43,6 +45,7 @@ missing, or the guest system lacks the public libraries' list that libnativeload
 Usage: art_run.py <art> <bionic-lib> <bionic-system> <icu-data> <apk-convert> <apk-run> <work> <jar> <class>
                   <expected> [--debug] [--library <lib.so>] [--offsets] [--upper-half] [--conscrypt] [--okhttp]
                   [--time] [--oat-proof] [--bouncycastle] [--nativeloader <reference>] [--stress] [--gc <collector>]
+                  [--rc-only]
 """
 import contextlib
 import fcntl
@@ -313,10 +316,12 @@ def main():
     compiled = "--compiled" in arguments
     timed = "--time" in arguments
     oat_proof = "--oat-proof" in arguments
+    rc_only = "--rc-only" in arguments
     added_jars = [name for name in ("okhttp", "bouncycastle") if f"--{name}" in arguments]
     arguments = [argument for argument in arguments
                  if argument not in ("--debug", "--offsets", "--upper-half", "--conscrypt", "--okhttp",
-                                     "--bouncycastle", "--stress", "--nterp", "--compiled", "--time", "--oat-proof")]
+                                     "--bouncycastle", "--stress", "--nterp", "--compiled", "--time", "--oat-proof",
+                                     "--rc-only")]
     library = None
     if "--library" in arguments:
         at = arguments.index("--library")
@@ -335,6 +340,9 @@ def main():
     if len(arguments) != 10 or ("--library" in sys.argv and library is None) or (
             "--nativeloader" in sys.argv and nativeloader is None) or ("--gc" in sys.argv and collector is None):
         raise SystemExit(__doc__)
+    if rc_only and os.environ.get("MINATO_RC_CHECKS") != "1":
+        print("skipped: a release candidate's run (set MINATO_RC_CHECKS=1)")
+        return
     art, bionic_lib, bionic_system, icu_data, apk_convert, apk_run, work, jar, main_class, expected = arguments
     dalvikvm = os.path.join(art, "bin", "dalvikvm")
     for needed in [dalvikvm, jar] + [os.path.join(art, "javalib", f"{name}.jar") for name in added_jars]:

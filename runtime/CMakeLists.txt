@@ -479,11 +479,13 @@ if(APK_HOST_BUILD)
   add_test(NAME runtime.hwcap COMMAND hwcap_test)
 
   # Java programs on ART as guest code (ADR-0033 b), in ART's release and debug flavors: each prints what
-  # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1 is art-hello; test 2 is
-  # codec-test, with its JNI library and the offsets it saw, which must lie in the top of the heap window, and in the
-  # release flavor with libnativeloader's lines that name a namespace, which must be Android 15's (ADR-0040 test 4);
-  # the debug flavor loads libopenjdkd.so. The jars come from tools/build-art.sh (<art>/test); skipped while they are
-  # missing.
+  # dalvikvm64 -Xint prints on Android 15 (fixtures/expected/<program>.out). Test 1, art-hello, runs in device_art's
+  # selftest below; test 2 is codec-test, with its JNI library and the offsets it saw, which must lie in the top of
+  # the heap window, and in the release flavor with libnativeloader's lines that name a namespace, which must be
+  # Android 15's (ADR-0040 test 4); the debug flavor loads libopenjdkd.so. The debug flavor runs ART's own debug checks
+  # once per way we change its references: -Xint, nterp in the upper half, nterp under CMS, compiled, and the stress
+  # runs; the release flavor runs every mode. The jars come from tools/build-art.sh (<art>/test); skipped while they
+  # are missing.
   foreach(flavor IN ITEMS release debug)
     set(suffix "")
     set(flag "")
@@ -493,13 +495,7 @@ if(APK_HOST_BUILD)
       set(flag "--debug")
       set(namespaces "")
     endif()
-    add_test(NAME runtime.art_hello${suffix}
-      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
-        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
-        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
-        "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag})
     # Only a first line skips: a failure shows ART's log, where libnativeloader writes "skipped:" too.
-    set_tests_properties(runtime.art_hello${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     add_test(NAME runtime.art_codec${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
@@ -507,24 +503,28 @@ if(APK_HOST_BUILD)
         "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
         --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets ${namespaces})
     set_tests_properties(runtime.art_codec${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
-    # The same under CMS, the collector app_process gives an app (ADR-0033 decision 5): --gc checks ART's start line.
-    add_test(NAME runtime.art_codec_cms${suffix}
-      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
-        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
-        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
-        "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
-        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --gc CMS)
-    set_tests_properties(runtime.art_codec_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
-    # The same in only the window's upper 2 GiB, as without increased-memory-limit on iOS (a SideStore install with
-    # a free account, ADR-0033 d1): patch 0002's test switch makes the Mac reserve just those.
-    add_test(NAME runtime.art_codec_upper_half${suffix}
-      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
-        "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
-        $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
-        "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out" ${flag}
-        --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --upper-half)
-    set_tests_properties(runtime.art_codec_upper_half${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
-      TIMEOUT 400)
+    if(flavor STREQUAL "release")
+      # The same under CMS, the collector app_process gives an app (ADR-0033 decision 5): --gc checks ART's start
+      # line.
+      add_test(NAME runtime.art_codec_cms
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}"
+          "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+          "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+          $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+          "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out"
+          --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --gc CMS)
+      set_tests_properties(runtime.art_codec_cms PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+      # The same in only the window's upper 2 GiB, as without increased-memory-limit on iOS (a SideStore install with
+      # a free account, ADR-0033 d1): patch 0002's test switch makes the Mac reserve just those.
+      add_test(NAME runtime.art_codec_upper_half
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}"
+          "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
+          "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
+          $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
+          "${APK_ART_DIR}/test/codec-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/codec-test.out"
+          --library "${APK_FIXTURES_DIR}/libcodec-test.so" --offsets --upper-half)
+      set_tests_properties(runtime.art_codec_upper_half PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
+    endif()
     # Conscrypt (ADR-0046 c): conscrypt-test uses Conscrypt's provider, from conscrypt.jar and libjavacrypto.so in
     # Conscrypt's APEX folders, as on Android 15.
     add_test(NAME runtime.art_conscrypt${suffix}
@@ -554,13 +554,20 @@ if(APK_HOST_BUILD)
     set_tests_properties(runtime.art_net${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # Stress (ADR-0033 test 4): stress-test runs three parts at once, with its JNI library: threads, monitors and
     # allocation; SIGUSR2 handlers while ART stops the world; Boehm's stop-the-world with SIGPWR and SIGXCPU in native
-    # code. --stress checks that a signal was handled while the main thread collected.
+    # code. --stress checks that a signal was handled while the main thread collected. The debug flavor's stress runs
+    # take half a minute each, so two of its four (this one under SS and the nterp one under CMS) run only for a
+    # release candidate (--rc-only: skipped unless MINATO_RC_CHECKS=1); its CMS runs, interpreted and compiled, and
+    # the release flavor's four always run.
+    set(rc_only "")
+    if(flavor STREQUAL "debug")
+      set(rc_only --rc-only)
+    endif()
     add_test(NAME runtime.art_stress${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
         $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
         "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
-        --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress)
+        --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress ${rc_only})
     set_tests_properties(runtime.art_stress${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # The same under CMS, the collector app_process gives an app (ADR-0033 decision 5).
     add_test(NAME runtime.art_stress_cms${suffix}
@@ -571,35 +578,26 @@ if(APK_HOST_BUILD)
         --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
     set_tests_properties(runtime.art_stress_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
     # The same programs under nterp, ART's default interpreter, instead of -Xint (M6 a, ADR-0053 step 3, patch 0008):
-    # art-hello and nterp-test (interface calls, null receivers, monitors) in the default window and in the upper
-    # half, codec-test in the default window, in the upper half and under CMS, and stress-test under CMS. Their output
-    # is the -Xint programs'. The run-tests under nterp need MINATO_ART_NTERP=1 (runtime/tests/art_run_tests.py).
-    foreach(nterp_program IN ITEMS art-hello nterp-test)
-      string(REPLACE "-" "_" nterp_name "${nterp_program}")
-      add_test(NAME runtime.${nterp_name}_nterp${suffix}
-        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
-          "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
-          $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
-          "${APK_ART_DIR}/test/${nterp_program}.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/${nterp_program}.out"
-          ${flag} --nterp)
-      set_tests_properties(runtime.${nterp_name}_nterp${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
-        TIMEOUT 400)
-    endforeach()
-    add_test(NAME runtime.art_hello_nterp_upper_half${suffix}
+    # nterp-test (interface calls, null receivers, monitors), codec-test in the default window (release flavor), in
+    # the upper half and under CMS, and stress-test under CMS. Their output is the -Xint programs'. The run-tests under
+    # nterp need MINATO_ART_NTERP=1 (runtime/tests/art_run_tests.py).
+    add_test(NAME runtime.nterp_test_nterp${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run.py" "${APK_ART_DIR}" "${APK_BIONIC_DIR}"
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
         $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
-        "${APK_ART_DIR}/test/art-hello.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/art-hello.out" ${flag}
-        --nterp --upper-half)
-    set_tests_properties(runtime.art_hello_nterp_upper_half${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
+        "${APK_ART_DIR}/test/nterp-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/nterp-test.out" ${flag}
+        --nterp)
+    set_tests_properties(runtime.nterp_test_nterp${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
       TIMEOUT 400)
     # The same programs compiled (M6 c2, ADR-0053 patch 0009): our dex2oat makes the oat of each with
     # --compiler-filter=speed, ART loads it as a container and runs the compiled methods, with what the interpreter
-    # prints: art-hello and nterp-test in the default window, art-hello in the upper half, nterp-test under CMS, and
-    # codegen-test (instanceof, check-cast, interfaces, arrays, fields, exceptions, allocation, the card marks) in
-    # both windows and under CMS.
-    foreach(compiled_run IN ITEMS "art-hello" "nterp-test" "art-hello|--upper-half" "nterp-test|--gc|CMS"
-            "codegen-test" "codegen-test|--upper-half" "codegen-test|--gc|CMS")
+    # prints: nterp-test in the default window (release flavor) and under CMS, and codegen-test (instanceof,
+    # check-cast, interfaces, arrays, fields, exceptions, allocation, the card marks) in both windows and under CMS.
+    foreach(compiled_run IN ITEMS "nterp-test" "nterp-test|--gc|CMS" "codegen-test" "codegen-test|--upper-half"
+            "codegen-test|--gc|CMS")
+      if(flavor STREQUAL "debug" AND compiled_run STREQUAL "nterp-test")
+        continue()
+      endif()
       string(REPLACE "|" ";" compiled_args "${compiled_run}")
       list(POP_FRONT compiled_args compiled_program)
       string(REPLACE "-" "_" compiled_name "${compiled_program}")
@@ -618,6 +616,9 @@ if(APK_HOST_BUILD)
         TIMEOUT 600)
     endforeach()
     foreach(nterp_mode IN ITEMS "" "_upper_half" "_cms")
+      if(flavor STREQUAL "debug" AND nterp_mode STREQUAL "")
+        continue()
+      endif()
       set(nterp_args --offsets)
       if(nterp_mode STREQUAL "_upper_half")
         set(nterp_args --offsets --upper-half)
@@ -638,22 +639,15 @@ if(APK_HOST_BUILD)
         "${APK_GUEST_SYSTEM_DIR}" "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat"
         $<TARGET_FILE:apk-convert> $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs"
         "${APK_ART_DIR}/test/stress-test.jar" Main "${PROJECT_SOURCE_DIR}/fixtures/expected/stress-test.out" ${flag}
-        --nterp --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
+        --nterp --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS ${rc_only})
     set_tests_properties(runtime.art_stress_nterp_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
       TIMEOUT 400)
-    # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, one after another, each printing
-    # what Android 15 prints; the whole subset is a check of its own (runtime/tests/art_run_tests.py without
-    # --sample). The first run builds the sample's jars, about 0.5 s each. These runs and the compiled ones, in both
-    # flavors, share art_runs' jars and run-tests folders, so they take one lock and run one at a time.
-    add_test(NAME runtime.art_run_tests${suffix}
-      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/art_run_tests.py" "${APK_ART_DIR}"
-        "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
-        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
-        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" "${PROJECT_SOURCE_DIR}" --sample ${flag})
-    set_tests_properties(runtime.art_run_tests${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 600
-      RESOURCE_LOCK art_run_tests)
-    # The run-tests of the sample compiled (M6 c2, patches 0009 and 0010): the sample's tests but 107-int-math2, whose
-    # stack overflow is the signals step's, each with the oat our dex2oat makes at --compiler-filter=speed.
+    # ART's run-tests (ADR-0033 test 3): the sample of fixtures/art-run-tests.txt, each printing what Android 15
+    # prints, runs interpreted in device_art's selftest below, as the app runs it; the whole subset is a check of its
+    # own (runtime/tests/art_run_tests.py without --sample). The run-tests of the sample compiled (M6 c2, patches 0009
+    # and 0010): the sample's tests but 107-int-math2, whose stack overflow is the signals step's, each with the oat
+    # our dex2oat makes at --compiler-filter=speed. Both flavors' runs share art_runs' jars and run-tests folders, so
+    # they take one lock and run one at a time. The first run builds the sample's jars, about 0.5 s each.
     file(STRINGS "${PROJECT_SOURCE_DIR}/fixtures/art-run-tests.txt" run_test_lines REGEX " sample$")
     set(compiled_sample "")
     foreach(run_test_line IN LISTS run_test_lines)
@@ -694,17 +688,9 @@ if(APK_HOST_BUILD)
         --compiled --library "${APK_FIXTURES_DIR}/libstress-test.so" --stress --gc CMS)
     set_tests_properties(runtime.art_stress_compiled_cms${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
       TIMEOUT 600)
-    # dex2oat as a guest program (M6 c1): it starts and prints its usage, which names --compiler-filter. It fails
-    # while ART is built without bin/dex2oat (dex2oatd in the debug flavor).
-    add_test(NAME runtime.dex2oat_starts${suffix}
-      COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/dex2oat_starts.py" "${APK_ART_DIR}"
-        "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"
-        "${PROJECT_SOURCE_DIR}/build/sources/icu/icu4c/source/stubdata/icudt75l.dat" $<TARGET_FILE:apk-convert>
-        $<TARGET_FILE:apk-run> "${CMAKE_CURRENT_BINARY_DIR}/art_runs" ${flag})
-    set_tests_properties(runtime.dex2oat_starts${suffix} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 400)
-    # dex2oat writes a verify oat of art-hello.jar, imageless with our boot jars (M6 c1, test 2): the odex is an oat
-    # that ART accepts for them (header, filter, boot class path checksums) and importer/converter's oat_test converts
-    # and loads it.
+    # dex2oat as a guest program (M6 c1, test 2) writes a verify oat of art-hello.jar, imageless with our boot jars:
+    # the odex is an oat that ART accepts for them (header, filter, boot class path checksums) and importer/converter's
+    # oat_test converts and loads it. Test 1, that dex2oat starts at all, is part of this run and of every compiled one.
     add_test(NAME runtime.dex2oat_verify${suffix}
       COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tests/dex2oat_verify.py" "${APK_ART_DIR}"
         "${APK_BIONIC_DIR}" "${APK_GUEST_SYSTEM_DIR}"

@@ -5,7 +5,8 @@ dlsym alike, to its wrappers, which register the engine's targetFrameRate setter
 or -1 (Unity's default), becomes N, a higher one stays. An engine that never sets a rate keeps its own (v1). apk-run
 runs the fixture frame-cap-test, whose engine library reaches the setter by import, and with the argument "swap" by
 dlsym:
-  - without the option, both ways: fixtures/expected/frame-cap-test.out, as Android prints it, also with no
+  - without the option, both ways: fixtures/expected/frame-cap-test.out, as Android prints it, and nothing on
+    stderr, as the fixture tests want it (this run stands for the fixture's own), also with no
     libminato-frame-rate.so in /system/lib64, as nothing loads it then;
   - with 60 but no libminato-frame-rate.so: the program does not start, the error names the unlock;
   - with 120 and with 60, both ways: 30 fps before the app sets a rate, then 60 and -1 raised to N, 240 kept;
@@ -90,7 +91,7 @@ def main():
                            (["--frame-rate", "60"], unlocked(60))):
         for arguments in ([], ["swap"]):
             result = run(options, arguments)
-            if result.returncode != 0 or result.stdout.splitlines() != lines:
+            if result.returncode != 0 or result.stdout.splitlines() != lines or (not options and result.stderr):
                 failures.append(f"{' '.join(options + arguments) or 'plain'}: exit status {result.returncode}, stdout "
                                 f"{result.stdout.splitlines()}, expected {lines}, stderr's end "
                                 f"{result.stderr.splitlines()[-5:]}")

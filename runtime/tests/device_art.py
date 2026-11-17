@@ -19,8 +19,9 @@ A command is a JSON object:
                        /data/local/tmp
   "files"              the guest folder of files/, under /data
   "libraries"          the guest folder of libraries/, absent without JNI libraries
-The tests are the five Java fixtures of runtime/CMakeLists.txt (art_run.py's runs) and ART's run-tests of
-fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments those scripts give dalvikvm. With
+The tests are five Java fixtures (art-hello, and the four that runtime/CMakeLists.txt also runs with art_run.py) and
+ART's run-tests of fixtures/art-run-tests.txt (art_run_tests.py's), each staged with the arguments those scripts give
+dalvikvm. CTest runs art-hello and the run-tests' sample, interpreted, only here, through selftest. With
 build/art's gc-bench.jar the stage also holds two benchmarks (ADR-0033 decision 5): gc-bench under SS and gc-bench-cms
 under CMS, which check also holds to Android 15's lines and their collector; selftest leaves them out.
 
@@ -65,8 +66,8 @@ DALVIKVM = f"{art_run.ART_ROOT}/bin/dalvikvm64"
 DEBUG_LIBRARIES = {"libart.so": "libartd.so", "libartbased.so": "libartbased.so", "libdexfiled.so": "libdexfiled.so",
                    "libopenjdkd.so": "libopenjdkd.so", "libopenjdkjvmd.so": "libopenjdkjvmd.so",
                    "libprofiled.so": "libprofiled.so"}
-# The Java fixtures as runtime/CMakeLists.txt runs them with art_run.py: a JNI library, Conscrypt, the jars after
-# core-libart, codec-test's offsets and stress-test's line of what it saw.
+# The Java fixtures with what art_run.py gives each: a JNI library, Conscrypt, the jars after core-libart, codec-test's
+# offsets and stress-test's line of what it saw.
 JAVA_FIXTURES = {
     "art-hello": {},
     "codec-test": {"library": "libcodec-test.so", "offsets": True},
