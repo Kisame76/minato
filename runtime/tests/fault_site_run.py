@@ -12,6 +12,12 @@ libfault-site-x18.S), so the process ends with SIGSEGV at 0x1087b in libfault-si
   - Both: the exit report records "signal: 11 (Segmentation fault)" and "fault: 0x1087b" (ADR-0032 decision 8).
   - "exception", with the flag: a C++ exception thrown in libfault-site-throw.so and caught in libfault-site.so ends
     with 0 and "caught", as on Android, and writes no fault-site line: an unwind is no fault.
+  - With the flag, the NULL-base read under an app's own SIGSEGV handler (libfault-site.h) still writes ONE line for
+    the read, as "null" checks it, however the handler ends: "chained" (it restores the old action and returns: the read
+    faults again, 139), "abort" (abort() in the handler, 134), "twice" (a reporter from a second library calls it, and
+    it restores the old action and raises SIGSEGV, which arrives when the reporter returns, 139) and "crash" (it faults
+    itself at 0x2a, 139). "recover" (it moves past the read, then the program calls abort(), 134) writes none: a fault
+    a handler recovered from is no cause. Each prints its handlers' lines, and the report records its signal.
 Prints "skipped: ..." while the fixture is not built.
 Usage: fault_site_run.py <fixtures-bin> <bionic-lib> <bionic-system> <apk-convert> <apk-run> <work>
 """
@@ -63,7 +69,8 @@ def main():
     program = os.path.join(fixtures, "fault-site-test")
     library = os.path.join(fixtures, "libfault-site.so")
     thrower = os.path.join(fixtures, "libfault-site-throw.so")
-    for needed in (program, library, thrower):
+    reporter = os.path.join(fixtures, "libfault-site-reporter.so")
+    for needed in (program, library, thrower, reporter):
         if not os.path.exists(needed):
             print(f"skipped: {needed} is not built (tools/build-fixtures.sh)")
             return
@@ -80,6 +87,7 @@ def main():
         convert(apk_convert, program, os.path.join(work, "fault-site-test.dylib"))
         convert(apk_convert, library, os.path.join(own, "libfault-site.so.dylib"))
         convert(apk_convert, thrower, os.path.join(own, "libfault-site-throw.so.dylib"))
+        convert(apk_convert, reporter, os.path.join(own, "libfault-site-reporter.so.dylib"))
 
     def run(mode, session):
         report = os.path.join(work, f"report-{mode}-{'session' if session else 'harness'}.txt")
@@ -98,14 +106,21 @@ def main():
         return result, recorded
 
     failures = []
-    for mode, function in (("null", "fault_site_read"), ("x18", "fault_site_read_x18")):
+    segv, abrt = ((-11, 139), "11 (Segmentation fault)"), ((-6, 134), "6 (Aborted)")
+    engine = "engine handler: signal 11 at 0x1087b"
+    # mode, the reading function, (exit statuses, the report's signal), the handlers' lines after "reading <mode>"
+    for mode, function, (statuses, cause), handlers in (
+            ("null", "fault_site_read", segv, []), ("x18", "fault_site_read_x18", segv, []),
+            ("chained", "fault_site_read", segv, [engine]), ("abort", "fault_site_read", abrt, [engine]),
+            ("twice", "fault_site_read", segv, ["reporter handler: signal 11", engine]),
+            ("crash", "fault_site_read", segv, [engine])):
         if function not in symbols:
             failures.append(f"{mode}: libfault-site.so exports no {function}")
             continue
         start, size = symbols[function]
         result, recorded = run(mode, True)
         where = f"{mode}, session"
-        if result.returncode not in (-11, 139) or result.stdout.splitlines() != [f"reading {mode}"]:
+        if result.returncode not in statuses or result.stdout.splitlines() != [f"reading {mode}"] + handlers:
             failures.append(f"{where}: exit {result.returncode}, stdout {result.stdout.splitlines()}")
         lines = [line for line in result.stderr.splitlines() if line.startswith("E/apkrt: fault-site ")]
         if len(lines) != 1 or not LINE.match(lines[0]):
@@ -119,11 +134,11 @@ def main():
                 problems.append(f"lib {role}")
             if mode == "x18" and offset != start + 4:
                 problems.append(f"pc +0x{offset:x}, want the load at +0x{start + 4:x}")
-            if mode == "null" and not start <= offset < start + max(size, 4):
+            if mode != "x18" and not start <= offset < start + max(size, 4):
                 problems.append(f"pc +0x{offset:x} outside {function} (+0x{start:x}, {size} bytes)")
             if int(far, 16) != 0x1087b:
                 problems.append(f"far 0x{far}")
-            if mode == "null":
+            if mode != "x18":
                 if shape is None:
                     problems.append(f"form {form}")
                 else:
@@ -141,8 +156,14 @@ def main():
                     problems.append(f"x18 0x{x18}, rewritten-words {rewritten}")
             if problems:
                 failures.append(f"{where}: {'; '.join(problems)} in {lines[0]!r}")
-        if "signal: 11 (Segmentation fault)" not in recorded or "fault: 0x1087b" not in recorded:
+        # The death's own signal; the fault address where the read's fault itself ends the process.
+        if cause not in recorded or (mode in ("null", "x18", "chained") and "fault: 0x1087b" not in recorded):
             failures.append(f"{where}: the exit report has no cause: {recorded.splitlines()[:4]}")
+    result, recorded = run("recover", True)
+    if result.returncode not in abrt[0] or result.stdout.splitlines() != ["reading recover", engine, "recovered"]:
+        failures.append(f"recover: exit {result.returncode}, stdout {result.stdout.splitlines()}")
+    if any(line.startswith("E/apkrt: fault-site ") for line in result.stderr.splitlines()):
+        failures.append("recover: a fault-site line for a fault the handler recovered from")
     result, recorded = run("null", False)
     if any(line.startswith("E/apkrt: fault-site ") for line in result.stderr.splitlines()):
         failures.append("harness: a fault-site line without the session's flag")
@@ -158,8 +179,9 @@ def main():
         for failure in failures:
             print("FAIL: " + failure)
         sys.exit(1)
-    print("a guest's fatal fault names its site in a real session (NULL base and x18 = 0) and its cause in the report; "
-          "a caught C++ exception across two libraries ends with 0 and no line")
+    print("a guest's fatal fault names its site in a real session (NULL base and x18 = 0, and under the app's own "
+          "handler however it ends) and its cause in the report; a fault a handler recovered from and a caught C++ "
+          "exception across two libraries write no line")
 
 
 if __name__ == "__main__":

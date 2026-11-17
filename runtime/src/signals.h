@@ -127,6 +127,18 @@ struct ThreadSignals {
     bool frame_mask_set = false;
     std::uint64_t frame_mask = 0;
     std::atomic<pthread_t> host{};  // set once the thread runs; other threads read it to signal it
+    // A real session's SIGSEGV or SIGBUS that the thread handed to a guest handler (an app's crash reporter), held until
+    // the handler has returned: when the thread dies before, by a signal the handler raised, abort() or a fault of the
+    // handler's own, the fault-site line names this fault, not the death (signals.cpp, write_held_fault_site). Only
+    // the thread's own signal handlers read and write it.
+    struct HeldFault {
+        bool held = false;
+        bool returned = false;      // rt_sigreturn read the handler's frame back: dropped once the signals are delivered
+        int signal = 0;
+        std::uint64_t address = 0;  // the fault address
+        std::uint64_t frame = 0;    // the handler's frame, the one rt_sigreturn reads back when the handler returns
+        GuestContext context{};     // the guest's state at the fault
+    } held_fault;
 
     ThreadSignals() = default;
     ~ThreadSignals();

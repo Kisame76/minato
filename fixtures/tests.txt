@@ -76,6 +76,14 @@ frame-cap-test system libraries=libframe-cap-api.so,libframe-cap-engine.so
 fault-site-test-null system libraries=libfault-site.so,libfault-site-throw.so status=139
 fault-site-test-x18 system libraries=libfault-site.so,libfault-site-throw.so status=139
 fault-site-test-exception system libraries=libfault-site.so,libfault-site-throw.so
+# The same read with the app's own SIGSEGV handler installed first, which ends in one of five ways: it restores the old
+# action and returns, it calls abort(), it is called by a reporter a second library installed over it and raises the
+# signal again, it moves past the load (the program then calls abort()), or it faults itself.
+fault-site-test-chained system libraries=libfault-site.so,libfault-site-throw.so status=139
+fault-site-test-abort system libraries=libfault-site.so,libfault-site-throw.so status=134
+fault-site-test-twice system libraries=libfault-site.so,libfault-site-throw.so,libfault-site-reporter.so status=139
+fault-site-test-recover system libraries=libfault-site.so,libfault-site-throw.so status=134
+fault-site-test-crash system libraries=libfault-site.so,libfault-site-throw.so status=139
 # Data inside .text of NDK libraries (literal pools, jump tables, real code that looks like data): with a .symtab and
 # stripped, with the dynamic relocations plain and as RELR; a Unity test APK's library was refused at import for it.
 data-in-text-test system libraries=libdit-sym.so,libdit-strip.so,libdit-rela.so,libdit-relr.so

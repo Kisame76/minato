@@ -2533,8 +2533,18 @@ for name in "${fixtures[@]}"; do
   tail -n +2 "$RESULTS/$name.raw" >"$RESULTS/$name.out"
   rm "$RESULTS/$name.raw"
   run logcat -d -v tag --pid="$pid" | grep -v '^--------- ' >"$RESULTS/$name.logcat" || true
+  # debuggerd's own line for a fatal signal names the run's tid and pid. Those two numbers are masked in that line
+  # only, and the line is compared with fixtures/expected/<name>.debuggerd: it is Android's component, the runtime
+  # has none (its fault-site line and exit report stand for it), so no .err that the Mac compares can hold it.
+  debuggerd_line='^F/libc +: Fatal signal [0-9]+ \(SIG[A-Z0-9]+\), code -?[0-9]+ \([A-Z_]+\)(, fault addr 0x[0-9a-f]+)? in tid [0-9]+ \(.*\), pid [0-9]+ \(.*\)$'
+  grep -E "$debuggerd_line" "$RESULTS/$name.logcat" |
+    sed -E 's/ in tid [0-9]+ \(/ in tid <n> (/; s/, pid [0-9]+ \(/, pid <n> (/' >"$RESULTS/$name.debuggerd" || true
+  grep -Ev "$debuggerd_line" "$RESULTS/$name.logcat" >"$RESULTS/$name.logcat.rest" || true
+  mv "$RESULTS/$name.logcat.rest" "$RESULTS/$name.logcat"
 
   expected=fixtures/expected/$name
+  expected_debuggerd=/dev/null
+  [[ -f "$expected.debuggerd" ]] && expected_debuggerd=$expected.debuggerd
   expected_err=$(mktemp)
   expected_logcat=$(mktemp)
   if [[ -f "$expected.err" ]]; then
@@ -2546,6 +2556,7 @@ for name in "${fixtures[@]}"; do
   [[ "$measures" == yes ]] || cmp -s "$expected.out" "$RESULTS/$name.out" || problems+=" stdout"
   cmp -s "$expected_err" "$RESULTS/$name.err" || problems+=" stderr"
   cmp -s "$expected_logcat" "$RESULTS/$name.logcat" || problems+=" logcat"
+  cmp -s "$expected_debuggerd" "$RESULTS/$name.debuggerd" || problems+=" debuggerd"
   expected_status=$(field "$name" status)
   [[ $status -eq ${expected_status:-0} ]] || problems+=" exit-status-$status"
   if [[ -z "$problems" && "$measures" == yes ]]; then
@@ -2563,6 +2574,7 @@ for name in "${fixtures[@]}"; do
     fi
     diff -u "$expected_err" "$RESULTS/$name.err" | sed 's/^/    /' || true
     diff -u "$expected_logcat" "$RESULTS/$name.logcat" | sed 's/^/    /' || true
+    diff -u "$expected_debuggerd" "$RESULTS/$name.debuggerd" | sed 's/^/    /' || true
   fi
   rm -f "$expected_err" "$expected_logcat"
 done

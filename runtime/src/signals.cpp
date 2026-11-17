@@ -276,6 +276,23 @@ void write_fault_site(int signal, std::uint64_t address, const GuestContext &con
     crash::write_fault_site_line(STDERR_FILENO, site);
 }
 
+// An app's own crash handler (an engine's, a crash-reporting SDK's) takes the fault first and ends the process its own
+// way. When it restores the old action and returns, the load faults again and the fatal path writes the line. When it
+// raises the signal again (blocked in the handler, it arrives at the return), calls abort() or faults itself, the
+// process dies of that and not of the fault: the thread holds the fault it handed over (ThreadSignals::HeldFault)
+// until the handler has returned, and a death before then writes the held fault's line. A handler that recovers (ART's
+// implicit checks, a runtime that turns the fault into an exception) returns: rt_sigreturn marks the hold returned and
+// deliver_pending drops it, so a later death writes no line for it. Not covered: a handler that leaves by siglongjmp
+// (the hold stays, and a later death of the thread by a signal names it) and one that ends with _exit (no signal).
+
+/// The held fault's line, when the thread holds one; whether it does.
+bool write_held_fault_site(const ThreadSignals &state) {
+    const auto &held = state.held_fault;
+    if (!held.held) return false;
+    write_fault_site(held.signal, held.address, held.context);
+    return true;
+}
+
 // --- Pending signals -----------------------------------------------------------------------------
 
 bool is_real_time(int signal) {
@@ -418,6 +435,7 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
         const auto chosen = action(signal);
         if (ignored(chosen, signal)) continue;
         if (chosen.handler == sig_dfl) {
+            write_held_fault_site(state);  // a crash handler's raise or abort(): the fault it took is the cause
             // A raised signal: no fault address. A self-kill's record, noted at its kill, stands (first cause wins).
             process::note_signal(signal, info.code, 0, context.pc, context.x[30], context.x[29]);
             die_by(signal);
@@ -428,6 +446,8 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
         log_fault_to_handler(signal, info.code, 0, context.pc, false);
         setup_frame(state, signal, info, chosen, context, nullptr);
     }
+    // The handler of the held fault returned and no signal ended the process on the way back: it recovered.
+    if (state.held_fault.returned) state.held_fault.held = state.held_fault.returned = false;
     // Every way back into guest code comes by here: after the program's end the thread stops instead.
     if (process::ended()) process::stop();
     // A wait with a mask of its own (rt_sigsuspend, ppoll, pselect6, epoll_pwait) whose signals got
@@ -524,7 +544,8 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     // A fault that is blocked, ignored or left to the default ends the process, as on Linux. Before it ends: the
     // fault-site line of a real session, and the record of the cause (ADR-0032 decision 8).
     if (chosen.handler == sig_dfl || chosen.handler == sig_ign || (state.mask.load() & bit(translated.signal)) != 0) {
-        write_fault_site(translated.signal, translated.fault.address, context);
+        // A fault inside a crash handler: the line names the fault the handler was handed, the crash's cause.
+        if (!write_held_fault_site(state)) write_fault_site(translated.signal, translated.fault.address, context);
         process::note_signal(translated.signal, translated.code, translated.fault.address, context.pc, context.x[30],
                              context.x[29]);
         die_by(translated.signal);
@@ -535,7 +556,18 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     info.code = translated.code;
     info.fields.address = translated.fault.address;
     log_fault_to_handler(translated.signal, translated.code, translated.fault.address, context.pc, true);
+    // A real session holds the first SIGSEGV or SIGBUS it hands over until its handler returns (write_held_fault_site).
+    auto &held = state.held_fault;
+    const bool hold = fault_site_enabled && !held.held && (translated.signal == sigsegv || translated.signal == sigbus);
+    if (hold) held.context = context;
     setup_frame(state, translated.signal, info, chosen, context, &translated.fault);
+    if (hold) {
+        held.signal = translated.signal;
+        held.address = translated.fault.address;
+        held.frame = context.sp;  // setup_frame leaves sp at the frame
+        held.returned = false;
+        held.held = true;
+    }
     apply(context, uc);
 }
 
@@ -969,6 +1001,9 @@ bool read_frame(std::uint64_t address, GuestContext &context) {
     auto stack = uc.stack;
     stack.flags &= ss_disable | ss_autodisarm;
     state.alternate_stack = stack;
+    // The held fault's handler returns (write_held_fault_site): deliver_pending drops the hold unless a signal ends
+    // the process on the way back, as one the handler raised does.
+    if (state.held_fault.held && state.held_fault.frame == address) state.held_fault.returned = true;
     // Last, once the whole frame is restored: a handler that returns into a relocated exclusive window
     // body must re-enter the island, not the original body, which iOS runs with x18 cleared to 0 (X4h).
     islands::reenter(context, apkrt_get_guest_x18());
