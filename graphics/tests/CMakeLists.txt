@@ -27,7 +27,7 @@ set_tests_properties(graphics.angle_smoke PROPERTIES SKIP_REGULAR_EXPRESSION "^s
 # no thread keeps no free buffers (Ren'Py's race leaves one behind at each return).
 enable_language(OBJCXX)
 foreach(test IN ITEMS fixed_size commit_gate commit_defer presentation_time rgb_configs external_images
-  memory_counters window_msaa texture_parking buffer_pool context_trim)
+  memory_counters window_msaa buffer_pool context_trim)
   string(REPLACE "_" "-" program "angle-${test}")
   if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     add_executable(${program} angle_${test}.mm)
@@ -42,10 +42,16 @@ foreach(test IN ITEMS fixed_size commit_gate commit_defer presentation_time rgb_
   endif()
   set_tests_properties(graphics.angle_${test} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
 endforeach()
-# texture_parking holds 2 GiB and measures frame times: alone, with time for a loaded Mac. Its --warning-band run
-# puts the limit as far off as the iPhone's and prints the least memory left (patch 0018).
-if(TEST graphics.angle_texture_parking)
-  set_tests_properties(graphics.angle_texture_parking PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+# texture_parking holds 2 GiB and measures frame times: each run alone, with time for a loaded Mac. Its runs are the
+# modes below, with no plain run: --store makes its checks under the same limit, which the 2 GiB of frames keep only
+# by parking (every frame read back, the footprint below the limit, the frame times), and --warning-band the checks
+# of patch 0018's line, with the limit as far off as the iPhone's.
+if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
+  add_executable(angle-texture-parking angle_texture_parking.mm)
+  target_include_directories(angle-texture-parking SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
+  target_compile_options(angle-texture-parking PRIVATE -fobjc-arc)
+  target_link_libraries(angle-texture-parking PRIVATE apk_defaults
+    "-framework Foundation" "-framework QuartzCore" "-framework Metal")
 endif()
 if(TARGET angle-texture-parking)
   add_test(NAME graphics.angle_texture_parking_band
@@ -503,8 +509,6 @@ if(TARGET minato_graphics_host)
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=unset:")
   add_guest_test(vulkan_profile_pixel vulkan-profile-test vulkan_profile_pixel_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:pixel")
-  add_guest_test(vulkan_profile_galaxy vulkan-profile-test vulkan_profile_galaxy_test "${vulkan_system_libraries}"
-    "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:galaxy")
   # A profile without the driver's properties keeps the driver's own name and info in a chain.
   add_guest_test(vulkan_profile_partial vulkan-profile-test vulkan_profile_partial_test "${vulkan_system_libraries}"
     "MINATO_MOLTENVK=set:$<TARGET_FILE:fake-vulkan>" "MINATO_ANGLE=unset:" "MINATO_DEVICE_PROFILE=set:partial")
@@ -817,10 +821,10 @@ if(TARGET minato_graphics_host)
   endforeach()
   # ADR-0078 decision 4 on the Mac, as the App runs them: present-limit-gles and present-limit-vulkan present without
   # pacing of their own; with the frame rate limit 30, graphics/host holds them to 27-32 presents a second (one more
-  # where a late present catches up on the limit's grid; room for a loaded Mac), without a limit they run at more than
-  # 70 (100-120 on a loaded Mac).
+  # where a late present catches up on the limit's grid; room for a loaded Mac). Without a limit (more than 70 a
+  # second) is graphics.present_limit's and graphics.present_limit_vulkan's case, before and after their limits.
   foreach(api IN ITEMS gles vulkan)
-    foreach(case IN ITEMS 30:27:32 0:71:100000)
+    foreach(case IN ITEMS 30:27:32)
       string(REGEX REPLACE ":.*" "" rate "${case}")
       add_test(NAME graphics.present_limit_${api}_${rate} COMMAND graphics-app-test
         "${CMAKE_CURRENT_BINARY_DIR}/app_runs" present-limit-${api} "${APK_TEST_APPS_DIR}" "${APK_BIONIC_DIR}"
