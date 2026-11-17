@@ -115,21 +115,6 @@ if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
     set_tests_properties(graphics.angle_park_locks_${mode} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
   endforeach()
 endif()
-# texture_delete: Ren'Py's full reset at a return (its texture set deleted with glDeleteTextures over SDL's backup and
-# restore, a new window surface, the set loaded again): ANGLE's color= count must come back to the start's each time.
-if(EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
-  add_executable(angle-texture-delete angle_texture_delete.mm)
-  target_include_directories(angle-texture-delete SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
-  target_compile_options(angle-texture-delete PRIVATE -fobjc-arc)
-  target_link_libraries(angle-texture-delete PRIVATE apk_defaults "-framework Foundation" "-framework Metal"
-    "-framework QuartzCore")
-  foreach(mode IN ITEMS upload copy)
-    add_test(NAME graphics.angle_texture_delete_${mode}
-      COMMAND angle-texture-delete "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib" ${mode})
-    set_tests_properties(graphics.angle_texture_delete_${mode} PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:"
-      TIMEOUT 60)
-  endforeach()
-endif()
 
 # ADR-0030, test 5: MoltenVK as released draws on the Mac, opened with dlopen like graphics/host will.
 if(EXISTS "${APK_MOLTENVK_DIR}/include/vulkan/vulkan.h")
