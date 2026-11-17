@@ -549,13 +549,13 @@ fail() {
   failures=$((${failures:-0} + 1))
 }
 # A line with the time of day, for the rounds that look for what stalls the iPhone's copies: STAMPS=yes, which the
-# NOTIFY_REAL rounds set, or the caller's for the whole run. A copy of 10 s or more has its line always. The lines go
-# to the script's own stderr (3), never into what a caller captures (the ready check parses field's output), and name
-# a local file by its path in the work folder only.
+# NOTIFY_REAL rounds set, or the caller's for the whole run. A copy of 10 s or more, and one that failed however short,
+# has its line always. The lines go to the script's own stderr (3), never into what a caller captures (the ready check
+# parses field's output), and name a local file by its path in the work folder only.
 STAMPS=${STAMPS:-}
 stamp() { [[ -z "$STAMPS" ]] || echo "note    $(date +%H:%M:%S) $*" >&3; }
 copy_stamp() {
-  if [[ -n "$STAMPS" ]] || (( SECONDS - $2 >= 10 )); then
+  if [[ -n "$STAMPS" || "$5" != "exit 0" ]] || (( SECONDS - $2 >= 10 )); then
     echo "note    copy $1 $3-$(date +%H:%M:%S) ($((SECONDS - $2)) s) attempt $4: $5" >&3
   fi
 }
@@ -1920,10 +1920,43 @@ renpy_preloaded() {
   fail "  $label: no \"preload done\" of the game in ${RETURNS_PRELOAD:-240} s ($RESETS display resets so far)"
   return 1
 }
+# The guest log for a round's measurement: fetch_log, tried three times 2 s apart. A copy from the iPhone can fail
+# for a moment, and a failed one leaves no local log (fetch), so a round read "no gl line" after a return though the
+# phone's log had its lines (an iPhone round of 2026-11-13, return 2 of 4). False when all three failed.
+measure_log() {
+  local try
+  for try in 1 2 3; do
+    if fetch_log; then return 0; fi
+    if [[ $try -lt 3 ]]; then sleep 2; fi
+  done
+  return 1
+}
+# A late capture, for run_sdl_returns' rounds in `late` ("<round>:<lines>": the local log's length before that round's
+# copies failed): each one's gl and park lines from the log as it is now, the last of each after that length, so a
+# line from before the round never counts; into `gls`. A round with no gl line after it stays in `late`, and its
+# missing gl line fails the round as before.
+resolve_late() {
+  local entry round from gl park kept=()
+  for entry in ${late[@]+"${late[@]}"}; do
+    round=${entry%%:*} from=${entry#*:}
+    gl=$(tail -n +$((from + 1)) "$CHECK/guest-log" 2>/dev/null | grep -E ': gl tex=' | tail -n 1 |
+      sed -E 's/^.*: (gl tex=)/\1/') || gl=""
+    if [[ -z "$gl" ]]; then
+      kept+=("$entry")
+      continue
+    fi
+    park=$(tail -n +$((from + 1)) "$CHECK/guest-log" 2>/dev/null | grep 'angle park ' | tail -n 1 |
+      sed -E 's/^.*(angle park )/\1/') || park=""
+    gls[round]=$gl
+    echo "note    late capture after $([[ $round == 0 ]] && echo "the start" || echo "return $round"): $gl"
+    echo "note      ${park:-no angle park line}"
+  done
+  late=(${kept[@]+"${kept[@]}"})
+}
 run_sdl_returns() {
   local app=renpy-returns-test package=io.github.kisame76.minato.test.renpymemory round line gl park returned
   local lines=() gls=() races=(0) swaps=() trips=${RETURNS_TRIPS:-4} settle=${RETURNS_SETTLE:-10} gated=no resets
-  local away
+  local away mark late=()
   if ! begin_start "$app" "$package" 1; then end_start "$app" 1; return; fi
   if ! await_first_frame "$app" 8; then end_start "$app" 1; return; fi
   fetch_log || true
@@ -1939,6 +1972,8 @@ run_sdl_returns() {
         renpy_preloaded "before trip $round" 0 || break
         resets=$RESETS
       fi
+      # A round whose copies failed takes its lines from a copy now, the last before the app goes away.
+      if [[ ${#late[@]} -gt 0 ]] && measure_log; then resolve_late; fi
       launch "$AWAY"
       sleep "${RETURNS_AWAY:-10}"
       away=0
@@ -1961,22 +1996,33 @@ run_sdl_returns() {
     sleep "$settle"
     fetch_events
     line=$(grep -E '^[0-9.]+ [0-9]+ live ' "$EVENTS" | tail -n 1 | cut -d ' ' -f 3-) || line=""
-    fetch_log || true
-    gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
     lines+=("$line")
-    gls+=("$gl")
     echo "note    $( (( round == 0 )) && echo "after the start" || echo "after return $round"): ${line:-no live line}"
-    echo "note      ${gl:-no gl line}"
-    # ANGLE's park line: defer= (command buffers kept for the foreground now), dtotal=, dfull=, dskip= (patch 0025's
-    # and 0027's), for device-regressions' deferral verdict.
-    park=$(grep 'angle park ' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*(angle park )/\1/') || park=""
-    echo "note      ${park:-no angle park line}"
+    mark=$(count_lines '' "$CHECK/guest-log")
+    if measure_log; then
+      gl=$(grep -E ': gl tex=' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*: (gl tex=)/\1/') || gl=""
+      gls+=("$gl")
+      echo "note      ${gl:-no gl line}"
+      # ANGLE's park line: defer= (command buffers kept for the foreground now), dtotal=, dfull=, dskip= (patch 0025's
+      # and 0027's), for device-regressions' deferral verdict.
+      park=$(grep 'angle park ' "$CHECK/guest-log" 2>/dev/null | tail -n 1 | sed -E 's/^.*(angle park )/\1/') ||
+        park=""
+      echo "note      ${park:-no angle park line}"
+    else
+      # Not a FAIL for the copy alone: its lines come from the next good copy (resolve_late), and a round with none
+      # after this point fails at the judge as before.
+      gls+=("")
+      late+=("$round:$mark")
+      echo "note      late capture: the guest log's copy failed 3 times; its gl and park lines come from the next copy"
+    fi
     # RETURNS_SHOTS: a folder for a screenshot after the start and after each return (the Simulator only).
     if [[ -n "${RETURNS_SHOTS:-}" && "$ON_DEVICE" == no ]]; then
       mkdir -p "$RETURNS_SHOTS"
       xcrun simctl io "$SIM_UDID" screenshot "$RETURNS_SHOTS/$app-$round.png" >/dev/null 2>&1 || true
     fi
   done
+  # The last round's late capture, or one the trips left: one more copy now, the app still in front.
+  if [[ ${#late[@]} -gt 0 ]] && measure_log; then resolve_late; fi
   fetch_events
   cp "$EVENTS" "$WORK/$app-events.out" 2>/dev/null || true
   end_start "$app" 1

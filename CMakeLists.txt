@@ -179,6 +179,11 @@ if(APK_HOST_BUILD)
   # own last log lines (where the file service stalled), with device identifiers masked, against a fake devicectl.
   add_test(NAME tools.devicectl_copy_trace
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/devicectl_copy_trace_test.sh")
+  # java-start-check.sh's late capture in the SDL returns round: a failed copy is a note however short, a round's
+  # measurement tries the copy three times, and a round whose copies failed takes its gl and park lines from the next
+  # good copy, only lines after that round; with none, the round stays late and fails at the judge as before.
+  add_test(NAME tools.returns_late_capture
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/tests/returns_late_capture_test.sh")
   # java-start-check.sh's console transport (CONSOLE=yes): app-start-test's round on a fake iPhone whose copies of the
   # check's folder all hang ends by the console alone, the requests in at launch, the events and the guest's output out;
   # the menu round (menu-pause-test's Home and back) reads the guest log from the console alone, though copies of it
