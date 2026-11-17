@@ -28,7 +28,6 @@ struct SplitSelectorTests {
         #expect(DeviceProfile.iPhone(nativeScale: 2, languages: []).densityDpi == 320)
         // Rounded as the guest is told (configuration.cpp:214): 2.88 × 160 = 460.8.
         #expect(DeviceProfile.iPhone(nativeScale: 2.88, languages: []).densityDpi == 461)
-        #expect(Self.iPhone.languages == ["de-DE", "en-US"])
         // ETC2 decoders read ETC1 too (the decision).
         #expect(Self.iPhone.textureFormats == ["astc", "etc2", "etc1_rgb8"])
         // extract-apks without a device tier, country set or device group in the spec or its table of contents

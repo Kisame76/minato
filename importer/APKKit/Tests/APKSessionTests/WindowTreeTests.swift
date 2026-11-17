@@ -62,14 +62,16 @@ struct WindowTreeTests {
         #expect(tree.split.above == [.window(7), .window(5)])
     }
 
-    /// A surface's new z moves it to the other side; a place of an unknown one changes nothing.
+    /// A surface's new z moves it to the other side, where it keeps its make order among that z's surfaces; a place
+    /// of an unknown one changes nothing.
     @Test func aSurfacesNewZMovesItAcrossTheWindow() {
         var tree = WindowTree()
         tree.addSurface(id: 21, z: 1)
+        tree.addSurface(id: 22, z: -1)
         tree.placeSurface(id: 21, z: -1)
         tree.placeSurface(id: 99, z: 1)
         tree.placeWindow(token: 99, dim: 0.5)
-        #expect(tree.split.below == [.surface(21)])
+        #expect(tree.split.below == [.surface(21), .surface(22)])
         #expect(tree.split.above.isEmpty)
         #expect(tree.dimAmount == 0)
     }

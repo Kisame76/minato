@@ -571,24 +571,18 @@ struct APKAnalyzerTests {
         #expect(report.compatibility.issues.first == .sdkReference("targetSdkVersion"))
     }
 
-    @Test func reportsTheLaunchersScreenOrientation() throws {
-        // What game mode holds the screen in (ADR-0032).
-        let landscape = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true, screenOrientation: 6)),
-                                                preferredLanguages: [])
+    /// The launcher's screen orientation, what game mode holds the screen in (ADR-0032), and its config changes,
+    /// whether a session may turn (ADR-0038): passed on from the manifest, nil when unset.
+    @Test func reportsTheLaunchersScreenOrientationAndConfigChanges() throws {
+        let set = try APKAnalyzer.analyze(
+            ZipArchive(data: SampleAPK.make(nativeActivity: true, screenOrientation: 6, configChanges: 0x480)),
+            preferredLanguages: [])
         let unset = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true)), preferredLanguages: [])
 
-        #expect(landscape.runtime == .nativeActivity(library: "game"))
-        #expect(landscape.screenOrientation == 6)
+        #expect(set.runtime == .nativeActivity(library: "game"))
+        #expect(set.screenOrientation == 6)
+        #expect(set.configChanges == 0x480)
         #expect(unset.screenOrientation == nil)
-    }
-
-    @Test func reportsTheLaunchersConfigChanges() throws {
-        // Whether a session may turn (ADR-0038).
-        let turning = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true, configChanges: 0x480)),
-                                              preferredLanguages: [])
-        let unset = try APKAnalyzer.analyze(ZipArchive(data: SampleAPK.make(nativeActivity: true)), preferredLanguages: [])
-
-        #expect(turning.configChanges == 0x480)
         #expect(unset.configChanges == nil)
     }
 

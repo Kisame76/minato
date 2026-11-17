@@ -21,27 +21,22 @@ struct KeyboardCoverTests {
                                                                                     height: 600), scale: 2) == 208)
     }
 
-    @Test func aKeyboardBelowTheViewCoversNothing() {
-        #expect(pixels(CGRect(x: 0, y: 596, width: 430, height: 336), view: CGRect(x: 0, y: 0, width: 430,
-                                                                                    height: 500)) == 0)
-    }
-
-    /// The keyboard's frame at willHide, and an empty one, as UIKit gives for a hardware keyboard's.
-    @Test func aHiddenKeyboardCoversNothing() {
-        #expect(pixels(CGRect(x: 0, y: 932, width: 430, height: 336)) == 0)
-        #expect(pixels(.zero) == 0)
-    }
-
-    /// An iPad's floating or undocked keyboard does not reach the screen's bottom: the content stays where it is, as an
-    /// Android IME that floats gives no ime() inset.
-    @Test func aKeyboardThatFloatsCoversNothing() {
-        #expect(pixels(CGRect(x: 60, y: 400, width: 320, height: 250)) == 0)
-    }
-
-    /// A view beside the keyboard, as a window in Split View's other half.
-    @Test func aKeyboardBesideTheViewCoversNothing() {
-        #expect(pixels(CGRect(x: 0, y: 596, width: 200, height: 336), view: CGRect(x: 230, y: 0, width: 200,
-                                                                                    height: 932)) == 0)
+    /// A keyboard and a view that it does not cover: the keyboard's frame, the view's, and why.
+    @Test(arguments: [
+        (CGRect(x: 0, y: 596, width: 430, height: 336), CGRect(x: 0, y: 0, width: 430, height: 500),
+         "a keyboard below the view"),
+        // The keyboard's frame at willHide, and an empty one, as UIKit gives for a hardware keyboard's.
+        (CGRect(x: 0, y: 932, width: 430, height: 336), KeyboardCoverTests.screen, "a hidden keyboard"),
+        (.zero, KeyboardCoverTests.screen, "a hardware keyboard's empty frame"),
+        // An iPad's floating or undocked keyboard does not reach the screen's bottom: the content stays where it is,
+        // as an Android IME that floats gives no ime() inset.
+        (CGRect(x: 60, y: 400, width: 320, height: 250), KeyboardCoverTests.screen, "a keyboard that floats"),
+        // A view beside the keyboard, as a window in Split View's other half.
+        (CGRect(x: 0, y: 596, width: 200, height: 336), CGRect(x: 230, y: 0, width: 200, height: 932),
+         "a keyboard beside the view"),
+    ] as [(CGRect, CGRect, String)])
+    func aKeyboardThatMissesTheViewCoversNothing(keyboard: CGRect, view: CGRect, kind: String) {
+        #expect(pixels(keyboard, view: view) == 0, "\(kind)")
     }
 
     /// Never more than the view's height, and whole pixels.

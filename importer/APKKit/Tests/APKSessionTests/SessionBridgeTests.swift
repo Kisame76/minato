@@ -163,6 +163,14 @@ struct SessionBridgeTests {
         return bridge
     }
 
+    /// Quits a running app to its end (the quit's two lifecycle steps) and drops what that posted.
+    static func end(_ bridge: inout SessionBridge, _ host: FakeHost) throws {
+        let first = try #require(bridge.handle(.quit, host: host).wait)
+        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
+        _ = bridge.finished(second, result: 0, host: host)
+        _ = host.take()
+    }
+
     /// The host hears why the window goes (ADR-0043 b5, a black window's first question): the lifecycle's event that
     /// gave it up, with that batch's callbacks.
     @Test(arguments: [(Lifecycle.Event.background, "background"), (.quit, "quit"),
@@ -1028,11 +1036,8 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.pickResult(id: 3, code: -1, count: 2))])
         bridge.pickAnswered(id: 4, picked: nil, host: host)
         #expect(host.take() == [.post(.pickResult(id: 4, code: 0, count: 0))])
-        let first = try #require(bridge.handle(.quit, host: host).wait)
-        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
-        _ = bridge.finished(second, result: 0, host: host)
+        try Self.end(&bridge, host)
         #expect(bridge.lifecycle.hasEnded)
-        _ = host.take()
         bridge.pickAnswered(id: 5, picked: 1, host: host)
         #expect(host.take() == [])
     }
@@ -1067,10 +1072,7 @@ struct SessionBridgeTests {
                                 .post(.uninstallResult(id: 5, outcome: .cancelled))])
         #expect(UninstallOutcome.removed.rawValue == 0 && UninstallOutcome.failed.rawValue == 1
                 && UninstallOutcome.cancelled.rawValue == 2)
-        let first = try #require(bridge.handle(.quit, host: host).wait)
-        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
-        _ = bridge.finished(second, result: 0, host: host)
-        _ = host.take()
+        try Self.end(&bridge, host)
         bridge.uninstallAnswered(id: 6, .removed, host: host)
         #expect(host.take() == [])
     }
@@ -1088,10 +1090,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.imeInsets(bottom: 1008))])
         bridge.keyboardCovers(pixels: 0, host: host)
         #expect(host.take() == [.post(.imeInsets(bottom: 0))])
-        let first = try #require(bridge.handle(.quit, host: host).wait)
-        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
-        _ = bridge.finished(second, result: 0, host: host)
-        _ = host.take()
+        try Self.end(&bridge, host)
         bridge.keyboardCovers(pixels: 900, host: host)
         #expect(host.take() == [])
     }
@@ -1104,10 +1103,7 @@ struct SessionBridgeTests {
         _ = host.take()
         bridge.back(.commit, progress: 0, edge: 0, host: host)
         #expect(host.take() == [.post(.back(phase: .commit, progress: 0, edge: 0))])
-        let first = try #require(bridge.handle(.quit, host: host).wait)
-        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
-        _ = bridge.finished(second, result: 0, host: host)
-        _ = host.take()
+        try Self.end(&bridge, host)
         bridge.back(.commit, progress: 0, edge: 0, host: host)
         #expect(host.take() == [])
     }
@@ -1122,10 +1118,7 @@ struct SessionBridgeTests {
         #expect(host.take() == [.post(.imeHidden)])
         bridge.keyboardHidden(host: host)
         #expect(host.take() == [.post(.imeHidden)])
-        let first = try #require(bridge.handle(.quit, host: host).wait)
-        let second = try #require(bridge.finished(first, result: 1, host: host).wait)
-        _ = bridge.finished(second, result: 0, host: host)
-        _ = host.take()
+        try Self.end(&bridge, host)
         bridge.keyboardHidden(host: host)
         #expect(host.take() == [])
     }

@@ -90,8 +90,4 @@ struct BenchSessionTests {
         #expect(BenchSessionRecord.drawableNote(drawables: 1299, lost: 0, presents: 1300)
                 == "the layer gave 1299 drawables for 1300 presents of the guest")
     }
-
-    @Test func aSessionRecordsUpTo60SecondsAt120Hz() {
-        #expect(BenchPlan.sessionRecordingCapacity == 7200)
-    }
 }

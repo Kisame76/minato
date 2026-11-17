@@ -20,18 +20,13 @@ struct NativeFindingsTests {
             "it needs libfmod.so, which is not in the app and not one of Minato's libraries"]])
     }
 
-    @Test func anNDKLibraryMinatoLacksIsNamedAsSuch() {
+    /// An NDK library Minato lacks is named as such; libstdc++.so is one of them.
+    @Test(arguments: ["libamidi.so", "libstdc++.so"])
+    func anNDKLibraryMinatoLacksIsNamedAsSuch(library: String) {
         let found = NativeFindings.failing(
-            [Facts(name: "libgame.so", refusals: [], needed: ["libamidi.so"])], publicLibraries: Self.publicLibraries)
+            [Facts(name: "libgame.so", refusals: [], needed: [library])], publicLibraries: Self.publicLibraries)
 
-        #expect(found["libgame.so"] == ["it needs libamidi.so, an NDK library Minato does not have yet"])
-    }
-
-    @Test func libstdcxxIsOneOfThem() {
-        let found = NativeFindings.failing(
-            [Facts(name: "libgame.so", refusals: [], needed: ["libstdc++.so"])], publicLibraries: Self.publicLibraries)
-
-        #expect(found["libgame.so"] == ["it needs libstdc++.so, an NDK library Minato does not have yet"])
+        #expect(found["libgame.so"] == ["it needs \(library), an NDK library Minato does not have yet"])
     }
 
     @Test func aLibraryOfTheAppOrAPublicOneIsFound() {

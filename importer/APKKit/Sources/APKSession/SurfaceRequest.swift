@@ -46,31 +46,3 @@ public struct SurfaceRequest: Sendable, Equatable {
         self.opaque = opaque
     }
 }
-
-/// Where a surface's layer lies (ADR-0043 c4, `apkrt.h`'s surface handler): below the window's layer for a negative z
-/// and above it for a positive one, by z, then in the order the surfaces were made.
-public enum SurfaceOrder {
-    /// A layer's place on its side of the window: its z, then the number of its make.
-    public struct Key: Sendable, Equatable, Comparable {
-        public var z: Int32
-        public var made: UInt64
-
-        public init(z: Int32, made: UInt64) {
-            self.z = z
-            self.made = made
-        }
-
-        public static func < (lhs: Key, rhs: Key) -> Bool {
-            (lhs.z, lhs.made) < (rhs.z, rhs.made)
-        }
-    }
-
-    public static func isBelowWindow(z: Int32) -> Bool {
-        z < 0
-    }
-
-    /// The index in `side`, the other layers of that side in their order, at which a layer with `key` goes.
-    public static func index(of key: Key, among side: [Key]) -> Int {
-        side.firstIndex { key < $0 } ?? side.count
-    }
-}

@@ -20,16 +20,20 @@ struct RunValidityTests {
         #expect(RunValidity.reasons(for: record) == [])
     }
 
-    @Test func lowPowerMode() {
-        var record = Self.record()
-        record.lowPower = true
-        #expect(RunValidity.reasons(for: record) == [RunValidity.lowPower])
-    }
-
-    @Test func theStartMustBeNominal() {
-        var record = Self.record()
-        record.thermalStart = .fair
-        #expect(RunValidity.reasons(for: record) == [RunValidity.thermalStart])
+    /// One condition broken, its reason alone: low power mode, a start that is not nominal, a debugger, a loss of
+    /// focus.
+    @Test func eachBrokenConditionIsItsOwnReason() {
+        let broken: [(String, (inout BenchRunRecord) -> Void)] = [
+            (RunValidity.lowPower, { $0.lowPower = true }),
+            (RunValidity.thermalStart, { $0.thermalStart = .fair }),
+            (RunValidity.debugger, { $0.debugger = true }),
+            (RunValidity.focusLoss, { $0.focusLosses = [5] }),
+        ]
+        for (reason, breakIt) in broken {
+            var record = Self.record()
+            breakIt(&record)
+            #expect(RunValidity.reasons(for: record) == [reason], "\(reason)")
+        }
     }
 
     @Test func neverAboveFair() {
@@ -65,18 +69,6 @@ struct RunValidityTests {
         #expect(RunValidity.reasons(for: record("gles-60-light-apk-01", requested: 0)) == [])
         #expect(RunValidity.reasons(for: record("gles-60-light-apk-01", requested: 60)) == [RunValidity.linkPeriod])
         #expect(RunValidity.reasons(for: record("gles-60-light-native-01", requested: 0)) == [RunValidity.linkPeriod])
-    }
-
-    @Test func noDebugger() {
-        var record = Self.record()
-        record.debugger = true
-        #expect(RunValidity.reasons(for: record) == [RunValidity.debugger])
-    }
-
-    @Test func noLossOfFocus() {
-        var record = Self.record()
-        record.focusLosses = [5]
-        #expect(RunValidity.reasons(for: record) == [RunValidity.focusLoss])
     }
 
     /// A drawable taken before frame 0 would shift every frame by one: the counts must agree.

@@ -155,13 +155,16 @@ struct HardwareKeyboardTests {
         #expect(HardwareKeyboard.androidKeyCode(forHIDUsage: 0) == nil)
     }
 
-    // The name goes to apkrt_input_post_device, which takes only UTF-8 that Java's JNI takes as it is.
-    @Test func aNameKeepsItsBasicMultilingualPlaneCharacters() {
-        #expect(HardwareKeyboard.deviceName("Tastatur é 日本") == "Tastatur é 日本")
-    }
-
-    @Test func aCharacterOutsideThePlaneBecomesTheReplacementCharacter() {
-        #expect(HardwareKeyboard.deviceName("Pad 😀 Pro") == "Pad \u{fffd} Pro")
+    // The name goes to apkrt_input_post_device, which takes only UTF-8 that Java's JNI takes as it is: a name keeps
+    // its Basic Multilingual Plane characters, a character outside the plane becomes the replacement character, and a
+    // NUL ends the name.
+    @Test(arguments: [
+        ("Tastatur é 日本", "Tastatur é 日本"),
+        ("Pad 😀 Pro", "Pad \u{fffd} Pro"),
+        ("Pad\0Pro", "Pad"),
+    ])
+    func aNameReachesJNIAsItTakesIt(name: String, sent: String) {
+        #expect(HardwareKeyboard.deviceName(name) == sent)
     }
 
     @Test func aNameIsCutAtACharacterBoundaryWithinTheChannelsBytes() {
@@ -170,9 +173,5 @@ struct HardwareKeyboardTests {
         #expect(cut.utf8.count <= 63)
         #expect(cut == String(repeating: "é", count: 31))
         #expect(HardwareKeyboard.deviceName(String(repeating: "日", count: 30)).utf8.count == 63)
-    }
-
-    @Test func aNameWithANulStopsThere() {
-        #expect(HardwareKeyboard.deviceName("Pad\0Pro") == "Pad")
     }
 }

@@ -41,35 +41,19 @@ struct SymbolBindingTests {
         return NativeFindings.Binder(app: libraries, table: table).bind("libtest.so", references: refs, own: own)
     }
 
-    @Test func aSymbolInANeededLibraryIsBound() {
-        let result = Self.bind([.init(name: "malloc", version: nil, isWeak: false)], needed: ["libc.so"])
+    /// One reference of a library that needs libc.so: its name, whether it is weak, then what is missing and what
+    /// only a stub defines.
+    @Test(arguments: [
+        ("malloc", false, [], [], "a symbol in a needed library is bound"),
+        ("nope", false, ["nope"], [], "a symbol nothing defines is missing"),
+        ("memcpy", false, [], ["memcpy"], "a symbol only a stub defines is a stub"),
+        ("nope", true, [], [], "a weak reference may stay unresolved"),
+        ("AAsset_close", false, ["AAsset_close"], [], "a library it does not need is not searched"),
+    ] as [(String, Bool, [String], [String], String)])
+    func oneReferenceBindsAsLinker64Does(name: String, isWeak: Bool, missing: [String], stubs: [String], rule: String) {
+        let result = Self.bind([.init(name: name, version: nil, isWeak: isWeak)], needed: ["libc.so"])
 
-        #expect(result.missing.isEmpty && result.stubs.isEmpty)
-    }
-
-    @Test func aSymbolNothingDefinesIsMissing() {
-        let result = Self.bind([.init(name: "nope", version: nil, isWeak: false)], needed: ["libc.so"])
-
-        #expect(result.missing == ["nope"])
-    }
-
-    @Test func aSymbolOnlyAStubDefinesIsAStub() {
-        let result = Self.bind([.init(name: "memcpy", version: nil, isWeak: false)], needed: ["libc.so"])
-
-        #expect(result.missing.isEmpty)
-        #expect(result.stubs == ["memcpy"])
-    }
-
-    @Test func aWeakReferenceMayStayUnresolved() {
-        let result = Self.bind([.init(name: "nope", version: nil, isWeak: true)], needed: ["libc.so"])
-
-        #expect(result.missing.isEmpty && result.stubs.isEmpty)
-    }
-
-    @Test func aLibraryItDoesNotNeedIsNotSearched() {
-        let result = Self.bind([.init(name: "AAsset_close", version: nil, isWeak: false)], needed: ["libc.so"])
-
-        #expect(result.missing == ["AAsset_close"])
+        #expect(result == NativeFindings.Binding(missing: missing, stubs: stubs), "\(rule)")
     }
 
     @Test func itsOwnAndTheAppsLibrariesDefineToo() {

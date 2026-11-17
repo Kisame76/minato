@@ -421,31 +421,33 @@ struct AndroidManifestTests {
         #expect(manifest.requiredVulkanVersion == nil)
     }
 
-    @Test func detectsRequiredSplitsFromApplicationAttribute() throws {
-        let manifest = try Self.parse(Self.manifest([], [
-            E("application", [.android("isSplitRequired", 0x0101_0591, .bool(true))]),
-        ]))
-
-        #expect(manifest.requiresSplits)
-    }
-
-    @Test func detectsRequiredSplitsFromPlayMetaData() throws {
-        let manifest = try Self.parse(Self.manifest([], [
-            E("application", [], [
-                E("meta-data", [
-                    .android("name", 0x0101_0003, .string("com.android.vending.splits.required")),
-                    .android("value", 0x0101_0024, .bool(true)),
+    /// Each signal that an app needs its split APKs: <application android:isSplitRequired>, the Play meta-data
+    /// com.android.vending.splits.required, <manifest android:requiredSplitTypes>, and Android 15's own
+    /// <manifest android:isSplitRequired>, which it reads itself; bundletool's <application android:isSplitRequired>
+    /// and the meta-data stay Minato's stricter signals.
+    @Test func eachSplitSignalNeedsSplits() throws {
+        let signals: [(String, E)] = [
+            ("application isSplitRequired", Self.manifest([], [
+                E("application", [.android("isSplitRequired", 0x0101_0591, .bool(true))]),
+            ])),
+            ("Play meta-data", Self.manifest([], [
+                E("application", [], [
+                    E("meta-data", [
+                        .android("name", 0x0101_0003, .string("com.android.vending.splits.required")),
+                        .android("value", 0x0101_0024, .bool(true)),
+                    ]),
                 ]),
-            ]),
-        ]))
-
-        #expect(manifest.requiresSplits)
-    }
-
-    @Test func detectsRequiredSplitTypes() throws {
-        let manifest = try Self.parse(Self.manifest([.android("requiredSplitTypes", nil, .string("base__abi,base__density"))], []))
-
-        #expect(manifest.requiresSplits)
+            ])),
+            ("requiredSplitTypes",
+             Self.manifest([.android("requiredSplitTypes", nil, .string("base__abi,base__density"))], [])),
+            ("manifest isSplitRequired", Self.manifest([.android("isSplitRequired", 0x0101_0591, .bool(true))], [])),
+        ]
+        for (signal, root) in signals {
+            #expect(try Self.parse(root).requiresSplits, "\(signal)")
+        }
+        let android = try Self.parse(signals[3].1)
+        #expect(android.splitRequired)
+        #expect(!android.stricterSplitSignal)
     }
 
     @Test func recognisesSplitAPK() throws {
@@ -661,15 +663,6 @@ struct AndroidManifestTests {
         #expect(!InstallerReading.isValidExtFilename("a/\u{301}b"))
         #expect(!InstallerReading.isValidExtFilename("a\u{0}\u{301}b"))
         #expect(InstallerReading.isValidExtFilename("a\u{301}b"))
-    }
-
-    @Test func theManifestsIsSplitRequiredNeedsSplits() throws {
-        // Android 15 reads <manifest android:isSplitRequired>; bundletool's <application android:isSplitRequired>
-        // and meta-data stay Minato's stricter signals.
-        let manifest = try Self.parse(Self.manifest([.android("isSplitRequired", 0x0101_0591, .bool(true))], []))
-        #expect(manifest.splitRequired)
-        #expect(!manifest.stricterSplitSignal)
-        #expect(manifest.requiresSplits)
     }
 
     @Test func requiredSplitTypesAsAndroidSplitsThem() throws {

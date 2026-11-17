@@ -99,21 +99,14 @@ struct BenchRecordingTests {
         #expect(recording(5).drawablesTaken(after: 40) == 0)
     }
 
-    /// Each API's APK in the bundle's Benchmark/ folder, and the package it installs as.
-    @Test func apksByAPI() {
-        #expect(BenchAPI.gles.apkFile == "bench-gles.apk")
-        #expect(BenchAPI.vulkan.apkFile == "bench-vulkan.apk")
-        #expect(BenchAPI.gles.package == "io.github.kisame76.minato.bench.gles")
-        #expect(BenchAPI.vulkan.package == "io.github.kisame76.minato.bench.vulkan")
+    /// A configuration's APK in the bundle's Benchmark/ folder and the package it installs as. ADR-0044 d2):
+    /// bench-gles31 is bench-gles's scene under an ES 3.1 manifest, with its own APK and package; its runs draw
+    /// bench-gles's meshes.
+    @Test func aConfigurationsAPKAndTheES31Twin() {
         #expect(BenchConfiguration("vulkan-120-light")!.apkFile == "bench-vulkan.apk")
         #expect(BenchConfiguration("godot-vulkan-120-light")!.apkFile == "godot-bench-vulkan.apk")
         #expect(BenchConfiguration("godot-gles-60-light")!.package == "io.github.kisame76.minato.godotbench.gles")
         #expect(BenchConfiguration("gles-60-light")!.package == "io.github.kisame76.minato.bench.gles")
-    }
-
-    /// ADR-0044 d2): bench-gles31 is bench-gles's scene under an ES 3.1 manifest, with its own APK and package; its
-    /// runs draw bench-gles's meshes.
-    @Test func theES31TwinIsBenchGLESsScene() {
         #expect(BenchAPI.gles31.apkFile == "bench-gles31.apk")
         #expect(BenchAPI.gles31.package == "io.github.kisame76.minato.bench.gles31")
         #expect(BenchConfiguration("gles31-120-heavy")?.apkFile == "bench-gles31.apk")

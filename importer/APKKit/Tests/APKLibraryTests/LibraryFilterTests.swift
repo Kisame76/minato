@@ -25,22 +25,17 @@ struct LibraryFilterTests {
         filter.filtered(entries, favorites: favorites).map(\.id)
     }
 
-    @Test func allAppsShowsEveryEntryInItsOrder() {
-        #expect(ids(.all) == ["a", "b", "c", "d", "e"])
-    }
-
-    @Test func readyShowsTheReadyApps() {
-        #expect(ids(.ready) == ["a", "d"])
-    }
-
-    @Test func notReadyShowsWhatCannotStartYet() {
-        // Needs split APKs, incompatible and a failed import.
-        #expect(ids(.notReady) == ["b", "c", "e"])
-    }
-
-    @Test func favoritesShowTheFavoritesInTheLibrarysOrderAndSkipDeletedApps() {
-        #expect(ids(.favorites, favorites: ["d", "x", "b"]) == ["b", "d"])
-        #expect(ids(.favorites).isEmpty)
+    /// All Apps: every entry in its order; Ready: the ready apps; Not Ready: what cannot start yet (needs split APKs,
+    /// incompatible, a failed import); Favorites: the favorites in the library's order, deleted apps skipped.
+    @Test(arguments: [
+        (LibraryFilter.all, [], ["a", "b", "c", "d", "e"]),
+        (.ready, [], ["a", "d"]),
+        (.notReady, [], ["b", "c", "e"]),
+        (.favorites, ["d", "x", "b"], ["b", "d"]),
+        (.favorites, [], []),
+    ] as [(LibraryFilter, [String], [String])])
+    func aFilterShowsItsApps(filter: LibraryFilter, favorites: [String], shown: [String]) {
+        #expect(ids(filter, favorites: favorites) == shown)
     }
 
     @Test func aFilterWithoutMatchesIsEmpty() {
