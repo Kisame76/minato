@@ -11,14 +11,15 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   add_library(minato_graphics_host STATIC providers.c present_time.c vulkan.m angle.m angle_vulkan.m probe.m
     provoking.m drawable_probe.m background_commit_probe.m layer.m upscale.m window.m hardware_buffer.m image.m
     video_decoder.m
-    video_parameters.c media_player.m webview.m network.m camera_model.m camera_rules.c camera_avf.m)
+    video_parameters.c media_player.m webview.m network.m camera_model.m camera_rules.c camera_avf.m stall_work.c)
   # graphics/vulkan/host_protocol.h: what libvulkan and graphics/host agree on.
   target_include_directories(minato_graphics_host PUBLIC include PRIVATE "${APK_GRAPHICS_GEN_DIR}"
     "${PROJECT_SOURCE_DIR}/graphics/vulkan")
   target_include_directories(minato_graphics_host SYSTEM PRIVATE "${APK_MOLTENVK_DIR}/include")
   target_link_libraries(minato_graphics_host PUBLIC apkrt PRIVATE apk_defaults)
   # The providers, the functions for missing names, the present times and those in front of MoltenVK's run on guest
-  # threads' stacks, which AddressSanitizer does not know (as the runtime's syscall layer, runtime/CMakeLists.txt).
+  # threads' stacks, which AddressSanitizer does not know (as the runtime's syscall layer, runtime/CMakeLists.txt), and
+  # so does stall_work.c's window record, which angle.m's window surfaces call.
   # A source file's options come after apk_defaults' -fsanitize=address, so this one wins.
   set(on_guest_stacks "")
   if(APK_SANITIZE)
@@ -27,7 +28,7 @@ if(EXISTS "${APK_GRAPHICS_GEN_DIR}/vulkan_names.inc" AND EXISTS "${APK_GRAPHICS_
   # With modules, the object files of vulkan.m, angle.m and V3's check for the iPhone (probe.m, which only
   # debug builds of the app link) name their frameworks for the link: Foundation, Metal and QuartzCore.
   set(vulkan_options -fmodules ${on_guest_stacks})
-  set_source_files_properties(providers.c present_time.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
+  set_source_files_properties(providers.c present_time.c stall_work.c PROPERTIES COMPILE_OPTIONS "${on_guest_stacks}")
   set_source_files_properties(vulkan.m angle.m angle_vulkan.m PROPERTIES COMPILE_OPTIONS "${vulkan_options}")
   set_source_files_properties(probe.m PROPERTIES COMPILE_OPTIONS "-fmodules")
   # ADR-0044 a)'s probe and ADR-0041 decision 11 c)'s, which probe.m calls, with ARC: debug builds of the app get them

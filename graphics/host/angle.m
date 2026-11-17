@@ -4,7 +4,8 @@
    - window surfaces: libEGL names the host window by its ID, which becomes the window's CAMetalLayer for
      ANGLE (none for the ID 0, which ANGLE answers with EGL_BAD_NATIVE_WINDOW); Core Animation gets ANGLE's
      changes to the layer, made on a thread without a run loop, when a surface is made or destroyed; the
-     presents are counted per window for the FPS label;
+     presents are counted per window for the FPS label; the window's texture and buffer bytes count as its work for
+     the runtime's stall watchdog (stall_work.c);
    - presentation times (EGL_ANDROID_presentation_time, patch 0005): ANGLE gets the time asked for on the display's
      refresh grid, less half a period (present_time.h, ADR-0041 decision 11). Each swap leaves the time asked for it,
      or none, on the window's layer before ANGLE's swap and takes it back when the swap fails (present_pace.h,
@@ -43,6 +44,7 @@
 #include "gles_table.h"
 #include "present_pace.h"
 #include "present_time.h"
+#include "stall_work.h"
 
 /* EGL's and GLES's types and names as ANGLE has them. */
 typedef unsigned int egl_boolean;
@@ -175,6 +177,7 @@ static void *window_surface_created(void *display, void *config, void *window, c
     void *const surface = create_window_surface(display, config, layer, attributes);
     if (surface != NULL) {
         surface_keep(display, surface, id, layer);
+        minato_graphics_stall_gl_window(id);
         [CATransaction flush];
     }
     [layer release];
@@ -187,6 +190,7 @@ static void *platform_window_surface_created(void *display, void *config, void *
     void *const surface = create_platform_window_surface(display, config, layer, attributes);
     if (surface != NULL) {
         surface_keep(display, surface, id, layer);
+        minato_graphics_stall_gl_window(id);
         [CATransaction flush];
     }
     [layer release];
@@ -440,6 +444,8 @@ static void gates(void *library) {
 #endif
     atomic_store(&wait_until_scheduled, (int (*)(double))dlsym(library, "ANGLEMetalWaitUntilScheduled"));
     atomic_store(&memory_warning, (void (*)(void))dlsym(library, "ANGLEMetalMemoryWarning"));
+    /* The stall watchdog's work sources count what ANGLE holds (stall_work.c, patch 0015's counters). */
+    minato_graphics_stall_counters((size_t (*)(uint64_t *, size_t))dlsym(library, "ANGLEMetalMemoryCounters"));
     if (minato_graphics_angle_vulkan_backend() && !atomic_load(&vulkan_ready)) {
         void (*set_loader)(void *) = (void (*)(void *))dlsym(library, "ANGLEVulkanSetGetInstanceProcAddr");
         void *loader = minato_graphics_angle_vulkan_loader();

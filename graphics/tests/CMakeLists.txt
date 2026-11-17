@@ -251,6 +251,23 @@ add_test(NAME graphics.fonts
   COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/fonts_check.py" "${APK_GUEST_SYSTEM_DIR}")
 set_tests_properties(graphics.fonts PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:")
 
+# graphics/host's work sources for the runtime's stall watchdog (stall_work.c) on ANGLE's memory counters (patch 0015):
+# a window's work grows with a texture and stays at its most after its delete and a remake of the same size; its
+# return work grows again with the remake; a window without an EGL window surface gets the asset parts alone.
+if(TARGET minato_graphics_host AND EXISTS "${APK_ANGLE_DIR}/include/EGL/egl.h")
+  add_executable(angle-stall-work angle_stall_work.mm)
+  target_include_directories(angle-stall-work SYSTEM PRIVATE "${APK_ANGLE_DIR}/include")
+  target_include_directories(angle-stall-work PRIVATE "${PROJECT_SOURCE_DIR}/graphics/host")
+  target_compile_options(angle-stall-work PRIVATE -fobjc-arc)
+  target_link_libraries(angle-stall-work PRIVATE minato_graphics_host apkrt apk_defaults
+    "-framework Foundation" "-framework QuartzCore" "-framework Metal")
+  add_test(NAME graphics.angle_stall_work COMMAND angle-stall-work "${APK_ANGLE_DIR}/out/macos/libGLESv2.dylib")
+else()
+  add_test(NAME graphics.angle_stall_work COMMAND ${CMAKE_COMMAND} -E echo
+    "skipped: no ANGLE checkout in ${APK_ANGLE_DIR} or graphics/host is left out, see tools/build-angle.sh")
+endif()
+set_tests_properties(graphics.angle_stall_work PROPERTIES SKIP_REGULAR_EXPRESSION "^skipped:" TIMEOUT 60)
+
 # ADR-0037 b): graphics/host's sources compile for the iPhone and the Simulator, whose SDK has less Metal than the
 # device's: this build's compile commands of them, again with -fsyntax-only against both iOS SDKs. The app gets them
 # from tools/build-graphics-host.sh, which CTest does not run.
