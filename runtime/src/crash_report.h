@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string_view>
 
@@ -84,5 +85,36 @@ void reset_modules();
 /// thread may hold; one write() to `fd`. The line is in Minato's liblog form, so the exit path's output capture
 /// (process_exit.cpp is_log_line) treats it as the runtime's own words, not the app's.
 void write_fault_line(int fd, int signal, int code, std::uint64_t fault_address, std::uint64_t pc);
+
+/// A converted library's role by Minato's own classification, never its name: "IL2CPP" for libil2cpp, "engine" for an
+/// engine's or runtime's own library on the allow list (unity, main, mono, godot, ...), "other" for any other (the
+/// app's own code, a plugin, an Android or Minato library).
+const char *library_role(std::string_view soname);
+
+/// What the signal path knows of a guest's fatal fault, for its fault-site line.
+struct FaultSite {
+    int signal = 0;                    // the Linux signal: 11 SIGSEGV, 7 SIGBUS
+    std::uint64_t pc = 0;              // the guest's pc (an island already left), lr and far
+    std::uint64_t lr = 0;
+    std::uint64_t far = 0;
+    std::uint64_t registers[31] = {};  // x0..x30 as the CPU had them at the fault, x18 among them
+    bool instruction_read = false;     // whether the word at pc could be read
+    std::uint32_t instruction = 0;
+    int rewritten_words = -1;          // words on pc's page that branch into the converter's stub area; -1 unknown
+};
+
+/// The fault-site line, ONE write() to `fd`, for a guest SIGSEGV or SIGBUS whose pc lies in a converted library:
+///   "E/apkrt: fault-site SIGSEGV lib other pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 zero x9,x18 far-in x8
+///    rewritten-words 0 form load byte register-offset base x18 index x8\n"
+/// The library is named by library_role only; pc's and lr's offsets are guest vaddrs of that library (lr in another
+/// library: "lr <role> +0x<offset>", in none: "lr 0x<address>"); far and x18 as values; "zero" and "far-in" list the
+/// registers among x0..x30 that hold 0 and the far (register numbers only, "-" for none); "rewritten-words" counts the
+/// words of pc's page that the converter rewrote into a branch to its stubs (x18 islands, svc veneers, entry hooks);
+/// "form" decodes the faulting load or store: kind, size, addressing mode, base and index registers ("form none" for
+/// another word, "form unreadable" when pc's word could not be read). x18 = 0 as the base is a missed x18 site; a
+/// rewritten word on the page of a load that read a wrong value points at data in .text that the converter took for
+/// code. pc's module comes from the lock-free registry (resolve_registered); no allocation, no lock: async-signal-safe.
+/// Nothing is written for a pc in no registered module.
+void write_fault_site_line(int fd, const FaultSite &site);
 
 }  // namespace apkrt::crash

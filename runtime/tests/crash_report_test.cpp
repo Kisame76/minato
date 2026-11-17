@@ -206,4 +206,102 @@ TEST(a_fault_line_names_the_signal_the_faulting_library_and_the_fault_address) {
     apkrt::crash::reset_modules();
 }
 
+// MARK: - The fault-site line (a real session's guest SIGSEGV or SIGBUS in a converted library)
+
+namespace {
+
+// Captures one write_fault_site_line() call through a pipe.
+std::string site_line(const apkrt::crash::FaultSite &site) {
+    int fds[2];
+    if (::pipe(fds) != 0) return "<pipe failed>";
+    apkrt::crash::write_fault_site_line(fds[1], site);
+    ::close(fds[1]);
+    char buffer[512];
+    const ssize_t read = ::read(fds[0], buffer, sizeof buffer);
+    ::close(fds[0]);
+    return read > 0 ? std::string(buffer, static_cast<std::size_t>(read)) : std::string();
+}
+
+// Two converted libraries as the loader registers them: IL2CPP and the app's own (masked) library.
+void register_two() {
+    apkrt::crash::reset_modules();
+    apkrt::crash::register_module(0x100000, 0x200000, 0x100000, "libil2cpp.so");
+    apkrt::crash::register_module(0x300000, 0x400000, 0x300000, "libMyGame.so");
+}
+
+apkrt::crash::FaultSite site_at(std::uint64_t pc, std::uint64_t lr, std::uint64_t far, std::uint32_t instruction) {
+    apkrt::crash::FaultSite site;
+    site.signal = 11;
+    site.pc = pc;
+    site.lr = lr;
+    site.far = far;
+    for (std::uint64_t &value : site.registers) value = 0x1'2345'6000;  // addresses, none 0, none the far
+    site.instruction_read = true;
+    site.instruction = instruction;
+    site.rewritten_words = 0;
+    return site;
+}
+
+}  // namespace
+
+TEST(a_zeroed_x18_as_the_base_shows_in_the_fault_site_line) {
+    // ldrb w8, [x18, x9] at libil2cpp +0x4df6c with x18 0 and x9 0x1087b: the line names the role, both offsets, far,
+    // x18, the registers that hold 0 and the far, and the form with its base.
+    register_two();
+    auto site = site_at(0x14df6c, 0x14de10, 0x1087b, 0x3869'6A48);
+    site.registers[18] = 0;
+    site.registers[9] = 0x1087b;
+    CHECK(site_line(site) == "E/apkrt: fault-site SIGSEGV lib IL2CPP pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 zero "
+                             "x18 far-in x9 rewritten-words 0 form load byte register-offset base x18 index x9\n");
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_fault_site_line_never_names_the_library) {
+    // The app's own library is "other", its name never appears; an lr in another library names that one's role.
+    register_two();
+    auto site = site_at(0x300040, 0x100500, 0x8, 0xF940'0420);  // ldr x0, [x1, #8]
+    site.registers[1] = 0;
+    site.signal = 7;
+    site.rewritten_words = 3;
+    const std::string line = site_line(site);
+    CHECK(line == "E/apkrt: fault-site SIGBUS lib other pc +0x40 lr IL2CPP +0x500 far 0x8 x18 0x123456000 zero x1 "
+                  "far-in - rewritten-words 3 form load double unsigned-offset base x1\n");
+    CHECK(line.find("MyGame") == std::string::npos);
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_fault_site_line_says_when_it_cannot_read_or_decode_and_skips_a_pc_in_no_library) {
+    register_two();
+    auto unreadable = site_at(0x100010, 0, 0x10, 0);
+    unreadable.instruction_read = false;
+    unreadable.rewritten_words = -1;
+    CHECK(site_line(unreadable).find("lr 0x0 far 0x10 x18 0x123456000 zero - far-in - rewritten-words unknown form "
+                                     "unreadable\n") != std::string::npos);
+    const auto branch = site_at(0x100010, 0, 0x10, 0xD63F'0100);  // blr x8: no load or store
+    CHECK(site_line(branch).ends_with(" form none\n"));
+    CHECK(site_line(site_at(0x9999, 0, 0, 0x3869'6A48)).empty());  // pc in no registered library: nothing
+    apkrt::crash::reset_modules();
+}
+
+TEST(library_roles_follow_minatos_own_classification) {
+    CHECK(std::string(apkrt::crash::library_role("libil2cpp.so")) == "IL2CPP");
+    CHECK(std::string(apkrt::crash::library_role("libunity.so")) == "engine");
+    CHECK(std::string(apkrt::crash::library_role("libmain.so")) == "engine");
+    CHECK(std::string(apkrt::crash::library_role("libmonosgen-2.0.so")) == "engine");
+    CHECK(std::string(apkrt::crash::library_role("libc.so")) == "other");     // Android's own: listed, not an engine
+    CHECK(std::string(apkrt::crash::library_role("libMyGame.so")) == "other");
+    CHECK(std::string(apkrt::crash::library_role("libil2cppx.so")) == "other");  // not il2cpp by a bare prefix
+}
+
+TEST(pairs_and_negative_offsets_decode_in_the_form) {
+    register_two();
+    auto pair = site_at(0x100020, 0, 0x10, 0xA941'0640);  // ldp x0, x1, [x18, #16]
+    CHECK(site_line(pair).ends_with(" form load pair-double pair-offset base x18\n"));
+    auto unscaled = site_at(0x100020, 0, 0xff8, 0xF85F'8040);  // ldur x0, [x2, #-8]
+    CHECK(site_line(unscaled).ends_with(" form load double unscaled base x2\n"));
+    auto stack = site_at(0x100020, 0, 0x8, 0xF940'07E0);  // ldr x0, [sp, #8]
+    CHECK(site_line(stack).ends_with(" form load double unsigned-offset base sp\n"));
+    apkrt::crash::reset_modules();
+}
+
 int main() { return apk::testing::run_all(); }

@@ -226,4 +226,247 @@ int write_backtrace(char *out, std::size_t cap, std::size_t &at, std::uint64_t f
     return written;
 }
 
+namespace {
+
+/// A load or store as the fault's form names it.
+struct Access {
+    const char *kind = "load";  // "load", "store" or "prefetch"
+    const char *size = "";      // "byte", "half", "word", "double", "simd", "pair-word", "pair-double", "pair-simd"
+    const char *mode = "";      // the addressing mode
+    int base = -1;              // Rn (31: sp); -1 for a literal, whose base is the pc
+    int index = -1;             // Rm of a register offset (31: xzr)
+    std::int64_t imm = 0;       // the offset the address adds (0 for a post-index, which adds it afterwards)
+    unsigned shift = 0;         // a register offset's shift
+    unsigned extend = 3;        // a register offset's option: 2 UXTW, 3 LSL, 6 SXTW, 7 SXTX
+    bool computable = false;    // whether base (+ index) + imm is the address the access starts at
+};
+
+constexpr const char *access_sizes[] = {"byte", "half", "word", "double"};
+
+std::int64_t sign_extend(std::uint64_t value, unsigned bits) {
+    const std::uint64_t sign = std::uint64_t{1} << (bits - 1);
+    return static_cast<std::int64_t>((value ^ sign) - sign);
+}
+
+/// A general load or store's kind from its opc (load/store register forms, not SIMD).
+const char *general_kind(unsigned size, unsigned opc) {
+    if (opc == 0) return "store";
+    return size == 3 && opc == 2 ? "prefetch" : "load";
+}
+
+/// Decodes the A64 loads and stores whose address a register gives (ARM ARM C4.1.66 and C4.1.94 classes); false for
+/// any other word.
+bool decode_access(std::uint32_t w, Access &a) {
+    const unsigned size = w >> 30;
+    const bool simd = ((w >> 26) & 1u) != 0;
+    const auto rn = static_cast<int>((w >> 5) & 31u);
+    const unsigned opc = (w >> 22) & 3u;
+    const unsigned scale = simd && (opc & 2u) != 0 ? 4u : size;
+    if ((w & 0x3B00'0000u) == 0x3900'0000u) {  // register, unsigned immediate
+        a.kind = simd ? ((opc & 1u) != 0 ? "load" : "store") : general_kind(size, opc);
+        a.size = simd ? "simd" : access_sizes[size];
+        a.mode = "unsigned-offset";
+        a.base = rn;
+        a.imm = static_cast<std::int64_t>(std::uint64_t{(w >> 10) & 0xfffu} << scale);
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0x3B20'0000u) == 0x3800'0000u) {  // register, 9-bit signed immediate
+        constexpr const char *modes[] = {"unscaled", "post-index", "unprivileged", "pre-index"};
+        const unsigned type = (w >> 10) & 3u;
+        a.kind = simd ? ((opc & 1u) != 0 ? "load" : "store") : general_kind(size, opc);
+        a.size = simd ? "simd" : access_sizes[size];
+        a.mode = modes[type];
+        a.base = rn;
+        a.imm = type == 1 ? 0 : sign_extend((w >> 12) & 0x1ffu, 9);
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0x3B20'0C00u) == 0x3820'0800u) {  // register, register offset
+        a.kind = simd ? ((opc & 1u) != 0 ? "load" : "store") : general_kind(size, opc);
+        a.size = simd ? "simd" : access_sizes[size];
+        a.mode = "register-offset";
+        a.base = rn;
+        a.index = static_cast<int>((w >> 16) & 31u);
+        a.extend = (w >> 13) & 7u;
+        a.shift = ((w >> 12) & 1u) != 0 ? scale : 0;
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0x3B20'0C00u) == 0x3820'0000u && !simd) {  // atomic memory operation (LDADD, SWP, ...)
+        a.kind = "atomic";
+        a.size = access_sizes[size];
+        a.mode = "atomic";
+        a.base = rn;
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0x3A00'0000u) == 0x2800'0000u) {  // pair
+        constexpr const char *modes[] = {"pair-no-allocate", "pair-post-index", "pair-offset", "pair-pre-index"};
+        const unsigned type = (w >> 23) & 3u;
+        const unsigned pair_scale = simd ? 2u + size : 2u + (size >> 1);
+        a.kind = ((w >> 22) & 1u) != 0 ? "load" : "store";
+        a.size = simd ? "pair-simd" : (size >> 1) != 0 ? "pair-double" : "pair-word";
+        a.mode = modes[type];
+        a.base = rn;
+        a.imm = type == 1 ? 0 : sign_extend((w >> 15) & 0x7fu, 7) * (std::int64_t{1} << pair_scale);
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0x3B00'0000u) == 0x1800'0000u) {  // literal: pc-relative, no base register
+        a.kind = (w >> 30) == 3 && !simd ? "prefetch" : "load";
+        a.size = simd ? "simd" : (w >> 30) == 1 ? "double" : "word";
+        a.mode = "literal";
+        a.imm = sign_extend((w >> 5) & 0x7ffffu, 19) * 4;
+        return true;
+    }
+    if ((w & 0x3F00'0000u) == 0x0800'0000u) {  // exclusive or ordered (LDXR, LDAR, STLR, CAS, ...)
+        a.kind = ((w >> 22) & 1u) != 0 ? "load" : "store";
+        a.size = access_sizes[size];
+        a.mode = "exclusive";
+        a.base = rn;
+        a.computable = true;
+        return true;
+    }
+    if ((w & 0xBE00'0000u) == 0x0C00'0000u) {  // SIMD structures (LD1..LD4, ST1..ST4)
+        a.kind = ((w >> 22) & 1u) != 0 ? "load" : "store";
+        a.size = "simd";
+        a.mode = "simd-structure";
+        a.base = rn;
+        a.computable = true;
+        return true;
+    }
+    return false;
+}
+
+void append_register(char *out, std::size_t cap, std::size_t &at, int number, const char *thirty_one) {
+    if (number == 31) {
+        append(out, cap, at, thirty_one);
+        return;
+    }
+    append(out, cap, at, "x");
+    append_decimal(out, cap, at, static_cast<unsigned long>(number));
+}
+
+/// The registers among x0..x30 that hold `value`, as "x1,x18", or "-" for none.
+void append_registers_holding(char *out, std::size_t cap, std::size_t &at, const std::uint64_t (&registers)[31],
+                              std::uint64_t value) {
+    bool any = false;
+    for (int number = 0; number < 31; ++number) {
+        if (registers[number] != value) continue;
+        if (any) append(out, cap, at, ",");
+        append_register(out, cap, at, number, "");
+        any = true;
+    }
+    if (!any) append(out, cap, at, "-");
+}
+
+/// The faulting word's form: kind, size, addressing mode, base and index registers.
+void append_form(char *out, std::size_t cap, std::size_t &at, const FaultSite &site) {
+    if (!site.instruction_read) {
+        append(out, cap, at, "unreadable");
+        return;
+    }
+    Access a;
+    if (!decode_access(site.instruction, a)) {
+        append(out, cap, at, "none");
+        return;
+    }
+    append(out, cap, at, a.kind);
+    append(out, cap, at, " ");
+    append(out, cap, at, a.size);
+    append(out, cap, at, " ");
+    append(out, cap, at, a.mode);
+    if (a.base >= 0) {
+        append(out, cap, at, " base ");
+        append_register(out, cap, at, a.base, "sp");
+    }
+    if (a.index >= 0) {
+        append(out, cap, at, " index ");
+        append_register(out, cap, at, a.index, "xzr");
+    }
+}
+
+// The engines' and runtimes' own libraries among the allow list (keep_libs), by role: everything else is "other".
+constexpr string_view engine_libs[] = {"SDL2", "SDL3", "cocos2d", "flutter", "fmod", "gdx", "godot_android", "hermes",
+                                       "jsc", "main", "mono", "monosgen-2.0", "openal", "python", "renpython", "unity",
+                                       "v8"};
+
+/// The library's name without "lib" and ".so", as kept_soname compares it.
+string_view bare_name(string_view soname) {
+    if (starts_with(soname, "lib")) soname.remove_prefix(3);
+    if (soname.size() > 3 && soname.substr(soname.size() - 3) == ".so") soname.remove_suffix(3);
+    return soname;
+}
+
+void append_offset(char *out, std::size_t cap, std::size_t &at, std::uint64_t address, const Module &module) {
+    append(out, cap, at, "+0x");
+    append_hex(out, cap, at, address - module.base);
+}
+
+}  // namespace
+
+const char *library_role(string_view soname) {
+    const string_view name = bare_name(soname);
+    if (name == "il2cpp" || starts_with(name, "il2cpp_") || starts_with(name, "il2cpp-")) return "IL2CPP";
+    if (!kept_soname(soname)) return "other";
+    for (const string_view engine : engine_libs) {
+        if (name == engine) return "engine";
+        if (name.size() > engine.size() && starts_with(name, engine)) {
+            const char next = name[engine.size()];
+            if (next == '_' || next == '-' || next == '.') return "engine";
+        }
+    }
+    for (const string_view prefix : {string_view("cocos2d"), string_view("fmod"), string_view("gdx"),
+                                      string_view("mono"), string_view("python"), string_view("v8")}) {
+        if (starts_with(name, prefix)) return "engine";
+    }
+    return "other";
+}
+
+void write_fault_site_line(int fd, const FaultSite &site) {
+    const Module module = resolve_registered(site.pc, nullptr);
+    if (!module.found) return;
+    char line[400];
+    std::size_t at = 0;
+    constexpr std::size_t cap = sizeof line;
+    append(line, cap, at, "E/apkrt: fault-site ");
+    const char *name = fault_signal_name(site.signal);
+    append(line, cap, at, name != nullptr ? name : "SIG?");
+    append(line, cap, at, " lib ");
+    append(line, cap, at, library_role(module.soname));
+    append(line, cap, at, " pc ");
+    append_offset(line, cap, at, site.pc, module);
+    append(line, cap, at, " lr ");
+    const Module caller = resolve_registered(site.lr, nullptr);
+    if (caller.found && caller.base == module.base) {
+        append_offset(line, cap, at, site.lr, caller);
+    } else if (caller.found) {
+        append(line, cap, at, library_role(caller.soname));
+        append(line, cap, at, " ");
+        append_offset(line, cap, at, site.lr, caller);
+    } else {
+        append(line, cap, at, "0x");
+        append_hex(line, cap, at, site.lr);
+    }
+    append(line, cap, at, " far 0x");
+    append_hex(line, cap, at, site.far);
+    append(line, cap, at, " x18 0x");
+    append_hex(line, cap, at, site.registers[18]);
+    append(line, cap, at, " zero ");
+    append_registers_holding(line, cap, at, site.registers, 0);
+    append(line, cap, at, " far-in ");
+    append_registers_holding(line, cap, at, site.registers, site.far);
+    append(line, cap, at, " rewritten-words ");
+    if (site.rewritten_words < 0) {
+        append(line, cap, at, "unknown");
+    } else {
+        append_decimal(line, cap, at, static_cast<unsigned long>(site.rewritten_words));
+    }
+    append(line, cap, at, " form ");
+    append_form(line, cap, at, site);
+    append(line, cap, at, "\n");
+    static_cast<void>(::write(fd, line, at));
+}
+
 }  // namespace apkrt::crash

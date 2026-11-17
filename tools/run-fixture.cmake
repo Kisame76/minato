@@ -119,11 +119,13 @@ without_zygote("${error}" error)
 # libgui's "queueBuffer (handle=0x...) failed" names a buffer's address, which differs every run.
 string(REGEX REPLACE "handle=0x[0-9a-fA-F]+" "handle=<address>" error "${error}")
 # A program that abort() ends: CMake names the signal, a shell shows 128 + SIGABRT (6), as Android's does; one that
-# SIGKILL ends, 128 + SIGKILL (9).
+# SIGKILL ends, 128 + SIGKILL (9); one that a fault ends, 128 + SIGSEGV (11).
 if(status STREQUAL "Subprocess aborted")
   set(status 134)
 elseif(status STREQUAL "Subprocess killed")
   set(status 137)
+elseif(status STREQUAL "Segmentation fault")
+  set(status 139)
 endif()
 message("exit status: ${status}\nstdout: [${output}]\nstderr: [${error}]")
 if(NOT status EQUAL EXPECTED_STATUS)

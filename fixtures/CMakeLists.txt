@@ -160,6 +160,22 @@ add_library(frame-cap-engine SHARED suite/libframe-cap-engine.c)
 target_link_libraries(frame-cap-engine PRIVATE frame-cap-api dl)
 add_executable(frame-cap-test suite/frame-cap-test.c)
 target_link_libraries(frame-cap-test PRIVATE frame-cap-engine frame-cap-api)
+# fault-site-test and its libraries: a byte read at 0x1087b through a NULL base and through x18 = 0, which ends the
+# process with SIGSEGV in the library, and a C++ exception thrown in one library and caught in the other
+# (runtime/tests/fault_site_run.py checks the runtime's fault-site line).
+add_library(fault-site-throw SHARED suite/libfault-site-throw.cpp)
+add_library(fault-site SHARED suite/libfault-site.c suite/libfault-site-x18.S suite/libfault-site-catch.cpp)
+target_compile_options(fault-site-throw PRIVATE -std=gnu++20 -fexceptions)
+target_compile_options(fault-site PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20 -fexceptions>)
+target_link_libraries(fault-site PRIVATE fault-site-throw)
+add_executable(fault-site-test suite/fault-site-test.c)
+target_link_libraries(fault-site-test PRIVATE fault-site)
+# The same program once per mode, which it runs without an argument (fixtures/tests.txt starts a program without one).
+foreach(mode null x18 exception)
+  add_executable(fault-site-test-${mode} suite/fault-site-test.c)
+  target_compile_definitions(fault-site-test-${mode} PRIVATE FAULT_SITE_MODE="${mode}")
+  target_link_libraries(fault-site-test-${mode} PRIVATE fault-site)
+endforeach()
 # luajit-switch-test and the two libraries that stand in for LuaJIT and for plain Lua by their exported names (the LuaJIT
 # switch, runtime/tests/luajit_switch_run.py): the app imports the names, or looks them up with dlsym.
 add_library(fake-luajit SHARED suite/libfake-luajit.c)

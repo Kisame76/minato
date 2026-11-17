@@ -70,6 +70,12 @@ kill-self-test system status=137
 dl-lock-test system libraries=libdl-lock.so
 # An engine that caps its frame rate and its scripting runtime's API, by Unity's names (ADR-0066).
 frame-cap-test system libraries=libframe-cap-api.so,libframe-cap-engine.so
+# A fatal fault in the program's own library, a byte read at 0x1087b through a NULL base and through x18 = 0 (the shell
+# shows 128 + SIGSEGV), and a C++ exception thrown in one of its libraries and caught in the other: fault-site-test's
+# three modes, one program each.
+fault-site-test-null system libraries=libfault-site.so,libfault-site-throw.so status=139
+fault-site-test-x18 system libraries=libfault-site.so,libfault-site-throw.so status=139
+fault-site-test-exception system libraries=libfault-site.so,libfault-site-throw.so
 # Data inside .text of NDK libraries (literal pools, jump tables, real code that looks like data): with a .symtab and
 # stripped, with the dynamic relocations plain and as RELR; a Unity test APK's library was refused at import for it.
 data-in-text-test system libraries=libdit-sym.so,libdit-strip.so,libdit-rela.so,libdit-relr.so

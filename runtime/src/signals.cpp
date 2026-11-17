@@ -227,6 +227,55 @@ void log_fault_to_handler(int signal, int code, std::uint64_t address, std::uint
     crash::write_fault_line(STDERR_FILENO, signal, code, address, pc);
 }
 
+// --- Fault site (a guest's fatal SIGSEGV or SIGBUS in a converted library) -------------------------------------------
+//
+// One line per process, with write(2) right before die_by, so it is out before the signal ends the process: the
+// library's role, pc's and lr's offsets, far, x18, the registers that hold 0 or far, the rewritten words on pc's page
+// and the faulting word's form (crash_report.h write_fault_site_line). Only in a real session: the host sets
+// MINATO_LOADER_LOG for one (RuntimeSession.swift, before apkrt_session_begin and so before the first guest thread,
+// which installs the handlers); the fixture harness and the unit tests do not, so their output stays as it is.
+bool fault_site_enabled = false;
+std::atomic<bool> fault_site_written{false};
+
+/// The words on pc's page that branch (B or BL) into a converter's stub area: the words the converter rewrote into a
+/// branch to an x18 island, an svc veneer or an entry hook. -1 when pc's word could not be read: its page is not
+/// mapped. A page is mapped whole, so once pc's word reads the scan reads the page directly. Async-signal-safe: the
+/// lock-free container list (islands::container_at).
+int rewritten_words_on_page(std::uint64_t pc, bool pc_readable) {
+    if (!pc_readable) return -1;
+    const std::uint64_t page = fault_log_page_size;
+    const std::uint64_t start = pc & ~(page - 1);
+    int count = 0;
+    for (std::uint64_t address = start; address < start + page; address += 4) {
+        const std::uint32_t word = *reinterpret_cast<const volatile std::uint32_t *>(address);
+        if ((word & 0x7C00'0000u) != 0x1400'0000u) continue;  // B or BL imm26
+        const std::uint64_t imm26 = word & 0x03FF'FFFFu;
+        const auto offset = static_cast<std::int64_t>((imm26 ^ 0x0200'0000u) - 0x0200'0000u) * 4;
+        if (islands::container_at(address + static_cast<std::uint64_t>(offset)) != nullptr) ++count;
+    }
+    return count;
+}
+
+/// The fault-site line for a guest's fatal SIGSEGV or SIGBUS, once per process, in a real session only.
+void write_fault_site(int signal, std::uint64_t address, const GuestContext &context) {
+    if (!fault_site_enabled || (signal != sigsegv && signal != sigbus)) return;
+    if (fault_site_written.exchange(true)) return;
+    crash::FaultSite site;
+    site.signal = signal;
+    site.pc = context.pc;
+    site.lr = context.x[30];
+    site.far = address;
+    for (std::size_t index = 0; index < std::size(site.registers); ++index) site.registers[index] = context.x[index];
+    std::uint32_t word = 0;
+    vm_size_t read = 0;
+    site.instruction_read = ::vm_read_overwrite(::mach_task_self(), static_cast<vm_address_t>(context.pc), sizeof word,
+                                                reinterpret_cast<vm_address_t>(&word), &read) == KERN_SUCCESS &&
+                            read == sizeof word;
+    site.instruction = word;
+    site.rewritten_words = rewritten_words_on_page(context.pc, site.instruction_read);
+    crash::write_fault_site_line(STDERR_FILENO, site);
+}
+
 // --- Pending signals -----------------------------------------------------------------------------
 
 bool is_real_time(int signal) {
@@ -369,6 +418,8 @@ void deliver_pending(ThreadSignals &state, GuestContext &context) {
         const auto chosen = action(signal);
         if (ignored(chosen, signal)) continue;
         if (chosen.handler == sig_dfl) {
+            // A raised signal: no fault address. A self-kill's record, noted at its kill, stands (first cause wins).
+            process::note_signal(signal, info.code, 0, context.pc, context.x[30], context.x[29]);
             die_by(signal);
             return;
         }
@@ -470,8 +521,12 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     if (std::uint64_t x18 = apkrt_get_guest_x18(); islands::leave(context, x18)) apkrt_set_guest_x18(x18);
     const auto translated = translate(host_signal, *host_info, uc, context.pc);
     const auto chosen = action(translated.signal);
-    // A fault that is blocked, ignored or left to the default ends the process, as on Linux.
+    // A fault that is blocked, ignored or left to the default ends the process, as on Linux. Before it ends: the
+    // fault-site line of a real session, and the record of the cause (ADR-0032 decision 8).
     if (chosen.handler == sig_dfl || chosen.handler == sig_ign || (state.mask.load() & bit(translated.signal)) != 0) {
+        write_fault_site(translated.signal, translated.fault.address, context);
+        process::note_signal(translated.signal, translated.code, translated.fault.address, context.pc, context.x[30],
+                             context.x[29]);
         die_by(translated.signal);
         return;
     }
@@ -560,6 +615,7 @@ void install_handlers() {
 #endif
     }
     fault_log_page_size = static_cast<std::uint64_t>(::getpagesize());
+    fault_site_enabled = ::getenv("MINATO_LOADER_LOG") != nullptr;  // a real session's flag (see write_fault_site)
     ::pthread_key_create(&request_key, nullptr);
     struct sigaction action {};
     action.sa_sigaction = handle_runtime_signal;
