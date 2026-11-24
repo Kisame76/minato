@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- A theme selector over a base theme, as a game engine's generated project has it; values-v21 and values-v28
+       give the base theme other platform parents and items. -->
+  <style name="SelectorTheme" parent="BaseTheme">
+    <item name="android:windowBackground">@android:color/black</item>
+  </style>
+  <style name="BaseTheme" parent="@android:style/Theme.Holo.Light.NoActionBar.Fullscreen"/>
+  <!-- A theme with an action bar, for an activity that asks for FEATURE_NO_TITLE. -->
+  <style name="BarTheme" parent="@android:style/Theme.Material.Light"/>
+  <!-- A theme without a title, for an activity that asks for FEATURE_ACTION_BAR. -->
+  <style name="NoTitleTheme" parent="@android:style/Theme.Material.Light.NoActionBar"/>
+</resources>

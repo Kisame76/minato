@@ -1,0 +1,13 @@
+I/no-action-bar-test: SelectorActivity requestWindowFeature NO_TITLE true
+I/no-action-bar-test: SelectorActivity onCreate getActionBar false
+I/no-action-bar-test: SelectorActivity theme: windowNoTitle true, windowFullscreen true, windowActionBar false
+I/no-action-bar-test: SelectorActivity content set: getActionBar false, NO_TITLE true, ACTION_BAR false, fullscreen true, action bar view false
+I/no-action-bar-test: BarThemeActivity requestWindowFeature NO_TITLE true
+I/no-action-bar-test: BarThemeActivity onCreate getActionBar false
+I/no-action-bar-test: BarThemeActivity theme: windowNoTitle false, windowFullscreen false, windowActionBar true
+I/no-action-bar-test: BarThemeActivity content set: getActionBar false, NO_TITLE true, ACTION_BAR false, fullscreen false, action bar view false
+I/no-action-bar-test: RequestedBarActivity requestWindowFeature ACTION_BAR true
+I/no-action-bar-test: RequestedBarActivity onCreate getActionBar false
+I/no-action-bar-test: RequestedBarActivity theme: windowNoTitle true, windowFullscreen false, windowActionBar false
+I/no-action-bar-test: RequestedBarActivity content set: getActionBar false, NO_TITLE true, ACTION_BAR false, fullscreen false, action bar view false
+I/no-action-bar-test: done

@@ -344,6 +344,15 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         if (mContentParentExplicitlySet) {
             throw new android.util.AndroidRuntimeException("requestFeature() must be called before adding content");
         }
+        // As AOSP's: no title dominates the action bar, whichever is asked for first (a game engine's activity asks
+        // for FEATURE_NO_TITLE before super.onCreate, and its theme may still name an action bar).
+        final int features = getFeatures();
+        if ((features & (1 << FEATURE_NO_TITLE)) != 0 && featureId == FEATURE_ACTION_BAR) {
+            return false;
+        }
+        if ((features & (1 << FEATURE_ACTION_BAR)) != 0 && featureId == FEATURE_NO_TITLE) {
+            removeFeature(FEATURE_ACTION_BAR);
+        }
         return super.requestFeature(featureId);
     }
 

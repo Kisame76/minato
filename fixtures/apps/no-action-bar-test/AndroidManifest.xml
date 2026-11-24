@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- no-action-bar-test (FEATURE_NO_TITLE over the action bar): three activities that ask for a window feature before
+     super.onCreate, as game engines' activities do. SelectorActivity has a theme chain like a game engine's generated
+     one (an app style whose parent is a platform NoActionBar.Fullscreen theme, with values-v21 and values-v28
+     variants) and asks for FEATURE_NO_TITLE; BarThemeActivity asks for FEATURE_NO_TITLE on a theme with an action bar;
+     RequestedBarActivity asks for FEATURE_ACTION_BAR on a theme without a title. On Android no title dominates, so none
+     of them gets an action bar. minSdkVersion 23, so aapt2 keeps the values-v28 variant apart. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kisame76.minato.test.noactionbar" android:versionCode="1" android:versionName="1.0">
+  <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="35"/>
+  <application android:label="@string/app_name">
+    <activity android:name="io.github.kisame76.minato.test.noactionbar.SelectorActivity" android:exported="true"
+        android:label="@string/app_name" android:theme="@style/SelectorTheme">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="io.github.kisame76.minato.test.noactionbar.BarThemeActivity" android:exported="false"
+        android:label="@string/app_name" android:theme="@style/BarTheme"/>
+    <activity android:name="io.github.kisame76.minato.test.noactionbar.RequestedBarActivity" android:exported="false"
+        android:label="@string/app_name" android:theme="@style/NoTitleTheme"/>
+  </application>
+</manifest>

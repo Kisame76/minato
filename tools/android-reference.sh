@@ -1395,6 +1395,11 @@ run_app() {
     action-bar-test | action-bar-test-34)
       apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.BarActivity
       ;;
+    # no-action-bar-test (no title dominates the action bar): three activities ask for a window feature before
+    # super.onCreate, the first on a theme chain like a game engine's; each logs its features and bar; ends with "done".
+    no-action-bar-test)
+      apk="build/$app/$app.apk" build="tools/build-java-test-app.sh $app" last=done activity_class=.SelectorActivity
+      ;;
     # back-test (ADR-0041 decision 10, the system's back): Root starts Second, and three BACKs pop Second's fragment,
     # finish Second and reach Root, which ends with "done". back-test-callback is its twin that opted in to
     # OnBackInvokedCallback.
