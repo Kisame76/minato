@@ -3,6 +3,7 @@
 #include "APKRuntime/apkrt.h"
 #include "crash_report.h"
 #include "islands.h"
+#include "memory_watermark.h"
 #include "process_exit.h"
 #include "sockets.h"
 #include "threads.h"
@@ -256,8 +257,21 @@ int rewritten_words_on_page(std::uint64_t pc, bool pc_readable) {
     return count;
 }
 
-/// The fault-site line for a guest's fatal SIGSEGV or SIGBUS, once per process, in a real session only.
-void write_fault_site(int signal, std::uint64_t address, const GuestContext &context) {
+/// The guest's x18 at `context` as setup_frame resolves it: a (c)-renamed range's register, else TSD slot 11 (which
+/// islands::leave has set for a fault inside an island); whether it came from the rename register.
+std::uint64_t guest_x18_at(const GuestContext &context, bool &renamed) {
+    if (const auto reg = islands::c_range_register(context.pc)) {
+        renamed = true;
+        return context.x[*reg];
+    }
+    renamed = false;
+    return apkrt_get_guest_x18();
+}
+
+/// The fault-site line for a guest's fatal SIGSEGV or SIGBUS, once per process, in a real session only. `guest_x18`
+/// and `renamed`: the guest's x18 when the fault came (guest_x18_at then).
+void write_fault_site(int signal, std::uint64_t address, const GuestContext &context, std::uint64_t guest_x18,
+                      bool renamed) {
     if (!fault_site_enabled || (signal != sigsegv && signal != sigbus)) return;
     if (fault_site_written.exchange(true)) return;
     crash::FaultSite site;
@@ -273,6 +287,18 @@ void write_fault_site(int signal, std::uint64_t address, const GuestContext &con
                             read == sizeof word;
     site.instruction = word;
     site.rewritten_words = rewritten_words_on_page(context.pc, site.instruction_read);
+    site.guest_x18 = guest_x18;
+    site.guest_x18_renamed = renamed;
+    site.sp = context.sp;
+    // The address space now, for a fault that a reservation which did not fit could explain: the mem line's walk,
+    // which allocates and locks nothing (task_info and vm_region_recurse_64 only; ~4-7 ms at 3000 regions on the Mac),
+    // once per process on its way to dying. A held fault's line is written at the death, shortly after the fault.
+    const memory::Instrument space = memory::sample_instrument();
+    site.virtual_size = space.virtual_size;
+    site.largest_hole = space.largest_hole;
+    site.pid = ::getpid();
+    site.last_tid = threads::last_tid();
+    crash::heap_window(site.heap_window_base, site.heap_window_size);
     crash::write_fault_site_line(STDERR_FILENO, site);
 }
 
@@ -289,7 +315,7 @@ void write_fault_site(int signal, std::uint64_t address, const GuestContext &con
 bool write_held_fault_site(const ThreadSignals &state) {
     const auto &held = state.held_fault;
     if (!held.held) return false;
-    write_fault_site(held.signal, held.address, held.context);
+    write_fault_site(held.signal, held.address, held.context, held.guest_x18, held.guest_x18_renamed);
     return true;
 }
 
@@ -545,7 +571,11 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     // fault-site line of a real session, and the record of the cause (ADR-0032 decision 8).
     if (chosen.handler == sig_dfl || chosen.handler == sig_ign || (state.mask.load() & bit(translated.signal)) != 0) {
         // A fault inside a crash handler: the line names the fault the handler was handed, the crash's cause.
-        if (!write_held_fault_site(state)) write_fault_site(translated.signal, translated.fault.address, context);
+        if (!write_held_fault_site(state)) {
+            bool renamed = false;
+            const std::uint64_t guest_x18 = guest_x18_at(context, renamed);
+            write_fault_site(translated.signal, translated.fault.address, context, guest_x18, renamed);
+        }
         process::note_signal(translated.signal, translated.code, translated.fault.address, context.pc, context.x[30],
                              context.x[29]);
         die_by(translated.signal);
@@ -559,7 +589,10 @@ void handle_fault(int host_signal, siginfo_t *host_info, void *raw) {
     // A real session holds the first SIGSEGV or SIGBUS it hands over until its handler returns (write_held_fault_site).
     auto &held = state.held_fault;
     const bool hold = fault_site_enabled && !held.held && (translated.signal == sigsegv || translated.signal == sigbus);
-    if (hold) held.context = context;
+    if (hold) {
+        held.context = context;
+        held.guest_x18 = guest_x18_at(context, held.guest_x18_renamed);
+    }
     setup_frame(state, translated.signal, info, chosen, context, &translated.fault);
     if (hold) {
         held.signal = translated.signal;

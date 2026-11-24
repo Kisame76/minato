@@ -138,6 +138,8 @@ struct ThreadSignals {
         std::uint64_t address = 0;  // the fault address
         std::uint64_t frame = 0;    // the handler's frame, the one rt_sigreturn reads back when the handler returns
         GuestContext context{};     // the guest's state at the fault
+        std::uint64_t guest_x18 = 0;     // the guest's x18 then, as setup_frame resolves it
+        bool guest_x18_renamed = false;  // from a (c) range's rename register, not TSD slot 11
     } held_fault;
 
     ThreadSignals() = default;

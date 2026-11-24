@@ -4,10 +4,16 @@ which reads byte 0x1087b through a NULL base ("null", libfault-site.c) and throu
 libfault-site-x18.S), so the process ends with SIGSEGV at 0x1087b in libfault-site.so.
   - With MINATO_LOADER_LOG set, as a real session sets it: stderr holds ONE fault-site line, "E/apkrt: fault-site
     SIGSEGV lib other pc +0x<offset> lr ... far 0x1087b x18 0x<x18> zero <registers> far-in <registers>
-    rewritten-words <n> form <form>", whose pc offset lies in the function that loads (for "x18" exactly its second
-    word, the load), whose zero list holds the base register and far-in list the index register, and whose form names
-    them: base x0 or x18 = 0, index = 0x1087b. For "x18" also x18 0x0 and at least the two rewritten words of the
-    function's page (its two words on x18 branch to islands). The library is "other": never its name.
+    rewritten-words <n> form <form> base-is <class> heap-window <base> va=<MiB> vahole=<MiB> regs x0=0x.. ... x30=0x..
+    sp=0x..", whose pc offset lies in the function that loads (for "x18" exactly its second word, the load), whose zero
+    list holds the base register and far-in list the index register, and whose form names them with their values:
+    base x0=0x0, index x1=0x1087b, the base classed "null" ("-" for "x18", whose word is a branch). No ART runs here,
+    so heap-window is "-". regs lists x0..x30 and sp, x0 and x1 as the form has them (for "x18": x0 = 0x1087b). For
+    "x18" also x18 0x0 and at least the two rewritten words of the function's page (its two words on x18 branch to
+    islands). va and vahole, the address space at the fault, are not 0. The library is "other": never its name.
+  - The line's x18 is the hardware register, gx18 the guest's x18 as the signal path resolves it, with where it
+    came from (slot11, or rename in a (c) range): "x18" gives gx18 0, "gx18" (the guest's x18 set to 0x5a5a0000, a
+    read through a NULL base in x0 with index x1) gives gx18 0x5a5a0000 from slot11, whatever the hardware x18 is.
   - Without it (the fixture harness): no fault-site line.
   - Both: the exit report records "signal: 11 (Segmentation fault)" and "fault: 0x1087b" (ADR-0032 decision 8).
   - "exception", with the flag: a C++ exception thrown in libfault-site-throw.so and caught in libfault-site.so ends
@@ -29,9 +35,11 @@ import subprocess
 import sys
 
 LINE = re.compile(r"^E/apkrt: fault-site SIGSEGV lib (\S+) pc \+0x([0-9a-f]+) lr (?:\+0x[0-9a-f]+|\S+ \+0x[0-9a-f]+|"
-                  r"0x[0-9a-f]+) far 0x([0-9a-f]+) x18 0x([0-9a-f]+) zero (\S+) far-in (\S+) rewritten-words "
-                  r"(\d+|unknown) form (.*)$")
-FORM = re.compile(r"^load byte register-offset base (x\d+) index (x\d+)$")
+                  r"0x[0-9a-f]+) far 0x([0-9a-f]+) x18 0x([0-9a-f]+) gx18 0x([0-9a-f]+) (slot11|rename) "
+                  r"zero (\S+) far-in (\S+) rewritten-words "
+                  r"(\d+|unknown) form (.*) base-is (\S+) heap-window (\S+) va=(\d+) vahole=(\d+) regs (.*)$")
+REGISTERS = [f"x{number}" for number in range(31)] + ["sp"]
+FORM = re.compile(r"^load byte register-offset base (x\d+)=0x([0-9a-f]+) index (x\d+)=0x([0-9a-f]+)$")
 
 
 def convert(apk_convert, elf, container):
@@ -113,7 +121,7 @@ def main():
             ("null", "fault_site_read", segv, []), ("x18", "fault_site_read_x18", segv, []),
             ("chained", "fault_site_read", segv, [engine]), ("abort", "fault_site_read", abrt, [engine]),
             ("twice", "fault_site_read", segv, ["reporter handler: signal 11", engine]),
-            ("crash", "fault_site_read", segv, [engine])):
+            ("crash", "fault_site_read", segv, [engine]), ("gx18", "fault_site_read_gx18", segv, [])):
         if function not in symbols:
             failures.append(f"{mode}: libfault-site.so exports no {function}")
             continue
@@ -126,7 +134,9 @@ def main():
         if len(lines) != 1 or not LINE.match(lines[0]):
             failures.append(f"{where}: want one fault-site line, got {lines or result.stderr.splitlines()[-5:]}")
         else:
-            role, pc, far, x18, zero, far_in, rewritten, form = LINE.match(lines[0]).groups()
+            (role, pc, far, x18, gx18, source, zero, far_in, rewritten, form, base_is, window, va, vahole,
+             registers) = LINE.match(lines[0]).groups()
+            values = dict(pair.split("=0x", 1) for pair in registers.split(" ") if "=0x" in pair)
             offset = int(pc, 16)
             shape = FORM.match(form)
             problems = []
@@ -138,15 +148,30 @@ def main():
                 problems.append(f"pc +0x{offset:x} outside {function} (+0x{start:x}, {size} bytes)")
             if int(far, 16) != 0x1087b:
                 problems.append(f"far 0x{far}")
+            if int(va) == 0 or int(vahole) == 0:
+                problems.append(f"va={va} vahole={vahole}: the address space was not sampled")
+            if list(values) != REGISTERS or len(registers.split(" ")) != len(REGISTERS):
+                problems.append(f"regs {registers}")
+            if window != "-":
+                problems.append(f"heap-window {window} without ART")
+            want_x0, want_class = (0x1087b, "-") if mode == "x18" else (0, "null")
+            if base_is != want_class or int(values.get("x0", "-1"), 16) != want_x0:
+                problems.append(f"base-is {base_is}, x0 0x{values.get('x0')}: want {want_class}, 0x{want_x0:x}")
+            if mode != "x18" and int(values.get("x1", "-1"), 16) != 0x1087b:
+                problems.append(f"x1 0x{values.get('x1')}, want the index 0x1087b")
+            # The guest's x18 as the signal path resolves it (TSD slot 11 here: no (c) range): what the library set.
+            want_gx18 = {"x18": 0, "gx18": 0x5a5a0000}.get(mode)
+            if want_gx18 is not None and (int(gx18, 16) != want_gx18 or source != "slot11"):
+                problems.append(f"gx18 0x{gx18} {source}, want 0x{want_gx18:x} slot11")
             if mode != "x18":
                 if shape is None:
                     problems.append(f"form {form}")
                 else:
-                    base, index = shape.groups()
-                    if base not in zero.split(","):
-                        problems.append(f"base {base} not in zero {zero}")
-                    if index not in far_in.split(","):
-                        problems.append(f"index {index} not in far-in {far_in}")
+                    base, base_value, index, index_value = shape.groups()
+                    if base not in zero.split(",") or int(base_value, 16) != 0:
+                        problems.append(f"base {base}=0x{base_value} not 0 or not in zero {zero}")
+                    if index not in far_in.split(",") or int(index_value, 16) != 0x1087b:
+                        problems.append(f"index {index}=0x{index_value} not 0x1087b or not in far-in {far_in}")
             else:
                 # The converter islanded both words on x18, so the site's word is the branch to the island ("form
                 # none"); x18 is the base, 0, and x0 the index (the function's argument).
@@ -157,7 +182,7 @@ def main():
             if problems:
                 failures.append(f"{where}: {'; '.join(problems)} in {lines[0]!r}")
         # The death's own signal; the fault address where the read's fault itself ends the process.
-        if cause not in recorded or (mode in ("null", "x18", "chained") and "fault: 0x1087b" not in recorded):
+        if cause not in recorded or (mode in ("null", "x18", "chained", "gx18") and "fault: 0x1087b" not in recorded):
             failures.append(f"{where}: the exit report has no cause: {recorded.splitlines()[:4]}")
     result, recorded = run("recover", True)
     if result.returncode not in abrt[0] or result.stdout.splitlines() != ["reading recover", engine, "recovered"]:

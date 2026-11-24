@@ -5,9 +5,11 @@
 #include "check.h"
 
 #include <cstdint>
+#include <format>
 #include <string>
 #include <string_view>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 using apkrt::crash::kept_soname;
@@ -216,11 +218,14 @@ std::string site_line(const apkrt::crash::FaultSite &site) {
     if (::pipe(fds) != 0) return "<pipe failed>";
     apkrt::crash::write_fault_site_line(fds[1], site);
     ::close(fds[1]);
-    char buffer[512];
+    char buffer[2048];
     const ssize_t read = ::read(fds[0], buffer, sizeof buffer);
     ::close(fds[0]);
     return read > 0 ? std::string(buffer, static_cast<std::size_t>(read)) : std::string();
 }
+
+// The line up to its register list (" regs ..."), which the_line_ends_with_every_register_and_sp checks on its own.
+std::string before_registers(const std::string &line) { return line.substr(0, line.find(" regs ")); }
 
 // Two converted libraries as the loader registers them: IL2CPP and the app's own (masked) library.
 void register_two() {
@@ -245,14 +250,19 @@ apkrt::crash::FaultSite site_at(std::uint64_t pc, std::uint64_t lr, std::uint64_
 }  // namespace
 
 TEST(a_zeroed_x18_as_the_base_shows_in_the_fault_site_line) {
-    // ldrb w8, [x18, x9] at libil2cpp +0x4df6c with x18 0 and x9 0x1087b: the line names the role, both offsets, far,
-    // x18, the registers that hold 0 and the far, and the form with its base.
+    // ldrb w8, [x18, x9] at libil2cpp +0x4df6c with the hardware x18 0 and x9 0x1087b, while the guest's x18 (TSD slot
+    // 11) is 0x7000: the line names the role, both offsets, far, the hardware x18 and the guest's with where it came
+    // from, the registers that hold 0 and the far, and the form with its base. This is a missed x18 site: the load
+    // used the hardware register, which iOS zeroes, where the guest's x18 held a table.
     register_two();
     auto site = site_at(0x14df6c, 0x14de10, 0x1087b, 0x3869'6A48);
     site.registers[18] = 0;
     site.registers[9] = 0x1087b;
-    CHECK(site_line(site) == "E/apkrt: fault-site SIGSEGV lib IL2CPP pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 zero "
-                             "x18 far-in x9 rewritten-words 0 form load byte register-offset base x18 index x9\n");
+    site.guest_x18 = 0x7000;
+    CHECK(before_registers(site_line(site)) ==
+          "E/apkrt: fault-site SIGSEGV lib IL2CPP pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 gx18 0x7000 slot11 zero "
+          "x18 far-in x9 rewritten-words 0 form load byte register-offset base x18=0x0 index x9=0x1087b base-is null "
+          "heap-window - va=0 vahole=0");
     apkrt::crash::reset_modules();
 }
 
@@ -264,8 +274,10 @@ TEST(the_fault_site_line_never_names_the_library) {
     site.signal = 7;
     site.rewritten_words = 3;
     const std::string line = site_line(site);
-    CHECK(line == "E/apkrt: fault-site SIGBUS lib other pc +0x40 lr IL2CPP +0x500 far 0x8 x18 0x123456000 zero x1 "
-                  "far-in - rewritten-words 3 form load double unsigned-offset base x1\n");
+    CHECK(before_registers(line) ==
+          "E/apkrt: fault-site SIGBUS lib other pc +0x40 lr IL2CPP +0x500 far 0x8 x18 0x123456000 gx18 0x0 slot11 zero "
+          "x1 far-in - rewritten-words 3 form load double unsigned-offset base x1=0x0 imm 0x8 base-is null "
+          "heap-window - va=0 vahole=0");
     CHECK(line.find("MyGame") == std::string::npos);
     apkrt::crash::reset_modules();
 }
@@ -275,12 +287,130 @@ TEST(the_fault_site_line_says_when_it_cannot_read_or_decode_and_skips_a_pc_in_no
     auto unreadable = site_at(0x100010, 0, 0x10, 0);
     unreadable.instruction_read = false;
     unreadable.rewritten_words = -1;
-    CHECK(site_line(unreadable).find("lr 0x0 far 0x10 x18 0x123456000 zero - far-in - rewritten-words unknown form "
-                                     "unreadable\n") != std::string::npos);
+    CHECK(site_line(unreadable).find("lr 0x0 far 0x10 x18 0x123456000 gx18 0x0 slot11 zero - far-in - rewritten-words "
+                                     "unknown form unreadable base-is - heap-window - va=0 vahole=0 regs ") !=
+          std::string::npos);
     const auto branch = site_at(0x100010, 0, 0x10, 0xD63F'0100);  // blr x8: no load or store
-    CHECK(site_line(branch).ends_with(" form none\n"));
+    CHECK(before_registers(site_line(branch)).ends_with(" form none base-is - heap-window - va=0 vahole=0"));
     CHECK(site_line(site_at(0x9999, 0, 0, 0x3869'6A48)).empty());  // pc in no registered library: nothing
     apkrt::crash::reset_modules();
+}
+
+TEST(the_guest_x18_of_a_renamed_function_says_rename) {
+    // In a (c)-renamed function's range the guest's x18 lives in the rename register, as setup_frame reads it: the line
+    // says so, so a reader does not take slot 11's stale value for it.
+    register_two();
+    auto site = site_at(0x100040, 0, 0x8, 0xF940'0420);  // ldr x0, [x1, #8]
+    site.guest_x18 = 0xabc0;
+    site.guest_x18_renamed = true;
+    CHECK(site_line(site).find(" x18 0x123456000 gx18 0xabc0 rename zero ") != std::string::npos);
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_form_gives_the_base_and_index_values_the_offset_and_the_address_space) {
+    // ldr x0, [x20, #0x878] faulting at 0x10878, as an app's start did: x20's value and the decoded offset tell a NULL
+    // object reached through a split offset (x20 = 0x10000) from a link-time address the loader never biased. A
+    // register offset gives the index's value and, where it is not a plain 64-bit index, its extend and shift; sp as
+    // the base gives sp's value. va= and vahole= (MiB, as on the mem line) close the line: the address space at the
+    // fault.
+    register_two();
+    auto object = site_at(0x300040, 0, 0x10878, 0xF944'3E80);  // ldr x0, [x20, #0x878]
+    object.registers[20] = 0x10000;
+    object.virtual_size = std::uint64_t{3} << 30;
+    object.largest_hole = std::uint64_t{512} << 20;
+    CHECK(before_registers(site_line(object))
+              .ends_with(" form load double unsigned-offset base x20=0x10000 imm 0x878 base-is none heap-window - "
+                         "va=3072 vahole=512"));
+    auto indexed = site_at(0x100020, 0, 0x1087b, 0x3869'6A48);  // ldrb w8, [x18, x9]
+    indexed.registers[18] = 0;
+    indexed.registers[9] = 0x1087b;
+    CHECK(before_registers(site_line(indexed))
+              .ends_with(" form load byte register-offset base x18=0x0 index x9=0x1087b base-is null heap-window - "
+                         "va=0 vahole=0"));
+    auto scaled = site_at(0x100020, 0, 0x10, 0xF869'DA80);  // ldr x0, [x20, w9, sxtw #3]
+    scaled.registers[9] = 0xffff'fffe;
+    CHECK(site_line(scaled).find(" base x20=0x123456000 index x9=0xfffffffe sxtw 3 base-is ") != std::string::npos);
+    auto below = site_at(0x100020, 0, 0xff8, 0xF85F'8040);  // ldur x0, [x2, #-8]
+    CHECK(site_line(below).find(" unscaled base x2=0x123456000 imm -0x8 base-is ") != std::string::npos);
+    auto stack = site_at(0x100020, 0, 0x8, 0xF940'07E0);  // ldr x0, [sp, #8]
+    stack.sp = 0x16f000;
+    CHECK(site_line(stack).find(" unsigned-offset base sp=0x16f000 imm 0x8 base-is ") != std::string::npos);
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_line_ends_with_every_register_and_sp) {
+    // x0..x30 and sp, values only, so a reader can follow where the base's value came from (the register it was loaded
+    // through, a caller's argument); still one write.
+    register_two();
+    auto site = site_at(0x300040, 0, 0x8, 0xF940'0420);  // ldr x0, [x1, #8]
+    for (std::uint64_t number = 0; number < 31; ++number) site.registers[number] = 0x7000'0000'0000 + number * 0x10;
+    site.sp = 0x16f'e000;
+    std::string want = " regs";
+    for (std::uint64_t number = 0; number < 31; ++number) {
+        want += std::format(" x{}=0x{:x}", number, 0x7000'0000'0000 + number * 0x10);
+    }
+    want += " sp=0x16fe000\n";
+    const std::string line = site_line(site);
+    CHECK(line.ends_with(want));
+    CHECK(line.find('\n') == line.size() - 1);  // one line, one write
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_base_value_is_classified_against_the_small_numbers_minato_hands_out) {
+    // The value the faulting access read through, against what Minato gives a guest as a small number where Android
+    // gives an address: an ART heap reference (on Android the object's address below 4 GiB, here its offset from the
+    // heap window's base, ADR-0033), a thread or process ID, an open file descriptor, and a JNI reference by ART's kind
+    // bits. Every class that matches, "none" for none, "null" for 0; "heap-window" names the window's base.
+    register_two();
+    auto site = site_at(0x300040, 0, 0x10ab8, 0xF942'0680);  // ldr x0, [x20, #0x408]
+    site.heap_window_base = 0x2'0000'0000;
+    site.heap_window_size = 0x1'0000'0000;
+    site.pid = 66000;
+    site.last_tid = 67300;
+    const auto base_is = [&](std::uint64_t value) {
+        site.registers[20] = value;
+        const std::string line = before_registers(site_line(site));
+        const auto at = line.find(" base-is ");
+        return at == std::string::npos ? line : line.substr(at + 9, line.find(' ', at + 9) - at - 9);
+    };
+    CHECK(base_is(0x106b0) == "heap-ref,tid");  // an object's offset in the window, and among the tids handed out
+    CHECK(base_is(0x7'0000'0010) == "none");    // above the window's 4 GiB: an address, no small number
+    CHECK(base_is(0x106b4) == "tid");           // not aligned as an object is
+    CHECK(base_is(66000) == "heap-ref,pid");
+    CHECK(base_is(0) == "null");
+    CHECK(base_is(0x2a6) == "jni-global");
+    CHECK(base_is(0x2a7) == "jni-weak");
+    CHECK(base_is(0x7f00'1234'5679) == "jni-local");
+    int fds[2];
+    CHECK(::pipe(fds) == 0);
+    const int open_fd = ::fcntl(fds[1], F_DUPFD, 200);  // a number whose low bits are no JNI kind
+    CHECK(open_fd >= 200 && (open_fd & 3) == 0);
+    site.pid = 0;
+    site.last_tid = 0;
+    site.heap_window_base = 0;
+    site.heap_window_size = 0;
+    CHECK(base_is(static_cast<std::uint64_t>(open_fd)) == "fd");
+    CHECK(before_registers(site_line(site)).ends_with(" heap-window - va=0 vahole=0"));
+    site.heap_window_base = 0x2'0000'0000;
+    site.heap_window_size = 0x1'0000'0000;
+    CHECK(before_registers(site_line(site)).ends_with(" heap-window 0x200000000 va=0 vahole=0"));
+    ::close(open_fd);
+    ::close(fds[0]);
+    ::close(fds[1]);
+    apkrt::crash::reset_modules();
+}
+
+TEST(the_heap_window_is_read_through_the_variables_the_loader_found) {
+    // dl.cpp finds ART's gHeapWindowBase and gHeapWindowSize when the library that defines them loads and hands their
+    // addresses over; the fault path reads them with no lock. Before that, or without ART: 0 and 0.
+    std::uint64_t base = 0, size = 0;
+    apkrt::crash::heap_window(base, size);
+    CHECK(base == 0 && size == 0);
+    static std::uint64_t art_base = 0x3'0000'0000, art_size = 0x8000'0000;
+    apkrt::crash::note_heap_window(&art_base, &art_size);
+    apkrt::crash::heap_window(base, size);
+    CHECK(base == 0x3'0000'0000 && size == 0x8000'0000);
+    apkrt::crash::note_heap_window(nullptr, nullptr);
 }
 
 TEST(library_roles_follow_minatos_own_classification) {
@@ -296,11 +426,17 @@ TEST(library_roles_follow_minatos_own_classification) {
 TEST(pairs_and_negative_offsets_decode_in_the_form) {
     register_two();
     auto pair = site_at(0x100020, 0, 0x10, 0xA941'0640);  // ldp x0, x1, [x18, #16]
-    CHECK(site_line(pair).ends_with(" form load pair-double pair-offset base x18\n"));
+    CHECK(before_registers(site_line(pair))
+              .ends_with(" form load pair-double pair-offset base x18=0x123456000 imm 0x10 base-is none heap-window - "
+                         "va=0 vahole=0"));
     auto unscaled = site_at(0x100020, 0, 0xff8, 0xF85F'8040);  // ldur x0, [x2, #-8]
-    CHECK(site_line(unscaled).ends_with(" form load double unscaled base x2\n"));
+    CHECK(before_registers(site_line(unscaled))
+              .ends_with(" form load double unscaled base x2=0x123456000 imm -0x8 base-is none heap-window - va=0 "
+                         "vahole=0"));
     auto stack = site_at(0x100020, 0, 0x8, 0xF940'07E0);  // ldr x0, [sp, #8]
-    CHECK(site_line(stack).ends_with(" form load double unsigned-offset base sp\n"));
+    CHECK(before_registers(site_line(stack))
+              .ends_with(" form load double unsigned-offset base sp=0x0 imm 0x8 base-is null heap-window - va=0 "
+                         "vahole=0"));
     apkrt::crash::reset_modules();
 }
 

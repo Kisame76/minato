@@ -1,9 +1,11 @@
 #include "crash_report.h"
 
 #include <atomic>
+#include <climits>
 #include <cstddef>
 #include <cstring>
 
+#include <fcntl.h>
 #include <mach/mach.h>
 #include <unistd.h>
 
@@ -155,6 +157,24 @@ Module resolve_registered(std::uint64_t address, void *) {
 void reset_modules() { registered_count.store(0, std::memory_order_release); }
 
 namespace {
+std::atomic<const std::uint64_t *> heap_window_base_at{nullptr};
+std::atomic<const std::uint64_t *> heap_window_size_at{nullptr};
+}  // namespace
+
+void note_heap_window(const std::uint64_t *base, const std::uint64_t *size) {
+    heap_window_size_at.store(size, std::memory_order_release);
+    heap_window_base_at.store(base, std::memory_order_release);
+}
+
+void heap_window(std::uint64_t &base, std::uint64_t &size) {
+    const std::uint64_t *base_at = heap_window_base_at.load(std::memory_order_acquire);
+    const std::uint64_t *size_at = heap_window_size_at.load(std::memory_order_acquire);
+    // ART sets the two once, before any object exists; read them as the guest left them.
+    base = base_at != nullptr ? *static_cast<const volatile std::uint64_t *>(base_at) : 0;
+    size = size_at != nullptr && base != 0 ? *static_cast<const volatile std::uint64_t *>(size_at) : 0;
+}
+
+namespace {
 
 /// The name for a Linux signal number the diagnostic reports, or null for one it does not (then "SIG<n>").
 const char *fault_signal_name(int signal) {
@@ -239,6 +259,7 @@ struct Access {
     unsigned shift = 0;         // a register offset's shift
     unsigned extend = 3;        // a register offset's option: 2 UXTW, 3 LSL, 6 SXTW, 7 SXTX
     bool computable = false;    // whether base (+ index) + imm is the address the access starts at
+    bool has_imm = false;       // whether imm is part of the address (not for a post-index or a register offset)
 };
 
 constexpr const char *access_sizes[] = {"byte", "half", "word", "double"};
@@ -269,6 +290,7 @@ bool decode_access(std::uint32_t w, Access &a) {
         a.base = rn;
         a.imm = static_cast<std::int64_t>(std::uint64_t{(w >> 10) & 0xfffu} << scale);
         a.computable = true;
+        a.has_imm = true;
         return true;
     }
     if ((w & 0x3B20'0000u) == 0x3800'0000u) {  // register, 9-bit signed immediate
@@ -280,6 +302,7 @@ bool decode_access(std::uint32_t w, Access &a) {
         a.base = rn;
         a.imm = type == 1 ? 0 : sign_extend((w >> 12) & 0x1ffu, 9);
         a.computable = true;
+        a.has_imm = type != 1;
         return true;
     }
     if ((w & 0x3B20'0C00u) == 0x3820'0800u) {  // register, register offset
@@ -311,6 +334,7 @@ bool decode_access(std::uint32_t w, Access &a) {
         a.base = rn;
         a.imm = type == 1 ? 0 : sign_extend((w >> 15) & 0x7fu, 7) * (std::int64_t{1} << pair_scale);
         a.computable = true;
+        a.has_imm = type != 1;
         return true;
     }
     if ((w & 0x3B00'0000u) == 0x1800'0000u) {  // literal: pc-relative, no base register
@@ -318,6 +342,7 @@ bool decode_access(std::uint32_t w, Access &a) {
         a.size = simd ? "simd" : (w >> 30) == 1 ? "double" : "word";
         a.mode = "literal";
         a.imm = sign_extend((w >> 5) & 0x7ffffu, 19) * 4;
+        a.has_imm = true;  // from the pc
         return true;
     }
     if ((w & 0x3F00'0000u) == 0x0800'0000u) {  // exclusive or ordered (LDXR, LDAR, STLR, CAS, ...)
@@ -361,8 +386,11 @@ void append_registers_holding(char *out, std::size_t cap, std::size_t &at, const
     if (!any) append(out, cap, at, "-");
 }
 
-/// The faulting word's form: kind, size, addressing mode, base and index registers.
-void append_form(char *out, std::size_t cap, std::size_t &at, const FaultSite &site) {
+/// The faulting word's form: kind, size, addressing mode, base and index registers with their values. `has_base` and
+/// `base_value`: whether it reads through a base register, and that register's value (sp's for sp).
+void append_form(char *out, std::size_t cap, std::size_t &at, const FaultSite &site, bool &has_base,
+                 std::uint64_t &base_value) {
+    has_base = false;
     if (!site.instruction_read) {
         append(out, cap, at, "unreadable");
         return;
@@ -380,11 +408,67 @@ void append_form(char *out, std::size_t cap, std::size_t &at, const FaultSite &s
     if (a.base >= 0) {
         append(out, cap, at, " base ");
         append_register(out, cap, at, a.base, "sp");
+        has_base = true;
+        base_value = a.base == 31 ? site.sp : site.registers[a.base];
+        append(out, cap, at, "=0x");
+        append_hex(out, cap, at, base_value);
+    }
+    if (a.has_imm) {
+        append(out, cap, at, a.imm < 0 ? " imm -0x" : " imm 0x");
+        append_hex(out, cap, at, a.imm < 0 ? 0 - static_cast<std::uint64_t>(a.imm) : static_cast<std::uint64_t>(a.imm));
     }
     if (a.index >= 0) {
         append(out, cap, at, " index ");
         append_register(out, cap, at, a.index, "xzr");
+        if (a.index != 31) {
+            append(out, cap, at, "=0x");
+            append_hex(out, cap, at, site.registers[a.index]);
+        }
+        if (a.extend != 3 || a.shift != 0) {  // anything but a plain 64-bit index: its extend, then its shift
+            constexpr const char *extends[] = {"uxtb", "uxth", "uxtw", "lsl", "sxtb", "sxth", "sxtw", "sxtx"};
+            append(out, cap, at, " ");
+            append(out, cap, at, extends[a.extend & 7u]);
+            if (a.shift != 0) {
+                append(out, cap, at, " ");
+                append_decimal(out, cap, at, a.shift);
+            }
+        }
     }
+}
+
+/// What the base's value is among the small numbers Minato hands a guest where Android hands an address (FaultSite,
+/// crash_report.h's base-is): every class that matches, comma-separated. fcntl(F_GETFD) is async-signal-safe.
+void append_base_class(char *out, std::size_t cap, std::size_t &at, const FaultSite &site, bool has_base,
+                       std::uint64_t value) {
+    if (!has_base) {
+        append(out, cap, at, "-");
+        return;
+    }
+    if (value == 0) {
+        append(out, cap, at, "null");
+        return;
+    }
+    constexpr std::uint64_t four_gib = std::uint64_t{1} << 32;
+    const std::uint64_t pid = site.pid > 0 ? static_cast<std::uint64_t>(site.pid) : 0;
+    const std::uint64_t last_tid = site.last_tid > 0 ? static_cast<std::uint64_t>(site.last_tid) : 0;
+    const bool classes[] = {
+        site.heap_window_size != 0 && value < site.heap_window_size && (value & 7u) == 0,  // an ART reference
+        pid != 0 && value == pid,
+        pid != 0 && value > pid && value <= last_tid,
+        value <= INT_MAX && ::fcntl(static_cast<int>(value), F_GETFD) != -1,
+        value < four_gib && (value & 3u) == 2,  // ART's kGlobal
+        value < four_gib && (value & 3u) == 3,  // kWeakGlobal
+        value >= four_gib && (value & 3u) == 1,  // kLocal: an entry's address with the kind in its low bits
+    };
+    constexpr const char *names[] = {"heap-ref", "pid", "tid", "fd", "jni-global", "jni-weak", "jni-local"};
+    bool any = false;
+    for (std::size_t index = 0; index < std::size(names); ++index) {
+        if (!classes[index]) continue;
+        if (any) append(out, cap, at, ",");
+        append(out, cap, at, names[index]);
+        any = true;
+    }
+    if (!any) append(out, cap, at, "none");
 }
 
 // The engines' and runtimes' own libraries among the allow list (keep_libs), by role: everything else is "other".
@@ -427,7 +511,7 @@ const char *library_role(string_view soname) {
 void write_fault_site_line(int fd, const FaultSite &site) {
     const Module module = resolve_registered(site.pc, nullptr);
     if (!module.found) return;
-    char line[400];
+    char line[1536];  // the longest: 31 registers in both lists, every form field and 32 register values
     std::size_t at = 0;
     constexpr std::size_t cap = sizeof line;
     append(line, cap, at, "E/apkrt: fault-site ");
@@ -453,6 +537,9 @@ void write_fault_site_line(int fd, const FaultSite &site) {
     append_hex(line, cap, at, site.far);
     append(line, cap, at, " x18 0x");
     append_hex(line, cap, at, site.registers[18]);
+    append(line, cap, at, " gx18 0x");
+    append_hex(line, cap, at, site.guest_x18);
+    append(line, cap, at, site.guest_x18_renamed ? " rename" : " slot11");
     append(line, cap, at, " zero ");
     append_registers_holding(line, cap, at, site.registers, 0);
     append(line, cap, at, " far-in ");
@@ -464,7 +551,31 @@ void write_fault_site_line(int fd, const FaultSite &site) {
         append_decimal(line, cap, at, static_cast<unsigned long>(site.rewritten_words));
     }
     append(line, cap, at, " form ");
-    append_form(line, cap, at, site);
+    bool has_base = false;
+    std::uint64_t base_value = 0;
+    append_form(line, cap, at, site, has_base, base_value);
+    append(line, cap, at, " base-is ");
+    append_base_class(line, cap, at, site, has_base, base_value);
+    append(line, cap, at, " heap-window ");
+    if (site.heap_window_base != 0) {
+        append(line, cap, at, "0x");
+        append_hex(line, cap, at, site.heap_window_base);
+    } else {
+        append(line, cap, at, "-");
+    }
+    append(line, cap, at, " va=");
+    append_decimal(line, cap, at, static_cast<unsigned long>(site.virtual_size >> 20));
+    append(line, cap, at, " vahole=");
+    append_decimal(line, cap, at, static_cast<unsigned long>(site.largest_hole >> 20));
+    append(line, cap, at, " regs");
+    for (std::size_t number = 0; number < std::size(site.registers); ++number) {
+        append(line, cap, at, " x");
+        append_decimal(line, cap, at, number);
+        append(line, cap, at, "=0x");
+        append_hex(line, cap, at, site.registers[number]);
+    }
+    append(line, cap, at, " sp=0x");
+    append_hex(line, cap, at, site.sp);
     append(line, cap, at, "\n");
     static_cast<void>(::write(fd, line, at));
 }

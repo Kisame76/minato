@@ -190,6 +190,7 @@ Instrument sample_instrument() {
     task_vm_info_data_t info{};
     mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
     if (::task_info(::mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS) {
+        reading.virtual_size = info.virtual_size;
         reading.footprint = info.phys_footprint;
         reading.internal = info.internal;
         reading.compressed = info.compressed;
@@ -210,6 +211,9 @@ Instrument sample_instrument() {
     // `other` remainder on a memory-heavy app. The guest's own mappings carry VM tag 0 (sys_mmap's); split by backing,
     // as sys_madvise classifies them. GPU regions (IOAccelerator/IOSurface) and the allocator's (MALLOC_*) are summed
     // by their footprint bytes (dirty + swapped). vm_region_recurse_64, not mach_vm_region_recurse (iOS SDK lacks it).
+    // The same walk finds the largest free range between the task's lowest and highest address (0 when task_info gave
+    // none): where the next scudo size-class region or library can still go.
+    FreeRange free_range(info.min_address, info.max_address);
     vm_address_t address = 0;
     while (true) {
         vm_size_t size = 0;
@@ -220,6 +224,7 @@ Instrument sample_instrument() {
             ::vm_region_recurse_64(::mach_task_self(), &address, &size, &depth,
                                    reinterpret_cast<vm_region_recurse_info_t>(&region), &region_count);
         if (kr != KERN_SUCCESS) break;
+        free_range.region(address, address + size);
         if (!region.is_submap) {
             const unsigned tag = region.user_tag;
             const std::uint64_t dirty =
@@ -242,6 +247,7 @@ Instrument sample_instrument() {
         if (address + size <= address) break;  // wrapped past the top of the address space
         address += size;
     }
+    reading.largest_hole = free_range.largest();
     return reading;
 }
 
@@ -250,11 +256,11 @@ std::size_t format_instrument(const Instrument &reading, bool warning, char *out
     const int length = std::snprintf(
         out, size,
         "I/apkrt   : mem foot=%llu int=%llu comp=%llu gfx=%llu media=%llu purg=%llu purgc=%llu other=%llu ext=%llu "
-        "anon=%llu file=%llu gpu=%llu malloc=%llu hmalloc=%llu untag=%llu%s\n",
+        "anon=%llu file=%llu gpu=%llu malloc=%llu hmalloc=%llu untag=%llu va=%llu vahole=%llu%s\n",
         m(reading.footprint), m(reading.internal), m(reading.compressed), m(reading.graphics), m(reading.media),
         m(reading.purgeable), m(reading.purgeable_compressed), m(reading.other), m(reading.external), m(reading.anon),
         m(reading.file), m(reading.gpu), m(reading.malloc_bytes), m(reading.hostmalloc), m(reading.untagged),
-        warning ? " warn" : "");
+        m(reading.virtual_size), m(reading.largest_hole), warning ? " warn" : "");
     if (length < 0 || static_cast<std::size_t>(length) >= size) return 0;
     return static_cast<std::size_t>(length);
 }
@@ -262,7 +268,7 @@ std::size_t format_instrument(const Instrument &reading, bool warning, char *out
 void log_instrument(bool warning) {
     if (::getenv("MINATO_LOADER_LOG") == nullptr) return;
     const Instrument reading = sample_instrument();
-    char line[256];  // the mem line's 15 fields in MiB fit well under this (~192 chars at realistic values)
+    char line[256];  // the mem line's 17 fields in MiB fit well under this (~215 chars at realistic values)
     const std::size_t length = format_instrument(reading, warning, line, sizeof line);
     if (length > 0) static_cast<void>(::write(STDERR_FILENO, line, length));
     char gl[256];

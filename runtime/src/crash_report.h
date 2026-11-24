@@ -101,20 +101,54 @@ struct FaultSite {
     bool instruction_read = false;     // whether the word at pc could be read
     std::uint32_t instruction = 0;
     int rewritten_words = -1;          // words on pc's page that branch into the converter's stub area; -1 unknown
+    std::uint64_t guest_x18 = 0;       // the guest's x18 as the signal path resolves it (registers[18] is the CPU's)
+    bool guest_x18_renamed = false;    // it came from a (c) range's rename register, not TSD slot 11
+    std::uint64_t sp = 0;              // the guest's sp, the value of an sp-based access's base
+    std::uint64_t virtual_size = 0;    // the address space held when the line is written (memory_watermark's va=)
+    std::uint64_t largest_hole = 0;    // the largest free range in it then (vahole=)
+    // What base-is classifies the base's value against: the process ID and the highest thread ID handed out
+    // (threads::new_tid: the pid, then pid + 1 on), and ART's heap window (heap_window), 0 where not known.
+    std::int64_t pid = 0;
+    std::int64_t last_tid = 0;
+    std::uint64_t heap_window_base = 0;
+    std::uint64_t heap_window_size = 0;
 };
 
+/// ART's heap window (ADR-0033 decision 3, base/heap_window.h): a 32-bit reference is an object's offset from
+/// gHeapWindowBase, where on Android it is the object's address below 4 GiB. dl.cpp hands over the addresses of
+/// gHeapWindowBase and gHeapWindowSize when the library that defines them loads (nullptr, nullptr forgets them).
+void note_heap_window(const std::uint64_t *base, const std::uint64_t *size);
+
+/// The window's base and size as ART set them, 0 and 0 before that or without ART. No lock: a signal handler may call
+/// it.
+void heap_window(std::uint64_t &base, std::uint64_t &size);
+
 /// The fault-site line, ONE write() to `fd`, for a guest SIGSEGV or SIGBUS whose pc lies in a converted library:
-///   "E/apkrt: fault-site SIGSEGV lib other pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 zero x9,x18 far-in x8
-///    rewritten-words 0 form load byte register-offset base x18 index x8\n"
+///   "E/apkrt: fault-site SIGSEGV lib other pc +0x4df6c lr +0x4de10 far 0x1087b x18 0x0 gx18 0x7000 slot11 zero x9,x18
+///    far-in x8 rewritten-words 0 form load byte register-offset base x18=0x0 index x8=0x1087b base-is null
+///    heap-window 0x200000000 va=3072 vahole=512 regs x0=0x.. x1=0x.. ... x30=0x.. sp=0x..\n"
 /// The library is named by library_role only; pc's and lr's offsets are guest vaddrs of that library (lr in another
-/// library: "lr <role> +0x<offset>", in none: "lr 0x<address>"); far and x18 as values; "zero" and "far-in" list the
+/// library: "lr <role> +0x<offset>", in none: "lr 0x<address>"); far and x18 as values, x18 the CPU's register, which
+/// converted code does not keep the guest's x18 in; "gx18" the guest's x18 as the signal path resolves it, with where
+/// it came from: "slot11" (TSD slot 11) or "rename" (a (c)-renamed function's register); "zero" and "far-in" list the
 /// registers among x0..x30 that hold 0 and the far (register numbers only, "-" for none); "rewritten-words" counts the
 /// words of pc's page that the converter rewrote into a branch to its stubs (x18 islands, svc veneers, entry hooks);
-/// "form" decodes the faulting load or store: kind, size, addressing mode, base and index registers ("form none" for
-/// another word, "form unreadable" when pc's word could not be read). x18 = 0 as the base is a missed x18 site; a
-/// rewritten word on the page of a load that read a wrong value points at data in .text that the converter took for
-/// code. pc's module comes from the lock-free registry (resolve_registered); no allocation, no lock: async-signal-safe.
-/// Nothing is written for a pc in no registered module.
+/// "form" decodes the faulting load or store: kind, size, addressing mode, the base register with its value ("base
+/// x20=0x10000", sp's for "sp"), the offset the address adds ("imm 0x878", "imm -0x8"; none for a post-index or a
+/// register offset), and a register offset's index with its value and, unless it is a plain 64-bit index, its extend
+/// and shift ("index x9=0xfffffffe sxtw 3"); "form none" for another word, "form unreadable" when pc's word could not
+/// be read. Values only, so base + imm (+ index) against far tells a NULL object reached through an offset from an
+/// address that was never biased. "base-is" classifies the base's value against the small numbers Minato hands a guest
+/// where Android hands an address: "heap-ref" (below the heap window's size and aligned to 8: an ART reference, which
+/// on Android is the object's address; "heap-window" gives the base, "-" without ART), "pid", "tid" (pid + 1 up to the
+/// last tid handed out), "fd" (an open descriptor), "jni-global" and "jni-weak" (below 4 GiB with ART's kind bits 2 or
+/// 3), "jni-local" (an address with kind bit 1); every class that matches, "none" for none, "null" for 0, "-" without a
+/// base. "va=" and "vahole=": the address space held and the largest range still free in it when the line was written,
+/// in MiB as on the mem line (0 when not sampled). "regs" closes the line: x0..x30 and sp, values only. x18 = 0 as the
+/// base with gx18 not 0 is a missed x18 site (the load used the CPU's register where the guest's held a value); gx18 0
+/// too is a guest's own x18 of 0; a rewritten word on the page of a load that read a wrong value points at data in
+/// .text that the converter took for code. pc's module comes from the lock-free registry (resolve_registered); no
+/// allocation, no lock: async-signal-safe. Nothing is written for a pc in no registered module.
 void write_fault_site_line(int fd, const FaultSite &site);
 
 }  // namespace apkrt::crash

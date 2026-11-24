@@ -86,6 +86,8 @@ fault-site-test-abort system libraries=libfault-site.so,libfault-site-throw.so s
 fault-site-test-twice system libraries=libfault-site.so,libfault-site-throw.so,libfault-site-reporter.so status=139
 fault-site-test-recover system libraries=libfault-site.so,libfault-site-throw.so status=134
 fault-site-test-crash system libraries=libfault-site.so,libfault-site-throw.so status=139
+# The guest's x18 set and a read through a NULL base in another register: the line's hardware x18 and guest gx18 differ.
+fault-site-test-gx18 system libraries=libfault-site.so,libfault-site-throw.so status=139
 # Data inside .text of NDK libraries (literal pools, jump tables, real code that looks like data): with a .symtab and
 # stripped, with the dynamic relocations plain and as RELR; a Unity test APK's library was refused at import for it.
 data-in-text-test system libraries=libdit-sym.so,libdit-strip.so,libdit-rela.so,libdit-relr.so

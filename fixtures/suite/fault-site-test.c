@@ -6,6 +6,8 @@
 // "chained" restores the old action and returns (139), "abort" calls abort() (134), "twice" sits under a reporter that a
 // second library installs over it and that calls it, and restores the old action and raises SIGSEGV (139), "recover"
 // moves past the load, after which the program prints "recovered" and calls abort() (134), "crash" faults itself (139).
+// "gx18" sets the guest's x18 to a table's base and reads through a NULL base in another register (139): the fault-site
+// line's x18 (the hardware's) and gx18 (the guest's) differ.
 // runtime/tests/fault_site_run.py checks the runtime's fault-site line for each. Built with FAULT_SITE_MODE
 // (fault-site-test-<mode>) it runs that mode without an argument, for runners that start a program without one
 // (fixtures/tests.txt, the iPhone's fixture runner).
@@ -18,6 +20,7 @@
 
 unsigned char fault_site_read(const unsigned char *base, unsigned long index);
 unsigned char fault_site_read_x18(unsigned long index);
+unsigned char fault_site_read_gx18(const unsigned char *base, unsigned long index);
 int fault_site_catch(void);
 
 static const struct {
@@ -32,6 +35,7 @@ static const struct {
     {"twice", FAULT_SITE_RAISE},
     {"recover", FAULT_SITE_RECOVER},
     {"crash", FAULT_SITE_CRASH},
+    {"gx18", 0},
 };
 
 /// Loads the reporter's library, as an app loads a crash-reporting SDK, and installs its handler; 0 or -1.
@@ -54,7 +58,7 @@ int main(int argc, char **argv) {
         if (strcmp(mode, modes[at].mode) == 0) ending = modes[at].ending;
     }
     if (ending < 0) {
-        fprintf(stderr, "usage: fault-site-test null|x18|exception|chained|abort|twice|recover|crash\n");
+        fprintf(stderr, "usage: fault-site-test null|x18|exception|chained|abort|twice|recover|crash|gx18\n");
         return 2;
     }
     printf("reading %s\n", mode);
@@ -65,6 +69,7 @@ int main(int argc, char **argv) {
         return caught ? 0 : 1;
     }
     if (strcmp(mode, "x18") == 0) return fault_site_read_x18(index);
+    if (strcmp(mode, "gx18") == 0) return fault_site_read_gx18((const unsigned char *)0, index);
     if (ending != 0 && fault_site_install(ending) != 0) {
         printf("no handler\n");
         return 1;

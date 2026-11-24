@@ -61,6 +61,32 @@ struct Instrument {
     std::uint64_t hostmalloc = 0;  // tag 99 dirty bytes: the host allocator's regions (macOS 27 xzone); parking lives
                                    // here, measured apart by the park line's packed+kept (info, a subdivision)
     std::uint64_t untagged = 0;    // dirty bytes of every other region (tag 0, the guest's, and any unnamed tag) (info)
+    std::uint64_t virtual_size = 0;  // TASK_VM_INFO's virtual_size: the address space the process holds (va=)
+    std::uint64_t largest_hole = 0;  // the largest free range between the task's lowest and highest address (vahole=):
+                                     // what the next large reservation (a scudo size class, a library) can still get
+};
+
+/// The largest free range of the address space between `low` and `high`, from the mapped regions in address order (a
+/// VM-region walk's). No allocation, so it can follow the walk in sample_instrument.
+class FreeRange {
+public:
+    FreeRange(std::uint64_t low, std::uint64_t high) : next_(low), high_(high) {}
+    /// A mapped region [start, end), after every region that starts below it.
+    void region(std::uint64_t start, std::uint64_t end) {
+        const std::uint64_t top = start < high_ ? start : high_;
+        if (top > next_ && top - next_ > largest_) largest_ = top - next_;
+        if (end > next_) next_ = end;
+    }
+    /// The largest gap so far, the range from the last region to `high` among them.
+    std::uint64_t largest() const {
+        const std::uint64_t tail = high_ > next_ ? high_ - next_ : 0;
+        return tail > largest_ ? tail : largest_;
+    }
+
+private:
+    std::uint64_t next_;  // where the free range after the regions so far begins
+    std::uint64_t high_;
+    std::uint64_t largest_ = 0;
 };
 
 /// Samples the Instrument now: task_info for the footprint split, a VM-region walk for the guest's mapped bytes. Safe
@@ -68,9 +94,10 @@ struct Instrument {
 Instrument sample_instrument();
 
 /// Formats the instrument line into out[0..size): "I/apkrt   : mem foot=.. int=.. comp=.. gfx=.. media=.. purg=..
-/// purgc=.. other=.. ext=.. anon=.. file=.. gpu=.. malloc=.. hmalloc=.. untag=..[ warn]\n", every byte field in MiB
-/// (foot = int+comp+gfx+media+purg+purgc+other; gfx is the graphics ledger). gpu/malloc/hmalloc/untag are VM-region
-/// dirty sums by tag, reported to attribute `other`, not added to the identity. " warn" when `warning`. 0 if it does
+/// purgc=.. other=.. ext=.. anon=.. file=.. gpu=.. malloc=.. hmalloc=.. untag=.. va=.. vahole=..[ warn]\n", every byte
+/// field in MiB (foot = int+comp+gfx+media+purg+purgc+other; gfx is the graphics ledger). gpu/malloc/hmalloc/untag are
+/// VM-region dirty sums by tag, reported to attribute `other`, not added to the identity. va and vahole are the
+/// address space held and the largest range still free in it (numbers only). " warn" when `warning`. 0 if it does
 /// not fit.
 std::size_t format_instrument(const Instrument &reading, bool warning, char *out, std::size_t size);
 

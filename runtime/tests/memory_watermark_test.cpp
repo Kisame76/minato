@@ -150,12 +150,13 @@ TEST(format_instrument_writes_the_memory_fields_in_mib) {
                                      .external = 200 * mib, .graphics = 300 * mib, .media = 50 * mib,
                                      .purgeable = 40 * mib, .purgeable_compressed = 10 * mib, .other = 500 * mib,
                                      .anon = 5500 * mib, .file = 250 * mib, .gpu = 300 * mib,
-                                     .malloc_bytes = 1200 * mib, .hostmalloc = 2900 * mib, .untagged = 119 * mib};
+                                     .malloc_bytes = 1200 * mib, .hostmalloc = 2900 * mib, .untagged = 119 * mib,
+                                     .virtual_size = 7100 * mib, .largest_hole = 230 * mib};
     char out[256];
     const std::size_t length = memory::format_instrument(reading, true, out, sizeof out);
     CHECK(std::string(out, length) ==
           "I/apkrt   : mem foot=6000 int=5000 comp=100 gfx=300 media=50 purg=40 purgc=10 other=500 ext=200 "
-          "anon=5500 file=250 gpu=300 malloc=1200 hmalloc=2900 untag=119 warn\n");
+          "anon=5500 file=250 gpu=300 malloc=1200 hmalloc=2900 untag=119 va=7100 vahole=230 warn\n");
 }
 
 TEST(format_instrument_omits_the_marker_without_a_warning) {
@@ -163,7 +164,41 @@ TEST(format_instrument_omits_the_marker_without_a_warning) {
     const std::size_t length = memory::format_instrument(memory::Instrument{}, false, out, sizeof out);
     CHECK(std::string(out, length) ==
           "I/apkrt   : mem foot=0 int=0 comp=0 gfx=0 media=0 purg=0 purgc=0 other=0 ext=0 anon=0 file=0 "
-          "gpu=0 malloc=0 hmalloc=0 untag=0\n");
+          "gpu=0 malloc=0 hmalloc=0 untag=0 va=0 vahole=0\n");
+}
+
+TEST(free_range_is_the_largest_gap_between_the_bounds_and_the_regions) {
+    // Regions in address order, as the walk gives them: a gap of 0x3000 between two, the tail of 0x9000 to the top,
+    // the head of 0x800 below the first; a region that starts below `low` and one past `high` (the commpage) count only
+    // inside the bounds.
+    memory::FreeRange range(0x1000, 0x10000);
+    range.region(0x0, 0x1800);    // starts below low: the free range starts at 0x1800
+    range.region(0x2000, 0x3000);  // head gap 0x800
+    range.region(0x6000, 0x7000);  // gap 0x3000
+    range.region(0x7000, 0x7800);  // touching: no gap
+    CHECK(range.largest() == 0x8800);  // the tail, 0x7800 to 0x10000
+    range.region(0x8000, 0x20000);  // past high: the tail is gone, the gap before it stays
+    CHECK(range.largest() == 0x3000);
+    memory::FreeRange beyond(0x1000, 0x4000);  // a region wholly above `high` (the commpage): no gap up to it
+    beyond.region(0x2000, 0x3000);
+    beyond.region(0x9000, 0xa000);
+    CHECK(beyond.largest() == 0x1000);
+    memory::FreeRange empty(0x1000, 0x1000);
+    CHECK(empty.largest() == 0);
+}
+
+TEST(sample_instrument_reads_the_address_space_and_its_largest_hole) {
+    // va= is the task's virtual size, so a fresh reservation adds to it; vahole= is the largest free range between the
+    // task's lowest and highest address, so it is above 0 and below the whole range.
+    constexpr std::uint64_t size = std::uint64_t{64} << 20;
+    const memory::Instrument before = memory::sample_instrument();
+    void *reserved = ::mmap(nullptr, size, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+    CHECK(reserved != MAP_FAILED);
+    const memory::Instrument after = memory::sample_instrument();
+    CHECK(after.virtual_size >= before.virtual_size + size - (std::uint64_t{1} << 20));
+    CHECK(after.largest_hole > 0);
+    CHECK(after.largest_hole < after.virtual_size + (std::uint64_t{1} << 46));  // a range, not an overflow
+    ::munmap(reserved, size);
 }
 
 TEST(sample_instrument_reads_the_footprint_and_some_anonymous_memory) {

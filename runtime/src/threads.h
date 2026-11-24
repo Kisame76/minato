@@ -50,6 +50,9 @@ void run(GuestThread &thread, void (*enter)(void *), void *argument);
 /// A new thread ID; the first thread has the process ID.
 std::int32_t new_tid();
 
+/// The highest thread ID new_tid() has handed out (the process ID before the first). No lock: async-signal-safe.
+std::int32_t last_tid();
+
 /// Makes `thread` findable by its ID (tgkill) and counts it among the living threads.
 void add(GuestThread &thread);
 

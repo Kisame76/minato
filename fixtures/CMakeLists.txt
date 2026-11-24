@@ -178,7 +178,7 @@ add_library(fault-site-reporter SHARED suite/libfault-site-reporter.c)
 add_executable(fault-site-test suite/fault-site-test.c)
 target_link_libraries(fault-site-test PRIVATE fault-site dl)
 # The same program once per mode, which it runs without an argument (fixtures/tests.txt starts a program without one).
-foreach(mode null x18 exception chained abort twice recover crash)
+foreach(mode null x18 exception chained abort twice recover crash gx18)
   add_executable(fault-site-test-${mode} suite/fault-site-test.c)
   target_compile_definitions(fault-site-test-${mode} PRIVATE FAULT_SITE_MODE="${mode}")
   target_link_libraries(fault-site-test-${mode} PRIVATE fault-site dl)

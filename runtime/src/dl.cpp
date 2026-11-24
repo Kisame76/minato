@@ -1,6 +1,7 @@
 #include "dl.h"
 
 #include "APKRuntime/apkrt.h"
+#include "crash_report.h"
 #include "guest_call.h"
 #include "loader_syscalls.h"
 #include "process_exit.h"
@@ -782,6 +783,20 @@ void apply_entry_hooks(const Library &library) {
     }
 }
 
+/// ART's heap window (ADR-0033 decision 3): when the library that defines gHeapWindowBase and gHeapWindowSize
+/// (libartbase) loads, their addresses go to the fault-site line, which tells an ART reference used as an address (on
+/// Android the two are the same number) by its base-is class with no lock (crash::note_heap_window).
+void note_heap_window(std::span<const Object *const> objects) {
+    for (const auto *object : objects) {
+        const auto *base = linker::find_symbol(*object, "_ZN3art15gHeapWindowBaseE");
+        const auto *size = linker::find_symbol(*object, "_ZN3art15gHeapWindowSizeE");
+        if (base == nullptr || size == nullptr || base->section == 0 || size->section == 0) continue;
+        crash::note_heap_window(reinterpret_cast<const std::uint64_t *>(linker::symbol_address(*object, *base)),
+                                reinterpret_cast<const std::uint64_t *>(linker::symbol_address(*object, *size)));
+        return;
+    }
+}
+
 /// Before the constructors of `objects` run: a library that defines JSGlobalContextCreate is JavaScriptCore, which
 /// reads its options, the JIT's among them, from the environment (in a static initializer of some builds, else at the
 /// first context), and mprotects its code pool executable, which iOS refuses (the guest's answer is EACCES, and JSC
@@ -869,6 +884,7 @@ void *guest_dlopen(const char *name, int flags, const void *caller, int *error_n
         std::vector<const Object *> objects;
         for (auto *library : added) objects.push_back(&library->object);
         prepare_jit_engines(state, objects);
+        note_heap_window(objects);
         linker::run_constructors(objects, state.argc, state.argv, state.envp, false);
         return root;
     } catch (const std::exception &failure) {
@@ -1522,6 +1538,7 @@ void finish_start(int argc, char **argv, char **envp) {
         for (auto &library : state.libraries) library.linked = true;
         list(state, state.listed);
     }
+    note_heap_window(objects);
     linker::run_constructors(objects, argc, argv, envp, true);
 }
 

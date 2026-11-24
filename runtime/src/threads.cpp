@@ -84,10 +84,14 @@ const char *used_guest_slot() {
     return nullptr;
 }
 
-std::int32_t new_tid() {
-    static std::atomic<std::int32_t> next{1};
-    return ::getpid() + next.fetch_add(1);
-}
+namespace {
+// The offset from the process ID that the next new_tid() hands out.
+std::atomic<std::int32_t> next_tid_offset{1};
+}  // namespace
+
+std::int32_t new_tid() { return ::getpid() + next_tid_offset.fetch_add(1); }
+
+std::int32_t last_tid() { return ::getpid() + next_tid_offset.load(std::memory_order_relaxed) - 1; }
 
 void add(GuestThread &thread) {
     const std::lock_guard lock(registry_mutex);
