@@ -78,9 +78,9 @@ C = "docs/COMPATIBILITY.md"
 R = "README.md"
 L = "CHANGELOG.md"
 unreleased = flat(read(L)) if os.path.isfile(os.path.join(ROOT, L)) else ""
-if "## Unreleased" in unreleased:  # the changelog's current section only
-    rest = unreleased.split("## Unreleased", 1)[1]
-    unreleased = "## Unreleased" + re.split(r" ## \d", rest, 1)[0]
+if "## Unreleased" in unreleased:  # the current sections only: Unreleased and the newest release, whose notes a
+    rest = unreleased.split("## Unreleased", 1)[1]  # release moves out of Unreleased
+    unreleased = "## Unreleased" + "".join(re.split(r"( ## \d)", rest, 2)[:3])
 
 
 def changelog_claims(pattern, group=1):
