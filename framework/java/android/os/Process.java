@@ -155,6 +155,12 @@ public class Process {
     public static final void sendSignal(int pid, int signal) {
         if (pid > 0) {
             Log.i("Process", "Sending signal. PID: " + pid + " SIG: " + signal);
+            if (signal == SIGNAL_KILL && pid == myPid()) {
+                // Minato's: who ends the app, by family only (SelfKill), for a session that ends without a cause.
+                // Not gated: the guest's environment has no MINATO_LOADER_LOG, and a process kills itself once.
+                Log.w("apkrt", com.android.minato.os.SelfKill.describe(Thread.currentThread().getStackTrace(),
+                        Looper.myLooper() == Looper.getMainLooper()));
+            }
             try {
                 Os.kill(pid, signal);
             } catch (ErrnoException e) {

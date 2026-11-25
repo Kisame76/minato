@@ -4,7 +4,12 @@ An app that catches a NoClassDefFoundError names no gap: Unity's activity died o
 the run showed only a later NoSuchFieldError. Where DoResolveType turns a ClassNotFoundException into a
 NoClassDefFoundError, and where ResolveMethod, ResolveField and ResolveFieldJLS throw NoSuchMethodError and
 NoSuchFieldError, a warning with the tag minato-resolve names what is missing and the method that asks, once; the
-verifier names the method it verifies for the resolutions it makes.
+verifier names the method it verifies for the resolutions it makes. A boot class that names a class the boot class
+path lacks, and JNI's FindClass on a thread whose code has no loader, get FindClass's pre-allocated
+NoClassDefFoundError, without the name or a stack; FindClass names a platform class it lacks there, any other class
+only by its library family, and who asks: the method verified, or else the thread's Java frames, masked the same way.
+Thread's SetException names who sets that error outside the boot branch (a rethrow, as Class.forName makes of a
+ClassNotFoundException's cause), and HandleUncaughtExceptions, for an uncaught one, the thread's last miss and throw.
 
 --- a/art/runtime/class_linker-inl.h
 +++ b/art/runtime/class_linker-inl.h
@@ -44,7 +49,18 @@ verifier names the method it verifies for the resolutions it makes.
  
  namespace art HIDDEN {
  
-@@ -10008,6 +10009,8 @@
+@@ -3239,6 +3240,10 @@
+       ObjPtr<mirror::Throwable> pre_allocated =
+           Runtime::Current()->GetPreAllocatedNoClassDefFoundError();
++      minato_resolve::BootMissScope boot_miss;  // ReportBootMiss names this throw, not SetException's log
+       self->SetException(pre_allocated);
++      // Minato: name what the boot class path lacks and who asks (minato_resolve_log.h): JNI's FindClass, a boot
++      // class's own reference and forName with no loader get this error without the name or a stack.
++      minato_resolve::ReportBootMiss(self, descriptor);
+       return nullptr;
+     }
+   }
+@@ -10008,6 +10013,8 @@
        self->ClearException();
        ThrowNoClassDefFoundError("Failed resolution of: %s", descriptor);
        self->GetException()->SetCause(cause.Get());
@@ -53,7 +69,7 @@ verifier names the method it verifies for the resolutions it makes.
      }
    }
    DCHECK((resolved == nullptr) || resolved->IsResolved())
-@@ -10174,6 +10177,8 @@
+@@ -10174,6 +10181,8 @@
      const char* name = dex_file.GetFieldName(field_id);
      const char* type = dex_file.GetFieldTypeDescriptor(field_id);
      ThrowNoSuchFieldError("", klass, type, name);
@@ -61,6 +77,35 @@ verifier names the method it verifies for the resolutions it makes.
 +    minato_resolve::Report(Thread::Current(), "field " + minato_resolve::FieldName(dex_file, field_idx));
    }
    return resolved;
+ }
+--- a/art/runtime/thread.cc
++++ b/art/runtime/thread.cc
+@@ -112,6 +112,7 @@
+ #include "trace.h"
+ #include "verify_object.h"
+ #include "well_known_classes-inl.h"
++#include "minato_resolve_log.h"
+ 
+ #ifdef ART_TARGET_ANDROID
+ #include <android/set_abort_message.h>
+@@ -2711,6 +2712,8 @@
+ 
+   // Get and clear the exception.
+   ObjPtr<mirror::Object> exception = self->GetException();
++  // Minato: name what threw an uncaught pre-allocated NoClassDefFoundError (minato_resolve_log.h).
++  minato_resolve::ReportUncaughtPreAllocated(exception);
+   self->ClearException();
+ 
+   // Call the Thread instance's dispatchUncaughtException(Throwable)
+@@ -4749,6 +4752,9 @@
+ 
+ void Thread::SetException(ObjPtr<mirror::Throwable> new_exception) {
+   CHECK(new_exception != nullptr);
++  // Minato: name who throws the pre-allocated NoClassDefFoundError outside FindClass's boot branch
++  // (minato_resolve_log.h): a rethrow of it, or a runtime thread's lookup.
++  minato_resolve::ReportPreAllocatedThrow(this, new_exception);
+   // TODO: DCHECK(!IsExceptionPending());
+   tlsPtr_.exception = new_exception.Ptr();
  }
 --- a/art/runtime/verifier/method_verifier.cc
 +++ b/art/runtime/verifier/method_verifier.cc
